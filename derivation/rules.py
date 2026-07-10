@@ -19,6 +19,8 @@ INBOUND_TYPES = frozenset({"page.visit", "call.inbound", "sms.inbound"})
 # Our engagement back on a live thread — the difference between "responded" and
 # "in conversation".
 ENGAGE_TYPES = frozenset({"sms.outbound", "call.answered"})
+# Returned pieces at or above this count auto-suppress the contact (data document §3).
+RETURNED_SUPPRESSION_COUNT = 2
 
 
 def _first_submitted_at(events: list[Event]) -> datetime | None:
@@ -67,7 +69,7 @@ def is_suppressed(events: list[Event], flags: ContactFlags) -> bool:
     if any(e.type == "contact.opt_out" for e in events):
         return True
     returned = sum(1 for e in events if e.type == "piece.returned")
-    return returned >= 2
+    return returned >= RETURNED_SUPPRESSION_COUNT
 
 
 def is_lost(events: list[Event]) -> bool:

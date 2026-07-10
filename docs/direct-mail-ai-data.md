@@ -107,6 +107,7 @@ create table contacts (
   next_action_note  text,
   do_not_mail       boolean not null default false,
   do_not_text       boolean not null default false,
+  owner             text not null default 'young',
   created_at        timestamptz not null default now(),
   updated_at        timestamptz not null default now()
 );
@@ -198,7 +199,7 @@ create index activation_stalled_idx on activation (signed_up_at)
 
 Sync jobs and the judgment job must agree on event names, or derivations silently miss facts. Namespaced `noun.verb`, fixed set, extended deliberately:
 
-`piece.submitted` · `piece.delivered` · `piece.returned` — `page.visit` · `page.cta_click` — `call.inbound` · `call.missed` · `call.answered` — `sms.inbound` · `sms.outbound` — `demo.booked` · `demo.held` · `demo.no_show` — `signup.completed` — `note.demo_call` · `note.partner` · `note.general` — `contact.opt_out` · `contact.lost`
+`piece.submitted` · `piece.delivered` · `piece.returned` — `page.visit` · `page.cta_click` — `call.inbound` · `call.missed` · `call.answered` — `sms.inbound` · `sms.outbound` — `demo.booked` · `demo.held` · `demo.no_show` — `signup.completed` — `note.demo_call` · `note.partner` · `note.general` — `contact.opt_out` · `contact.lost` — `nudge.sent`
 
 New types require adding to this list first; the sync jobs reject unknown types rather than inventing them.
 

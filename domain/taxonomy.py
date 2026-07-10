@@ -23,6 +23,7 @@ EVENT_TYPES: frozenset[str] = frozenset(
         "note.general",
         "contact.opt_out",
         "contact.lost",
+        "nudge.sent",
     }
 )
 
