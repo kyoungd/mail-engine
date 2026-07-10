@@ -40,6 +40,51 @@ def event_from_row(row: tuple) -> Event:
     )
 
 
+def append_event(
+    cur,
+    source: str,
+    type: str,
+    occurred_at: datetime,
+    payload: dict[str, Any],
+    external_id: str | None = None,
+    contact_id: UUID | None = None,
+    piece_id: UUID | None = None,
+) -> int:
+    """Idempotent event insert on a caller-owned cursor. Returns the event id (the
+    existing one on an (source, external_id) conflict). The caller owns the transaction
+    and is responsible for `type` validity — this is the shared low-level append used by
+    ingest_event and by execute_wave (which emits piece.submitted inside its own
+    per-piece transaction)."""
+    if external_id is not None:
+        cur.execute(
+            "insert into events "
+            "(contact_id, piece_id, source, type, occurred_at, external_id, payload) "
+            "values (%s, %s, %s, %s, %s, %s, %s) "
+            "on conflict (source, external_id) do nothing returning id",
+            (contact_id, piece_id, source, type, occurred_at, external_id, Json(payload)),
+        )
+        row = cur.fetchone()
+        if row is not None:
+            return row[0]
+        cur.execute(
+            "select id from events where source = %s and external_id = %s",
+            (source, external_id),
+        )
+        existing = cur.fetchone()
+        assert existing is not None  # conflict fired, so the row exists
+        return existing[0]
+
+    cur.execute(
+        "insert into events "
+        "(contact_id, piece_id, source, type, occurred_at, payload) "
+        "values (%s, %s, %s, %s, %s, %s) returning id",
+        (contact_id, piece_id, source, type, occurred_at, Json(payload)),
+    )
+    row = cur.fetchone()
+    assert row is not None
+    return row[0]
+
+
 def ingest_event(
     source: str,
     type: str,
@@ -59,35 +104,9 @@ def ingest_event(
 
     with transaction() as conn:
         with conn.cursor() as cur:
-            if external_id is not None:
-                cur.execute(
-                    "insert into events "
-                    "(contact_id, piece_id, source, type, occurred_at, external_id, payload) "
-                    "values (%s, %s, %s, %s, %s, %s, %s) "
-                    "on conflict (source, external_id) do nothing returning id",
-                    (contact_id, piece_id, src.value, type, occurred_at, external_id,
-                     Json(payload)),
-                )
-                row = cur.fetchone()
-                if row is not None:
-                    return row[0]
-                cur.execute(
-                    "select id from events where source = %s and external_id = %s",
-                    (src.value, external_id),
-                )
-                existing = cur.fetchone()
-                assert existing is not None  # conflict fired, so the row exists
-                return existing[0]
-
-            cur.execute(
-                "insert into events "
-                "(contact_id, piece_id, source, type, occurred_at, payload) "
-                "values (%s, %s, %s, %s, %s, %s) returning id",
-                (contact_id, piece_id, src.value, type, occurred_at, Json(payload)),
+            return append_event(
+                cur, src.value, type, occurred_at, payload, external_id, contact_id, piece_id
             )
-            row = cur.fetchone()
-            assert row is not None
-            return row[0]
 
 
 def record_note(contact_id: UUID, note_type: str, text: str) -> int:

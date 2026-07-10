@@ -32,7 +32,15 @@ line-length = 100
 # Phase 1 gate: the pure layers must be constrained by their tests, not merely
 # accompanied by them. Checked against the fast, DB-free unit suite.
 source_paths = ["derivation", "resolution"]
-pytest_add_cli_args_test_selection = ["tests/unit"]
+# Run only the tests that cover the mutated modules — the pure unit suites. Other
+# tests/unit files import service/seams (not in the sandbox) and don't constrain
+# derivation/resolution anyway.
+pytest_add_cli_args_test_selection = [
+    "tests/unit/test_derivation.py",
+    "tests/unit/test_derivation_properties.py",
+    "tests/unit/test_matcher.py",
+    "tests/unit/test_phone.py",
+]
 # domain/ is imported by the mutated layers but not itself mutated — copy it into
 # the sandbox so the tests can import it.
 also_copy = ["domain"]

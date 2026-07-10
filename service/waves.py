@@ -201,15 +201,16 @@ def approve_wave(wave_id: UUID, approved_by: str) -> None:
                     "not_future", "scheduled_for must be a future date"
                 )
 
-            if not resolve_audience(cur, audience_rule):
+            audience = resolve_audience(cur, audience_rule)
+            if not audience:
                 raise ValidationError(
                     "empty_audience", "audience resolves to zero contacts"
                 )
 
             cur.execute(
                 "update waves set status = 'approved', approved_by = %s, "
-                "approved_at = now() where id = %s",
-                (approved_by, wave_id),
+                "approved_at = now(), approved_audience_count = %s where id = %s",
+                (approved_by, len(audience), wave_id),
             )
 
 

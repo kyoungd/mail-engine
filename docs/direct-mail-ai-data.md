@@ -55,7 +55,7 @@ Six tables. Two principles: attribution keys live on pieces, not contacts; anyth
 
 **`events` — append-only and deliberately dumb.** Source, type, timestamp, raw jsonb payload; no interpretation at write time. `contact_id`/`piece_id` nullable because attribution can lag reality — an inbound call arrives as just a phone number; a later resolution pass matches it. No fact is ever dropped for want of a join. `unique (source, external_id)` makes sync jobs idempotent: re-runs insert nothing twice.
 
-**`waves.audience_rule` — data, not code.** The audience is a stored, reviewable filter evaluated at execution time. What is approved in the UI is exactly what fires; the piece rows created at execution are the permanent record of who the rule resolved to that day.
+**`waves.audience_rule` — data, not code.** The audience is a stored, reviewable filter evaluated at execution time. What is approved in the UI is exactly what fires; the piece rows created at execution are the permanent record of who the rule resolved to that day. `approved_audience_count` records the resolved size at approval so `execute_wave` can halt when the drop-time audience has drifted beyond tolerance from what a human approved.
 
 **`variants.hypothesis` — required on purpose.** One line: what this creative tests. A variant without a hypothesis is decoration; the wave readout quotes the hypothesis back against the numbers.
 
@@ -135,6 +135,7 @@ create table waves (
   scheduled_for  date,
   approved_by    text,
   approved_at    timestamptz,
+  approved_audience_count int,
   executed_at    timestamptz,
   created_at     timestamptz not null default now()
 );

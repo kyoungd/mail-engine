@@ -206,3 +206,14 @@ class Nudge:
     contact_id: UUID
     next_action_at: date
     next_action_note: str | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class ExecutionReport:
+    wave_id: UUID
+    halted: bool
+    reason: str | None
+    pieces_created: int
+    pieces_submitted: int
+    approved_count: int | None
+    resolved_count: int
