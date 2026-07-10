@@ -1,0 +1,38 @@
+[project]
+name = "mail-engine"
+version = "0.1.0"
+description = "NeverMissCall direct-mail campaign operating system"
+requires-python = ">=3.12"
+dependencies = [
+    "psycopg[binary]>=3.2",
+    "yoyo-migrations>=9.0",
+    "psycopg2-binary>=2.9",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "hypothesis>=6",
+    "mutmut>=3",
+    "ruff>=0.6",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+    "nightly: slow tests excluded from the in-loop suite",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.mutmut]
+# Phase 1 gate: the pure layers must be constrained by their tests, not merely
+# accompanied by them. Checked against the fast, DB-free unit suite.
+source_paths = ["derivation", "resolution"]
+pytest_add_cli_args_test_selection = ["tests/unit"]
+# domain/ is imported by the mutated layers but not itself mutated — copy it into
+# the sandbox so the tests can import it.
+also_copy = ["domain"]
