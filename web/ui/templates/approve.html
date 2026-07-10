@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Approve wave</h1>
+<p><strong>{{ preview.count }}</strong> contacts · estimated {{ preview.estimated_cost_cents }}¢</p>
+
+<h3>By segment</h3>
+<ul>{% for k, v in preview.by_segment.items() %}<li>{{ k }}: {{ v }}</li>{% endfor %}</ul>
+
+<h3>By stage</h3>
+<ul>{% for k, v in preview.by_stage.items() %}<li>{{ k }}: {{ v }}</li>{% endfor %}</ul>
+
+<h3>Sample</h3>
+<ul>{% for s in preview.sample %}<li>{{ s.business_name or s.id }} ({{ s.segment or '—' }})</li>{% endfor %}</ul>
+
+<form method="post"
+      action="/waves/{{ wave_id }}/approve?state_hash={{ preview.state_hash }}&amp;approved_by=young">
+  <button type="submit">Approve this wave</button>
+</form>
+{% endblock %}

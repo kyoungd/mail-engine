@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Wave dashboard</h1>
+<p>Pieces by status:
+  {% for status, n in dashboard.pieces_by_status.items() %}{{ status }}={{ n }} {% endfor %}
+</p>
+<p>Responses: {{ dashboard.responses }} · cost: {{ dashboard.cost_cents }}¢ ·
+   cost/response: {{ dashboard.cost_per_response_cents if dashboard.cost_per_response_cents is not none else '—' }}¢</p>
+<table>
+  <tr><th>Variant</th><th>Pieces</th><th>Responses</th><th>Cost</th></tr>
+  {% for v in dashboard.by_variant %}
+  <tr><td>{{ v.variant_name }}</td><td>{{ v.pieces }}</td><td>{{ v.responses }}</td><td>{{ v.cost_cents }}¢</td></tr>
+  {% endfor %}
+</table>
+{% endblock %}

@@ -9,15 +9,19 @@ from datetime import UTC, date, datetime
 from jobs.sync import sync
 from judgment import digest
 from seams.response_feed import ResponseFeed
+from seams.sender import Sender
 from service.execution import recompute_state
 from service.ingestion import resolve_orphans
 
 
 def run_nightly(
-    feeds: list[ResponseFeed], since: datetime, as_of: date | None = None
+    feeds: list[ResponseFeed],
+    since: datetime,
+    as_of: date | None = None,
+    sender: Sender | None = None,
 ) -> None:
     for feed in feeds:
         sync(feed, since)  # a feed failure raises here — before recompute
     resolve_orphans()
     recompute_state()
-    digest.run(as_of or datetime.now(UTC).date())  # nudges out, after fresh state
+    digest.run(as_of or datetime.now(UTC).date(), sender=sender)  # nudges out, after fresh state

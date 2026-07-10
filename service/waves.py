@@ -7,6 +7,8 @@ resolve through it, so what is approved is exactly what fires. do_not_mail and
 suppressed contacts are always excluded, unconditionally.
 """
 
+import hashlib
+import json
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
@@ -64,6 +66,16 @@ def _audience_where(rule: dict[str, Any]) -> tuple[sql.Composed, list[Any]]:
         params.append(list(_NON_RESPONSE_STAGES))
         params.append(rule["not_responded_to_wave"])
     return sql.SQL(" and ").join(clauses), params
+
+
+def _state_hash(contact_ids: list[str], variant_split: dict[str, Any]) -> str:
+    """Fingerprint of exactly what a preview showed — the resolved audience and the
+    variant split. approve_wave carries it back so a wave whose audience drifted since
+    preview cannot be approved stale."""
+    canonical = json.dumps(
+        {"audience": sorted(contact_ids), "variants": variant_split}, sort_keys=True
+    )
+    return hashlib.sha256(canonical.encode()).hexdigest()[:16]
 
 
 def resolve_audience(cur, rule: dict[str, Any]) -> list[UUID]:
@@ -126,11 +138,14 @@ def preview_audience(wave_id: UUID) -> AudiencePreview:
     and a sample of 10. This is what the approval screen renders."""
     with readonly_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("select audience_rule from waves where id = %s", (wave_id,))
+            cur.execute(
+                "select audience_rule, variant_split from waves where id = %s", (wave_id,)
+            )
             row = cur.fetchone()
             if row is None:
                 raise ValidationError("no_wave", f"no wave {wave_id}")
-            where, params = _audience_where(row[0])
+            audience_rule, variant_split = row
+            where, params = _audience_where(audience_rule)
             cur.execute(
                 sql.SQL(
                     "select c.id, c.business_name, c.segment, c.stage_snapshot "
@@ -162,11 +177,14 @@ def preview_audience(wave_id: UUID) -> AudiencePreview:
         by_stage=by_stage,
         estimated_cost_cents=len(rows) * _ESTIMATED_PIECE_COST_CENTS,
         sample=sample,
+        state_hash=_state_hash([str(r[0]) for r in rows], variant_split),
     )
 
 
-def approve_wave(wave_id: UUID, approved_by: str) -> None:
-    """Validate all preconditions and record who/when. Does NOT execute."""
+def approve_wave(wave_id: UUID, approved_by: str, state_hash: str | None = None) -> None:
+    """Validate all preconditions and record who/when. Does NOT execute. When a
+    `state_hash` is supplied (the UI carries the preview's), approval is rejected if the
+    audience has drifted since — you approve exactly what you saw."""
     with transaction() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -206,6 +224,14 @@ def approve_wave(wave_id: UUID, approved_by: str) -> None:
                 raise ValidationError(
                     "empty_audience", "audience resolves to zero contacts"
                 )
+
+            if state_hash is not None:
+                current = _state_hash([str(x) for x in audience], variant_split)
+                if current != state_hash:
+                    raise ValidationError(
+                        "stale_preview",
+                        "the audience has drifted since preview; re-preview before approving",
+                    )
 
             cur.execute(
                 "update waves set status = 'approved', approved_by = %s, "

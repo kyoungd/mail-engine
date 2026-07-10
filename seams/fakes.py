@@ -66,3 +66,11 @@ class FakeResponseFeed:
         for event in self.events:
             if event.occurred_at >= since:
                 yield event
+
+
+@dataclass
+class FakeSender:
+    sent: list[tuple[str, str]] = field(default_factory=list)
+
+    def send(self, founder: str, message: str) -> None:
+        self.sent.append((founder, message))

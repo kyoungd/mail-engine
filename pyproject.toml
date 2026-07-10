@@ -7,6 +7,9 @@ dependencies = [
     "psycopg[binary]>=3.2",
     "yoyo-migrations>=9.0",
     "psycopg2-binary>=2.9",
+    "fastapi>=0.139.0",
+    "jinja2>=3.1.6",
+    "uvicorn>=0.51.0",
 ]
 
 [dependency-groups]
@@ -15,6 +18,7 @@ dev = [
     "hypothesis>=6",
     "mutmut>=3",
     "ruff>=0.6",
+    "httpx>=0.28.1",
 ]
 
 [tool.pytest.ini_options]

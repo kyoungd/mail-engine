@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Pipeline</h1>
+<table>
+  <tr><th>Contact</th><th>Segment</th><th>Stage</th><th>Days quiet</th><th>Next action</th></tr>
+  {% for c in cards %}
+  <tr>
+    <td><a href="/contacts/{{ c.id }}">{{ c.business_name or c.id }}</a></td>
+    <td>{{ c.segment or '' }}</td>
+    <td>{{ c.stage_snapshot }}</td>
+    <td>{{ c.days_quiet if c.days_quiet is not none else '' }}</td>
+    <td>{{ c.next_action_note or '' }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endblock %}

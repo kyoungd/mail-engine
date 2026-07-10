@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Activation board</h1>
+<table>
+  <tr><th>Customer</th><th>Signed up</th><th>Forwarding</th><th>Calendar</th><th>First lead</th><th>Stalled?</th></tr>
+  {% for c in cards %}
+  <tr{% if c.stalled %} style="color:#b00"{% endif %}>
+    <td>{{ c.business_name or c.contact_id }}</td>
+    <td>{{ c.signed_up_at }}</td>
+    <td>{{ 'yes' if c.forwarding_at else '—' }}</td>
+    <td>{{ 'yes' if c.calendar_at else '—' }}</td>
+    <td>{{ 'yes' if c.first_lead_at else '—' }}</td>
+    <td>{{ 'STALLED' if c.stalled else '' }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endblock %}

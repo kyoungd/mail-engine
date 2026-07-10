@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Approval queue</h1>
+<table>
+  <tr><th>Wave</th><th>Drop</th><th>Scheduled</th><th></th></tr>
+  {% for w in waves %}
+  <tr>
+    <td>{{ w.name }}</td>
+    <td>{{ w.drop_number }}</td>
+    <td>{{ w.scheduled_for or '—' }}</td>
+    <td><a href="/waves/{{ w.id }}/approve">review &amp; approve →</a></td>
+  </tr>
+  {% endfor %}
+</table>
+{% endblock %}

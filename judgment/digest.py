@@ -71,7 +71,12 @@ def _resolve_recipient(cur, rule: Rule, hit: Hit) -> str:
     return owner or "young"
 
 
-def run(as_of: date, params: Params = DEFAULT_PARAMS, ai_client=None) -> JudgmentResult:
+def _format_digest(nudges: list[ComposedNudge]) -> str:
+    lines = "\n".join(f"{i}. {n.brief}" for i, n in enumerate(nudges, start=1))
+    return f"Today's nudges ({len(nudges)}):\n{lines}"
+
+
+def run(as_of: date, params: Params = DEFAULT_PARAMS, ai_client=None, sender=None) -> JudgmentResult:
     expire_stale_actions(as_of, params.expire_days)
 
     prepared: list[tuple[Rule, Hit, str, list]] = []
@@ -108,4 +113,8 @@ def run(as_of: date, params: Params = DEFAULT_PARAMS, ai_client=None) -> Judgmen
                               priority=rule.priority)
             )
 
-    return JudgmentResult(sent=dict(sent), deferred=deferred)
+    result = JudgmentResult(sent=dict(sent), deferred=deferred)
+    if sender is not None:
+        for founder, nudges in result.sent.items():
+            sender.send(founder, _format_digest(nudges))
+    return result

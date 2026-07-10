@@ -148,6 +148,7 @@ class AudiencePreview:
     by_stage: dict[str, int]
     estimated_cost_cents: int
     sample: list[SampleContact]
+    state_hash: str  # fingerprint of the resolved audience + variant split (approve carries it back)
 
 
 @dataclass(frozen=True, kw_only=True)

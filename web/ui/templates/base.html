@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Mail Engine</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 2rem; }
+    table { border-collapse: collapse; }
+    th, td { border: 1px solid #ccc; padding: 4px 8px; text-align: left; }
+    nav a { margin-right: 1rem; }
+    button { padding: 6px 14px; }
+  </style>
+</head>
+<body>
+  <nav>
+    <a href="/pipeline">Pipeline</a>
+    <a href="/activation">Activation</a>
+    <a href="/approvals">Approvals</a>
+  </nav>
+  <hr>
+  {% block content %}{% endblock %}
+</body>
+</html>
