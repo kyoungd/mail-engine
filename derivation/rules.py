@@ -12,7 +12,7 @@ from datetime import date, datetime
 from domain.enums import ContactStage
 from domain.types import ContactFlags, Event
 
-RULESET_VERSION = "1"
+RULESET_VERSION = "2"  # v2: contact.lost -> LOST stage (revivable)
 
 # The caller-initiated signals that constitute a response (data document §3).
 INBOUND_TYPES = frozenset({"page.visit", "call.inbound", "sms.inbound"})
@@ -24,6 +24,11 @@ ENGAGE_TYPES = frozenset({"sms.outbound", "call.answered"})
 def _first_submitted_at(events: list[Event]) -> datetime | None:
     times = [e.occurred_at for e in events if e.type == "piece.submitted"]
     return min(times) if times else None
+
+
+def _last_occurrence(events: list[Event], etype: str) -> datetime | None:
+    times = [e.occurred_at for e in events if e.type == etype]
+    return max(times) if times else None
 
 
 def _first_response_at(events: list[Event]) -> datetime | None:
@@ -65,14 +70,29 @@ def is_suppressed(events: list[Event], flags: ContactFlags) -> bool:
     return returned >= 2
 
 
+def is_lost(events: list[Event]) -> bool:
+    """A human `contact.lost` marks the conversation over — but it is revivable:
+    an inbound landing after the latest `contact.lost` un-loses the contact. Unlike
+    suppression, lost is not absorbing."""
+    lost_at = _last_occurrence(events, "contact.lost")
+    if lost_at is None:
+        return False
+    return not any(
+        e.type in INBOUND_TYPES and e.occurred_at > lost_at for e in events
+    )
+
+
 def derive_stage(events: list[Event], flags: ContactFlags) -> ContactStage:
-    """The contact's stage as of the full event set. Precedence, first match wins.
-    `lost` is intentionally unreachable in Phase 1: it needs the record_outcome
-    event type (Phase 2), which the closed taxonomy does not yet carry."""
+    """The contact's stage as of the full event set. Precedence, first match wins:
+    suppressed (absorbing) > won > lost > in_conversation > responded > in_sequence >
+    prospect. `lost` sits above the response stages so a marked-lost contact leaves the
+    pipeline, but is revivable (see is_lost)."""
     if is_suppressed(events, flags):
         return ContactStage.SUPPRESSED
     if any(e.type == "signup.completed" for e in events):
         return ContactStage.WON
+    if is_lost(events):
+        return ContactStage.LOST
     first_response = _first_response_at(events)
     if first_response is not None:
         engaged = any(

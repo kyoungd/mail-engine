@@ -6,7 +6,7 @@ import pytest
 from psycopg import errors
 
 
-def test_readonly_can_select(readonly_url, applied_migrations):
+def test_readonly_can_select(readonly_url, clean_db):
     with psycopg.connect(readonly_url) as conn:
         with conn.cursor() as cur:
             cur.execute("select count(*) from contacts")

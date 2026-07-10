@@ -3,7 +3,7 @@ These pin the boundaries the whole system's numbers depend on."""
 
 from datetime import UTC, date, datetime
 
-from derivation.rules import derive_stage, is_responded, is_suppressed, quiet_days
+from derivation.rules import derive_stage, is_lost, is_responded, is_suppressed, quiet_days
 from domain.enums import ContactStage, EventSource
 from domain.types import ContactFlags, Event
 
@@ -128,4 +128,62 @@ def test_stage_won_on_signup():
 def test_suppression_absorbs_even_a_won_contact():
     # Suppression is irreversible by design; an opt-out wins over signup.
     events = [_ev("signup.completed", _dt(5)), _ev("contact.opt_out", _dt(6))]
+    assert derive_stage(events, NO_FLAGS) is ContactStage.SUPPRESSED
+
+
+# --- is_lost / LOST stage ------------------------------------------------------
+
+
+def test_not_lost_without_a_lost_event():
+    assert is_lost([_ev("piece.submitted", _dt(1)), _ev("sms.inbound", _dt(3))]) is False
+
+
+def test_lost_after_record_outcome():
+    events = [
+        _ev("piece.submitted", _dt(1)),
+        _ev("sms.inbound", _dt(3)),
+        _ev("contact.lost", _dt(5)),
+    ]
+    assert is_lost(events) is True
+    assert derive_stage(events, NO_FLAGS) is ContactStage.LOST
+
+
+def test_lost_is_revived_by_a_later_inbound():
+    events = [
+        _ev("piece.submitted", _dt(1)),
+        _ev("sms.inbound", _dt(3)),
+        _ev("contact.lost", _dt(5)),
+        _ev("sms.inbound", _dt(7)),
+    ]
+    assert is_lost(events) is False
+    assert derive_stage(events, NO_FLAGS) is ContactStage.RESPONDED
+
+
+def test_inbound_at_the_same_instant_as_lost_does_not_revive():
+    # Revival is strict: an inbound simultaneous with the lost event stays lost.
+    events = [
+        _ev("piece.submitted", _dt(1)),
+        _ev("contact.lost", _dt(5)),
+        _ev("sms.inbound", _dt(5)),
+    ]
+    assert is_lost(events) is True
+
+
+def test_only_the_latest_lost_governs_revival():
+    # An inbound after an earlier lost, then a second lost with nothing after it.
+    events = [
+        _ev("contact.lost", _dt(3)),
+        _ev("sms.inbound", _dt(5)),
+        _ev("contact.lost", _dt(7)),
+    ]
+    assert is_lost(events) is True
+
+
+def test_won_wins_over_lost():
+    events = [_ev("contact.lost", _dt(3)), _ev("signup.completed", _dt(5))]
+    assert derive_stage(events, NO_FLAGS) is ContactStage.WON
+
+
+def test_suppressed_wins_over_lost():
+    events = [_ev("contact.lost", _dt(3)), _ev("contact.opt_out", _dt(5))]
     assert derive_stage(events, NO_FLAGS) is ContactStage.SUPPRESSED

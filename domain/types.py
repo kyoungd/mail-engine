@@ -120,3 +120,89 @@ class ResolutionReport:
 @dataclass(frozen=True)
 class RecomputeReport:
     contacts_updated: int
+
+
+# --- Phase 2: report and view DTOs (returned by the contract verbs) ---
+
+
+@dataclass(frozen=True)
+class IntakeReport:
+    loaded: int
+    deduped: int
+    invalid: int
+    suppressed: int
+
+
+@dataclass(frozen=True, kw_only=True)
+class SampleContact:
+    id: UUID
+    business_name: str | None
+    segment: str | None
+    stage_snapshot: ContactStage
+
+
+@dataclass(frozen=True, kw_only=True)
+class AudiencePreview:
+    count: int
+    by_segment: dict[str, int]
+    by_stage: dict[str, int]
+    estimated_cost_cents: int
+    sample: list[SampleContact]
+
+
+@dataclass(frozen=True, kw_only=True)
+class WaveSummary:
+    id: UUID
+    name: str
+    drop_number: int
+    status: WaveStatus
+    scheduled_for: date | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class VariantStat:
+    variant_id: UUID
+    variant_name: str
+    pieces: int
+    responses: int
+    cost_cents: int
+
+
+@dataclass(frozen=True, kw_only=True)
+class WaveDashboard:
+    wave_id: UUID
+    pieces_by_status: dict[str, int]
+    by_variant: list[VariantStat]
+    responses: int
+    cost_cents: int
+    cost_per_response_cents: int | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class ContactCard:
+    id: UUID
+    business_name: str | None
+    segment: str | None
+    stage_snapshot: ContactStage
+    last_inbound_at: datetime | None
+    next_action_at: date | None
+    next_action_note: str | None
+    days_quiet: int | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class ActivationCard:
+    contact_id: UUID
+    business_name: str | None
+    signed_up_at: datetime
+    forwarding_at: datetime | None
+    calendar_at: datetime | None
+    first_lead_at: datetime | None
+    stalled: bool
+
+
+@dataclass(frozen=True, kw_only=True)
+class Nudge:
+    contact_id: UUID
+    next_action_at: date
+    next_action_note: str | None

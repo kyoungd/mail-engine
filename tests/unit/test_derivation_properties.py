@@ -22,11 +22,13 @@ _EVENT_TYPES = [
     "call.answered",
     "signup.completed",
     "contact.opt_out",
+    "contact.lost",
     "demo.booked",
 ]
 
-# Forward progression ranks; suppressed is absorbing and excluded (reachable
-# from anywhere), lost is unreachable in Phase 1.
+# Forward progression ranks. Suppressed (absorbing) and lost (revivable) are both
+# side-states reachable from / exitable to the progression, so they are excluded
+# from the forward-only check rather than ranked.
 _RANK = {
     ContactStage.PROSPECT: 0,
     ContactStage.IN_SEQUENCE: 1,
@@ -82,7 +84,7 @@ def test_stage_only_moves_forward_over_time(data, flags):
     last_rank = -1
     for i in range(1, len(events) + 1):
         stage = derive_stage(events[:i], flags)
-        if stage is ContactStage.SUPPRESSED:
-            continue  # absorbing — legal from any prior stage
+        if stage in (ContactStage.SUPPRESSED, ContactStage.LOST):
+            continue  # side-states, legal from any prior stage
         assert _RANK[stage] >= last_rank
         last_rank = _RANK[stage]

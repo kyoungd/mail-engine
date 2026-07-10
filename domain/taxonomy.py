@@ -22,6 +22,7 @@ EVENT_TYPES: frozenset[str] = frozenset(
         "note.partner",
         "note.general",
         "contact.opt_out",
+        "contact.lost",
     }
 )
 
