@@ -69,7 +69,12 @@ class PostHogFeed:
                 "select uuid, event, timestamp, properties.mailer_code, "
                 "properties.tier, properties.amount from events "
                 f"where event in ({names}) "
+                # 'unknown' is the landing page's no-code sentinel (organic traffic).
+                # It stays in PostHog to measure uncoded lift, but must not reach the
+                # spine — every such event would fail resolution and flood the orphan
+                # queue.
                 "and properties.mailer_code is not null "
+                "and properties.mailer_code != 'unknown' "
                 f"and (timestamp, toString(uuid)) > ('{cursor[0]}', '{cursor[1]}') "
                 f"order by timestamp, toString(uuid) limit {_PAGE_SIZE}"
             )

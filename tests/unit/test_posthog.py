@@ -34,6 +34,9 @@ def test_query_hits_project_endpoint_with_bearer_key():
     assert headers["Authorization"] == "Bearer phx_personal"
     assert b"HogQLQuery" in body
     assert b"mailer_code is not null" in body
+    # the landing page's no-code sentinel must be excluded, or organic traffic
+    # floods the orphan queue
+    assert b"mailer_code != 'unknown'" in body
     assert b"2026-07-05" in body
 
 
