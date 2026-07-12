@@ -39,6 +39,21 @@ def _default_transport(url: str, body: bytes, headers: dict[str, str]) -> dict:
         return json.loads(response.read())
 
 
+def _truncate_name(name: str, limit: int = 40) -> str:
+    """Lob rejects to.name > 40 chars (422); CSLB/FBN legal names often exceed it.
+    Cut at the last word boundary inside the limit ("hello there" -> "hello", never
+    "hello th"); a single word longer than the limit gets a hard cut. Truncation is
+    delivery-irrelevant — USPS routes on the address."""
+    if len(name) <= limit:
+        return name
+    cut = name[:limit]
+    if name[limit] != " " and not cut.endswith(" "):
+        boundary = cut.rfind(" ")
+        if boundary > 0:
+            cut = cut[:boundary]
+    return cut.rstrip()
+
+
 class LobPrintApi:
     def __init__(
         self,
@@ -61,7 +76,7 @@ class LobPrintApi:
     ) -> SubmissionResult:
         payload = {
             "to": {
-                "name": recipient.name,
+                "name": _truncate_name(recipient.name),
                 "address_line1": recipient.address_line1,
                 "address_line2": recipient.address_line2 or "",
                 "address_city": recipient.city,

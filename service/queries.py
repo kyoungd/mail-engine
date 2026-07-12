@@ -13,6 +13,7 @@ from psycopg import sql
 from db.readonly import readonly_connection
 from derivation.rules import INBOUND_TYPES
 from domain.enums import ContactStage
+from domain.errors import ValidationError
 from domain.types import (
     ActivationCard,
     ContactCard,
@@ -22,6 +23,7 @@ from domain.types import (
     Variant,
     VariantStat,
     WaveDashboard,
+    WaveDetail,
     WaveSummary,
 )
 from service.ingestion import EVENT_COLS, event_from_row
@@ -191,8 +193,8 @@ def list_waves() -> list[WaveSummary]:
     with readonly_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "select id, name, drop_number, status, scheduled_for from waves "
-                "order by drop_number desc, created_at desc"
+                "select id, name, drop_number, status, scheduled_for, executed_at "
+                "from waves order by drop_number desc, created_at desc"
             )
             return [
                 WaveSummary(
@@ -201,9 +203,33 @@ def list_waves() -> list[WaveSummary]:
                     drop_number=r[2],
                     status=r[3],
                     scheduled_for=r[4],
+                    executed_at=r[5],
                 )
                 for r in cur.fetchall()
             ]
+
+
+def get_wave(wave_id: UUID) -> WaveDetail:
+    """One wave as stored — the edit form renders exactly what draft_wave persisted."""
+    with readonly_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "select id, name, drop_number, status, audience_rule, variant_split, "
+                "scheduled_for from waves where id = %s",
+                (wave_id,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                raise ValidationError("no_wave", f"no wave {wave_id}")
+            return WaveDetail(
+                id=row[0],
+                name=row[1],
+                drop_number=row[2],
+                status=row[3],
+                audience_rule=row[4],
+                variant_split=row[5],
+                scheduled_for=row[6],
+            )
 
 
 def list_variants() -> list[Variant]:

@@ -32,7 +32,7 @@ cp .env.example .env          # then edit the values (see §3a)
 make up                       # start Postgres 15, create the read-only role
 make migrate                  # apply migrations 0001–0004
 make test                     # full suite — proves the install
-make run                      # the web window at http://localhost:8000
+make run                      # the web window at http://localhost:8001
 ```
 
 `make` targets: `up`, `down`, `migrate`, `run`, `test`, `lint`, `fmt`, `nuke` (`make help`).
@@ -60,6 +60,7 @@ reads the `POSTGRES_*`/`READONLY_*` set; the app reads only the two `*_DATABASE_
 | `READONLY_PASSWORD` | read-only role password | you choose (secret) | container init |
 | `OWNER_DATABASE_URL` | full DSN for the owner role — **the only write path** | assembled from the above | `db/session.py` |
 | `READONLY_DATABASE_URL` | full DSN for the read-only role — the analysis bypass | assembled from the above | `db/readonly.py`, query verbs |
+| `DROP_PASSWORD` | password for the UI "Run drops" button (fail-closed: unset = button disabled) | you choose | `web/api.py` |
 
 > In production, point the two `*_DATABASE_URL`s at your managed Postgres 15 and set
 > strong passwords. The read-only role must have `SELECT` and nothing else (migration
@@ -80,14 +81,14 @@ are proposed — they're finalized when each client is built.)*
 | Lob **webhook signing secret** | verifies delivery webhooks (printed/delivered/returned) | Lob dashboard → Webhooks |
 | Return/from address | the physical return address on each piece | your business address |
 
-**Web response — PostHog** (`seams/posthog.py`, deferred)
+**Web response — PostHog** (`seams/posthog.py`, **built 2026-07-12** — env names final)
 
-| Collect | What it is | Where to get it |
-|---------|-----------|-----------------|
-| PostHog **project API key** | identifies the project the `?r=` visits land in | PostHog → Project Settings |
-| PostHog **personal API key** | authorizes querying events out (nightly pull) | PostHog → Personal API Keys |
-| PostHog **host** | `app.posthog.com` or your self-hosted URL | your PostHog instance |
-| `?r=` capture live | landing page records the mailer code as `?r=` | your landing page (must be wired) |
+| Collect | Env var | What it is | Where to get it |
+|---------|---------|-----------|-----------------|
+| PostHog **personal API key** | `POSTHOG_API_KEY` | authorizes the nightly HogQL pull (needs Query Read scope) | PostHog → Personal API Keys |
+| PostHog **project id** | `POSTHOG_PROJECT_ID` | the project the `?r=` visits land in | PostHog → Project Settings |
+| PostHog **host** | `POSTHOG_HOST` | query-API host (default `https://us.posthog.com`; note: NOT the `us.i.posthog.com` capture host) | your PostHog instance |
+| `?r=` capture live | — | landing page records the mailer code as `?r=` | your landing page (wired; see landing-pages repo) |
 
 **Phone response — NeverMissCall** (`seams/nmc.py`, deferred — your own product)
 

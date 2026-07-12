@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Run drops</h1>
+{% if not enabled %}
+<p>Disabled — set <code>DROP_PASSWORD</code> in <code>.env</code> (and restart) to
+enable this button. The cron/CLI job path works regardless.</p>
+{% else %}
+<form method="post" action="/drops/run"
+      onsubmit="return confirm('Execute every approved wave due through the as-of date?')">
+  <p><label>As of <input name="as_of" type="date" value="{{ default_as_of }}" required></label>
+    — fires <strong>every approved wave</strong> scheduled on or before this date</p>
+  <p><label>Password <input name="password" type="password" required
+    autocomplete="off"></label></p>
+  <button type="submit">Run drops</button>
+</form>
+{% endif %}
+{% if reports is not none %}
+<h2>Execution report</h2>
+{% if not reports %}<p>No approved waves due.</p>{% endif %}
+{% if reports %}
+<table>
+  <tr><th>Wave</th><th>Resolved</th><th>Created</th><th>Submitted</th><th>Halted</th><th>Reason</th></tr>
+  {% for r in reports %}
+  <tr>
+    <td><a href="/waves/{{ r.wave_id }}">{{ r.wave_id }}</a></td>
+    <td>{{ r.resolved_count }}</td>
+    <td>{{ r.pieces_created }}</td>
+    <td>{{ r.pieces_submitted }}</td>
+    <td>{{ r.halted }}</td>
+    <td>{{ r.reason or '—' }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+{% endif %}
+{% endblock %}

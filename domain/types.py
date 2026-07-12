@@ -158,6 +158,18 @@ class WaveSummary:
     drop_number: int
     status: WaveStatus
     scheduled_for: date | None
+    executed_at: datetime | None = None  # stamped when the drop completes
+
+
+@dataclass(frozen=True, kw_only=True)
+class WaveDetail:
+    id: UUID
+    name: str
+    drop_number: int
+    status: WaveStatus
+    audience_rule: dict[str, Any]
+    variant_split: dict[str, Any]
+    scheduled_for: date | None
 
 
 @dataclass(frozen=True, kw_only=True)

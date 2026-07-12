@@ -18,6 +18,11 @@ from domain.taxonomy import UnknownEventType, is_valid_type
 from domain.types import Event, ResolutionReport
 from resolution.matcher import THREAD_KEY, Lookups, resolve
 
+# Delivery events flip the matched piece's status at resolution time (the event
+# stream stays the source of truth; pieces.status is the derived convenience the
+# wave dashboard renders).
+_PIECE_STATUS_BY_EVENT = {"piece.delivered": "delivered", "piece.returned": "returned"}
+
 # Column order shared by every events SELECT that rehydrates a domain Event.
 # Shared across the service layer (execution.recompute_state consumes it), so not
 # module-private despite living here.
@@ -189,6 +194,16 @@ def resolve_orphans(since: datetime | None = None) -> ResolutionReport:
                     "piece_id = coalesce(%s, piece_id) where id = %s",
                     (match.contact_id, match.piece_id, event.id),
                 )
+                if match.piece_id is not None and event.type in _PIECE_STATUS_BY_EVENT:
+                    # Derive pieces.status from the matched delivery event. 'returned'
+                    # outranks 'delivered': Lob's processed_for_delivery is a proxy
+                    # that fires first; a later return is the truer fact.
+                    status = _PIECE_STATUS_BY_EVENT[event.type]
+                    cur.execute(
+                        "update pieces set status = %s where id = %s "
+                        "and (%s = 'returned' or status <> 'returned')",
+                        (status, match.piece_id, status),
+                    )
                 matched.append((event.id, match.contact_id))
 
     return ResolutionReport(matched=matched, orphaned=orphaned)

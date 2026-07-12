@@ -37,3 +37,19 @@ approve-what-fires guarantee); postage inclusion unverifiable from public pricin
 **Re-evaluation trigger:** sustained >5,000 pieces/month or >15% price movement →
 collect PostGrid + Lob Enterprise + Stannp quotes with real volume history. The
 `PrintApi` seam keeps any switch a one-file adapter.
+
+---
+
+## PostHog feed mapping (decided 2026-07-12)
+
+- `$pageview` → `page.visit`; `checkout_started` → `page.cta_click`;
+  `landing_purchase_completed` → **`signup.completed`** — a landing purchase IS the
+  signup. Consequence: the future NMC feed must NOT also emit `signup.completed`
+  (one source of truth per fact, else signups double-count).
+- Nightly `since` watermark: **fixed 7-day lookback**. Overlap is free — ingestion
+  dedupes on `(source, external_id)`; external_id = PostHog event uuid.
+- Client uses the **Query endpoint (HogQL)**, not the deprecated `/events` API
+  (verified against posthog.com/docs 2026-07-12: events API deprecated, OFFSET
+  rejected for programmatic queries → keyset pagination on (timestamp, uuid)).
+- Live-verify at first real pull (no keys in .env yet): the timestamp-literal
+  format PostHog returns vs. what the keyset WHERE clause parses.

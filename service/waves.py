@@ -1,7 +1,7 @@
 """Creative and wave-lifecycle verbs (service contract §2).
 
 The audience rule is data: a small JSON filter (segment, trade, source, stage,
-not_responded_to_wave, limit) resolved against current state. `_audience_where` is the single
+city, zip_prefix, not_responded_to_wave, limit) resolved against current state. `_audience_where` is the single
 source of that interpretation — `preview_audience` and (Phase 3) `execute_wave` both
 resolve through it, so what is approved is exactly what fires. do_not_mail and
 suppressed contacts are always excluded, unconditionally.
@@ -23,7 +23,10 @@ from domain.errors import ValidationError
 from domain.types import AudiencePreview, SampleContact
 
 # Grammar of the audience rule. Unknown keys are rejected, not ignored.
-_AUDIENCE_KEYS = {"segment", "trade", "source", "stage", "not_responded_to_wave", "limit"}
+_AUDIENCE_KEYS = {
+    "segment", "trade", "source", "stage", "city", "zip_prefix",
+    "not_responded_to_wave", "limit",
+}
 # A contact who received a piece but has not responded sits in one of these stages.
 _NON_RESPONSE_STAGES = ["prospect", "in_sequence"]
 # Placeholder per-piece cost until the print seam supplies a real estimate (Phase 3).
@@ -62,6 +65,14 @@ def _audience_where(rule: dict[str, Any]) -> tuple[sql.Composed, list[Any]]:
     if "source" in rule:
         clauses.append(sql.SQL("c.source = any(%s)"))
         params.append(list(rule["source"]))
+    if "city" in rule:
+        # Case-insensitive: CSLB city casing is as-filed ("VAN NUYS" / "Van Nuys").
+        clauses.append(sql.SQL("lower(c.addr_city) = any(%s)"))
+        params.append([str(c).lower() for c in rule["city"]])
+    if "zip_prefix" in rule:
+        # A ZIP band is the reliable region definition (e.g. SFV = 913/914/916).
+        clauses.append(sql.SQL("c.addr_zip like any(%s)"))
+        params.append([f"{str(z).strip()}%" for z in rule["zip_prefix"]])
     if "stage" in rule:
         clauses.append(sql.SQL("c.stage_snapshot::text = any(%s)"))
         params.append(list(rule["stage"]))
@@ -151,6 +162,35 @@ def draft_wave(
             row = cur.fetchone()
             assert row is not None
             return row[0]
+
+
+def update_wave(
+    wave_id: UUID,
+    name: str,
+    drop_number: int,
+    audience_rule: dict[str, Any],
+    variant_split: dict[str, Any],
+    scheduled_for,
+) -> None:
+    """Edit a wave while it is still a worksheet. Draft-only: approval records who/when
+    against a rendered preview, so anything past draft is immutable — cancel and redraft
+    instead. Drift safety needs nothing here: an edit changes the preview's state_hash,
+    so approving with a pre-edit hash fails stale_preview until re-previewed."""
+    validate_audience_rule(audience_rule)
+    with transaction() as conn:
+        with conn.cursor() as cur:
+            cur.execute("select status from waves where id = %s", (wave_id,))
+            row = cur.fetchone()
+            if row is None:
+                raise ValidationError("no_wave", f"no wave {wave_id}")
+            if row[0] != "draft":
+                raise ValidationError("not_draft", f"wave is {row[0]}, not draft")
+            cur.execute(
+                "update waves set name = %s, drop_number = %s, audience_rule = %s, "
+                "variant_split = %s, scheduled_for = %s where id = %s",
+                (name, drop_number, Json(audience_rule), Json(variant_split),
+                 scheduled_for, wave_id),
+            )
 
 
 def preview_audience(wave_id: UUID) -> AudiencePreview:

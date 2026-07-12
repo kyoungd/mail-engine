@@ -3,15 +3,17 @@
 <h1>Waves</h1>
 <p><a href="/waves/new">+ New wave</a></p>
 <table>
-  <tr><th>Wave</th><th>Drop</th><th>Status</th><th>Scheduled</th><th></th><th></th></tr>
+  <tr><th>Wave</th><th>Drop</th><th>Status</th><th>Scheduled</th><th>Dropped</th><th></th><th></th></tr>
   {% for w in waves %}
   <tr>
     <td><a href="/waves/{{ w.id }}">{{ w.name }}</a></td>
     <td>{{ w.drop_number }}</td>
-    <td>{{ w.status }}</td>
+    <td>{{ 'dropped' if w.status == 'sent' else w.status }}</td>
     <td>{{ w.scheduled_for or '—' }}</td>
+    <td>{{ w.executed_at.strftime('%Y-%m-%d %H:%M') if w.executed_at else '—' }}</td>
     <td>
-      {% if w.status == 'draft' %}<a href="/waves/{{ w.id }}/approve">review &amp; approve →</a>{% endif %}
+      {% if w.status == 'draft' %}<a href="/waves/{{ w.id }}/edit">edit</a>
+      &nbsp;<a href="/waves/{{ w.id }}/approve">review &amp; approve →</a>{% endif %}
     </td>
     <td>
       {% if w.status not in ('executing', 'sent', 'cancelled') %}

@@ -1,6 +1,7 @@
 """Phase 5 gate: the thin FastAPI window. Every view maps to one query verb, the
 approval flow carries the preview hash, and the execution verbs are unreachable over
-HTTP. Driven in-process via FastAPI's TestClient."""
+HTTP — except the one decided exception, the DROP_PASSWORD-gated /drops/run trigger
+for the run_drops job (2026-07-12). Driven in-process via FastAPI's TestClient."""
 
 import warnings
 from datetime import UTC, datetime, timedelta
@@ -77,6 +78,44 @@ def test_execution_verbs_have_no_http_route(clean_db):
     assert client.get("/api/waves/drop").status_code == 404
 
 
+# --- run-drops button: the password-gated exception to job-only execution -------
+
+
+def test_run_drops_fails_closed_without_password_env(clean_db, monkeypatch):
+    monkeypatch.delenv("DROP_PASSWORD", raising=False)
+    page = client.get("/drops")
+    assert page.status_code == 200
+    assert "Disabled" in page.text
+
+    response = client.post("/drops/run", data={"password": "x", "as_of": str(_future())})
+    assert response.status_code == 503
+
+
+def test_run_drops_rejects_wrong_password(clean_db, monkeypatch):
+    monkeypatch.setenv("DROP_PASSWORD", "sekret")
+    response = client.post(
+        "/drops/run", data={"password": "wrong", "as_of": str(_future())}
+    )
+    assert response.status_code == 401
+
+
+def test_run_drops_runs_the_job_with_correct_password(clean_db, monkeypatch):
+    monkeypatch.setenv("DROP_PASSWORD", "sekret")
+    seen = {}
+
+    def fake_run_drops(api, as_of):
+        seen["as_of"] = as_of
+        return []
+
+    monkeypatch.setattr("web.api.run_drops", fake_run_drops)
+    response = client.post(
+        "/drops/run", data={"password": "sekret", "as_of": str(_future())}
+    )
+    assert response.status_code == 200
+    assert seen["as_of"] == _future()
+    assert "No approved waves due" in response.text
+
+
 # --- approval flow: preview hash carried into approve --------------------------
 
 
@@ -121,6 +160,22 @@ def test_ui_waves_lists_every_status(clean_db, owner_conn):
     assert "draft" in response.text
 
 
+def test_ui_waves_shows_dropped_label_and_executed_at(clean_db, owner_conn):
+    wave_id = _draft(owner_conn, 1)
+    with owner_conn.cursor() as cur:
+        cur.execute(
+            "update waves set status = 'sent', "
+            "executed_at = '2026-07-12T11:38:00-07:00' where id = %s",
+            (wave_id,),
+        )
+    owner_conn.commit()
+
+    response = client.get("/waves")
+    assert response.status_code == 200
+    assert "dropped" in response.text  # 'sent' rendered as the operator's word
+    assert "2026-07-12 11:38" in response.text
+
+
 def test_ui_new_wave_form_drafts_and_redirects_to_preview(clean_db, owner_conn):
     _seed_prospects(owner_conn, 2)
     variant_id = create_variant("v", "h", {})
@@ -152,6 +207,46 @@ def test_ui_new_wave_rejects_bad_json(clean_db):
     )
     assert response.status_code == 409
     assert response.json()["code"] == "bad_json"
+
+
+def test_ui_edit_form_prefills_and_updates_a_draft(clean_db, owner_conn):
+    wave_id = _draft(owner_conn, 2)
+
+    form = client.get(f"/waves/{wave_id}/edit")
+    assert form.status_code == 200
+    assert 'value="w"' in form.text  # prefilled from the stored draft
+    assert '"plumber"' in form.text
+
+    response = client.post(
+        f"/waves/{wave_id}/edit",
+        data={
+            "name": "w edited",
+            "drop_number": "2",
+            "scheduled_for": str(_future()),
+            "audience_rule": '{"trade": ["plumber"], "limit": 1}',
+            "variant_split": "{}",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert response.headers["location"].endswith("/approve")
+
+    with owner_conn.cursor() as cur:
+        cur.execute("select name, drop_number from waves where id = %s", (wave_id,))
+        assert cur.fetchone() == ("w edited", 2)
+
+
+def test_api_update_rejects_non_draft(clean_db, owner_conn):
+    wave_id = _draft(owner_conn, 2)
+    state_hash = client.get(f"/api/waves/{wave_id}/preview").json()["state_hash"]
+    client.post(f"/api/waves/{wave_id}/approve", params={"state_hash": state_hash})
+
+    response = client.post(
+        f"/api/waves/{wave_id}/update",
+        json={"name": "w2", "drop_number": 1},
+    )
+    assert response.status_code == 409
+    assert response.json()["code"] == "not_draft"
 
 
 def test_cancel_wave_route_and_too_late_guard(clean_db, owner_conn):

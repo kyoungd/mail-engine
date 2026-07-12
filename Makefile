@@ -17,7 +17,7 @@ migrate: ## Apply migrations as the owner role
 
 run: ## Start the web window (sources .env)
 	@set -a && . ./.env && set +a && \
-		uv run uvicorn web.api:app --host 127.0.0.1 --port 8000
+		uv run uvicorn web.api:app --host 127.0.0.1 --port 8001
 
 test: ## Run the test suite
 	uv run pytest

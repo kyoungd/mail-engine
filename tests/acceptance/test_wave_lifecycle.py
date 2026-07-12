@@ -17,6 +17,7 @@ from service.waves import (
     draft_wave,
     preview_audience,
     resolve_audience,
+    update_wave,
 )
 
 
@@ -121,6 +122,31 @@ def test_audience_rule_filters_by_source(clean_db, owner_conn):
     assert preview_audience(wave_id).count == 1
 
 
+def test_audience_rule_filters_by_city_case_insensitive_and_zip_prefix(clean_db, owner_conn):
+    """Region targeting: SFV = a bag of cities or a ZIP band, not a county."""
+    with owner_conn.cursor() as cur:
+        cur.execute(
+            "insert into contacts (trade, addr_city, addr_zip) values "
+            "('hvac', 'VAN NUYS', '91406'), "
+            "('hvac', 'Northridge', '91324'), "
+            "('hvac', 'Long Beach', '90802')"
+        )
+    owner_conn.commit()
+
+    wave_id = draft_wave(
+        "sfv-city", 1, {"city": ["Van Nuys", "northridge"]}, {}, _future()
+    )
+    assert preview_audience(wave_id).count == 2
+
+    zip_wave = draft_wave("sfv-zip", 1, {"zip_prefix": ["913", "914"]}, {}, _future())
+    assert preview_audience(zip_wave).count == 2
+
+    combo = draft_wave(
+        "sfv-combo", 1, {"trade": ["hvac"], "zip_prefix": ["908"]}, {}, _future()
+    )
+    assert preview_audience(combo).count == 1
+
+
 def test_limit_takes_deterministic_unbiased_sample(clean_db, owner_conn):
     _seed_prospects(owner_conn, 20)
     wave_id = draft_wave("w", 1, {"trade": ["plumber"], "limit": 5}, {}, _future())
@@ -212,6 +238,79 @@ def test_approve_only_from_draft(clean_db, owner_conn):
 def test_draft_rejects_unknown_audience_key(clean_db):
     with pytest.raises(ValidationError):
         draft_wave("w", 1, {"bogus": ["x"]}, {}, _future())
+
+
+# --- update (draft-only edit) ----------------------------------------------------
+
+
+def test_update_wave_edits_a_draft_in_place(clean_db, owner_conn, readonly_url):
+    _seed_prospects(owner_conn, 2)
+    v1 = create_variant("v1", "h", {})
+    v2 = create_variant("v2", "h", {})
+    wave_id = draft_wave("w", 1, {"trade": ["plumber"]}, {str(v1): 1}, _future())
+
+    later = _future() + timedelta(days=1)
+    update_wave(
+        wave_id, "w renamed", 2, {"trade": ["plumber"], "limit": 1}, {str(v2): 1}, later
+    )
+
+    with psycopg.connect(readonly_url) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "select name, drop_number, audience_rule, variant_split, scheduled_for "
+                "from waves where id = %s",
+                (wave_id,),
+            )
+            row = cur.fetchone()
+    assert row == ("w renamed", 2, {"trade": ["plumber"], "limit": 1}, {str(v2): 1}, later)
+
+
+def test_update_wave_rejected_once_approved(clean_db, owner_conn):
+    _seed_prospects(owner_conn, 1)
+    variant_id = create_variant("v", "h", {})
+    wave_id = draft_wave("w", 1, {"trade": ["plumber"]}, {str(variant_id): 1}, _future())
+    approve_wave(wave_id, "young")
+    with pytest.raises(ValidationError) as exc:
+        update_wave(wave_id, "w2", 1, {"trade": ["plumber"]}, {str(variant_id): 1}, _future())
+    assert exc.value.code == "not_draft"
+
+
+def test_update_wave_validates_audience_rule(clean_db, owner_conn):
+    wave_id = draft_wave("w", 1, {"trade": ["plumber"]}, {}, _future())
+    with pytest.raises(ValidationError):
+        update_wave(wave_id, "w", 1, {"bogus": ["x"]}, {}, _future())
+
+
+def test_edit_after_preview_invalidates_the_hash(clean_db, owner_conn):
+    _seed_prospects(owner_conn, 2)
+    variant_id = create_variant("v", "h", {})
+    wave_id = draft_wave("w", 1, {"trade": ["plumber"]}, {str(variant_id): 1}, _future())
+    stale = preview_audience(wave_id).state_hash
+
+    update_wave(
+        wave_id, "w", 1, {"trade": ["plumber"], "limit": 1}, {str(variant_id): 1}, _future()
+    )
+    with pytest.raises(ValidationError) as exc:
+        approve_wave(wave_id, "young", stale)
+    assert exc.value.code == "stale_preview"
+
+    fresh = preview_audience(wave_id).state_hash
+    approve_wave(wave_id, "young", fresh)
+
+
+# --- name uniqueness scoped to non-cancelled waves --------------------------------
+
+
+def test_cancelled_wave_frees_its_name(clean_db, owner_conn):
+    first = draft_wave("w", 1, {"trade": ["plumber"]}, {}, _future())
+    cancel_wave(first)
+    assert draft_wave("w", 1, {"trade": ["plumber"]}, {}, _future()) != first
+
+
+def test_active_wave_name_still_unique(clean_db, owner_conn):
+    draft_wave("w", 1, {"trade": ["plumber"]}, {}, _future())
+    with pytest.raises(psycopg.errors.UniqueViolation):
+        draft_wave("w", 1, {"trade": ["plumber"]}, {}, _future())
 
 
 # --- cancel --------------------------------------------------------------------

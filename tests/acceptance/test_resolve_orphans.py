@@ -68,6 +68,41 @@ def test_mailer_code_attributes_event_and_piece(clean_db, owner_conn, readonly_u
     assert _attribution(readonly_url, event_id) == (contact_id, piece_id)
 
 
+def _piece_status(readonly_url: str, piece_id: UUID) -> str:
+    with psycopg.connect(readonly_url) as conn:
+        with conn.cursor() as cur:
+            cur.execute("select status from pieces where id = %s", (piece_id,))
+            row = cur.fetchone()
+            assert row is not None
+            return row[0]
+
+
+def test_delivery_events_flip_piece_status_on_match(clean_db, owner_conn, readonly_url):
+    contact_id = _seed_contact(owner_conn)
+    delivered = _seed_piece(owner_conn, contact_id, "MC-200")
+    returned = _seed_piece(owner_conn, contact_id, "MC-201")
+    ingest_event("lob", "piece.delivered", AT, {"mailer_code": "MC-200"}, external_id="d1")
+    ingest_event("lob", "piece.returned", AT, {"mailer_code": "MC-201"}, external_id="r1")
+
+    resolve_orphans()
+
+    assert _piece_status(readonly_url, delivered) == "delivered"
+    assert _piece_status(readonly_url, returned) == "returned"
+
+
+def test_returned_outranks_delivered(clean_db, owner_conn, readonly_url):
+    contact_id = _seed_contact(owner_conn)
+    piece_id = _seed_piece(owner_conn, contact_id, "MC-300")
+    ingest_event("lob", "piece.returned", AT, {"mailer_code": "MC-300"}, external_id="r2")
+    resolve_orphans()
+    assert _piece_status(readonly_url, piece_id) == "returned"
+
+    # a delivery proxy arriving after the return must not downgrade it
+    ingest_event("lob", "piece.delivered", AT, {"mailer_code": "MC-300"}, external_id="d2")
+    resolve_orphans()
+    assert _piece_status(readonly_url, piece_id) == "returned"
+
+
 def test_phone_attributes_when_no_code(clean_db, owner_conn, readonly_url):
     contact_id = _seed_contact(owner_conn, phone="+18186793565")
     event_id = ingest_event("nmc", "call.inbound", AT, {"phone": "(818) 679-3565"})

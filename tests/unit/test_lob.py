@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from seams.lob import BadWebhookSignature, LobPrintApi
+from seams.lob import BadWebhookSignature, LobPrintApi, _truncate_name
 from seams.print_api import Recipient
 
 FROM = {"name": "NMC", "address_line1": "1 Way", "address_city": "LA",
@@ -40,6 +40,35 @@ def test_submit_sends_idempotency_key_and_mailer_code():
     assert payload["to"]["address_zip"] == "91604"
     assert payload["use_type"] == "marketing"
     assert payload["mail_type"] == "usps_first_class"
+
+
+def test_submit_truncates_recipient_name_to_lob_40_char_limit():
+    calls = []
+    long_name = Recipient(
+        name="SEASON CONTROL HEATING AIR CONDITIONING INC",
+        address_line1="7239 Canoga Ave", city="Canoga Park", state="CA",
+        zip_code="91303",
+    )
+    _client(calls).submit_piece("k7m2xq3vhp", {"front": "f", "back": "b"}, long_name)
+    (_, payload, _), = calls
+    assert payload["to"]["name"] == "SEASON CONTROL HEATING AIR CONDITIONING"
+    assert len(payload["to"]["name"]) <= 40
+
+
+def test_truncate_name_cuts_at_word_boundary_never_mid_word():
+    # limit falls inside "SPECIALISTS" -> the whole partial word is dropped
+    assert (
+        _truncate_name("ADVANCED HEATING AND AIR CONDITIONING SPECIALISTS INC")
+        == "ADVANCED HEATING AND AIR CONDITIONING"
+    )
+    # short names pass through untouched
+    assert _truncate_name("Griffin's Plumbing") == "Griffin's Plumbing"
+    # a single word longer than the limit has no boundary to respect: hard cut
+    assert _truncate_name("A" * 45) == "A" * 40
+    # limit landing exactly on a space keeps every complete word before it
+    assert _truncate_name("SEASON CONTROL HEATING AIR CONDITIONING INC") == (
+        "SEASON CONTROL HEATING AIR CONDITIONING"
+    )
 
 
 def _signed(body: dict, secret="whsec_test", ts=None):

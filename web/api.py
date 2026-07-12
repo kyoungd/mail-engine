@@ -1,15 +1,18 @@
 """The thin window over the service verbs (FastAPI). No logic lives here — every route
 calls exactly one verb and returns or renders its result. The approval-hash guard lives
 in the verbs, not here; execution verbs (execute_wave, recompute_state, run_nightly,
-sync) are deliberately NOT routed — dropping mail is a job, never an HTTP call.
+sync) are deliberately NOT routed, with ONE exception: /drops/run triggers the same
+run_drops job the CLI/cron uses, gated by DROP_PASSWORD (decided 2026-07-12 — a
+password-gated button beats SSH for a two-founder team; fail-closed when unset).
 
 Run in the existing Docker/VPS pattern with `uvicorn web.api:app` (or `make run`).
 """
 
+import hmac
 import json
 import os
 import tempfile
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -21,6 +24,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from domain.errors import ValidationError
+from jobs.drop import run_drops
 from service.contacts import load_list, record_outcome, set_next_action, suppress
 from seams.lob import BadWebhookSignature, LobPrintApi
 from service.ingestion import ingest_event, record_note, resolve_orphans
@@ -29,6 +33,7 @@ from service.queries import (
     get_approval_queue,
     get_contact_timeline,
     get_pipeline,
+    get_wave,
     get_wave_dashboard,
     list_due_nudges,
     list_orphans,
@@ -42,6 +47,7 @@ from service.waves import (
     create_variant,
     draft_wave,
     preview_audience,
+    update_wave,
 )
 
 app = FastAPI(title="Mail Engine")
@@ -139,6 +145,15 @@ def api_draft_wave(body: DraftWaveBody):
         body.name, body.drop_number, body.audience_rule, body.variant_split, body.scheduled_for
     )
     return {"id": wave_id}
+
+
+@app.post("/api/waves/{wave_id}/update")
+def api_update_wave(wave_id: UUID, body: DraftWaveBody):
+    update_wave(
+        wave_id, body.name, body.drop_number, body.audience_rule,
+        body.variant_split, body.scheduled_for,
+    )
+    return {"status": "updated"}
 
 
 @app.get("/api/waves/{wave_id}/dashboard")
@@ -278,6 +293,31 @@ def ui_wave_dashboard(request: Request, wave_id: UUID):
     )
 
 
+@app.get("/waves/{wave_id}/edit")
+def ui_wave_edit(request: Request, wave_id: UUID):
+    return templates.TemplateResponse(request, "wave_edit.html", {"wave": get_wave(wave_id)})
+
+
+@app.post("/waves/{wave_id}/edit")
+def ui_update_wave(
+    wave_id: UUID,
+    name: str = Form(...),
+    drop_number: int = Form(...),
+    scheduled_for: str = Form(""),
+    audience_rule: str = Form("{}"),
+    variant_split: str = Form("{}"),
+):
+    update_wave(
+        wave_id,
+        name,
+        drop_number,
+        _json_field("audience_rule", audience_rule),
+        _json_field("variant_split", variant_split),
+        date.fromisoformat(scheduled_for) if scheduled_for else None,
+    )
+    return RedirectResponse(f"/waves/{wave_id}/approve", status_code=303)
+
+
 @app.get("/waves/{wave_id}/approve")
 def ui_approve_screen(request: Request, wave_id: UUID):
     return templates.TemplateResponse(
@@ -372,6 +412,49 @@ def ui_orphans(request: Request):
 def ui_resolve_orphans():
     resolve_orphans()
     return RedirectResponse("/orphans", status_code=303)
+
+
+@app.get("/drops")
+def ui_drops(request: Request):
+    return templates.TemplateResponse(
+        request,
+        "drops.html",
+        {
+            "enabled": bool(os.environ.get("DROP_PASSWORD", "")),
+            "default_as_of": date.today() + timedelta(days=1),
+            "reports": None,
+        },
+    )
+
+
+@app.post("/drops/run")
+def ui_run_drops(request: Request, password: str = Form(...), as_of: date = Form(...)):
+    """The one routed execution trigger (see module docstring). Same verb as the
+    cron/CLI path; the password is deliberate-action friction, and fail-closed
+    mirrors the webhook secret."""
+    secret = os.environ.get("DROP_PASSWORD", "")
+    if not secret:
+        return JSONResponse(
+            status_code=503, content={"detail": "DROP_PASSWORD not configured"}
+        )
+    if not hmac.compare_digest(password.encode(), secret.encode()):
+        return JSONResponse(status_code=401, content={"detail": "wrong password"})
+    api = LobPrintApi(
+        os.environ["LOB_API_KEY"],
+        {
+            "name": os.environ["LOB_FROM_NAME"],
+            "address_line1": os.environ["LOB_FROM_LINE1"],
+            "address_city": os.environ["LOB_FROM_CITY"],
+            "address_state": os.environ["LOB_FROM_STATE"],
+            "address_zip": os.environ["LOB_FROM_ZIP"],
+        },
+        cost_cents=int(os.environ.get("LOB_COST_CENTS", "87")),
+    )
+    return templates.TemplateResponse(
+        request,
+        "drops.html",
+        {"enabled": True, "default_as_of": as_of, "reports": run_drops(api, as_of)},
+    )
 
 
 @app.post("/webhooks/lob")

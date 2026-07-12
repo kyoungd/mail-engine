@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Edit wave — {{ wave.name }}</h1>
+<form method="post" action="/waves/{{ wave.id }}/edit">
+  <p><label>Name <input name="name" value="{{ wave.name }}" required></label></p>
+  <p><label>Drop number <input name="drop_number" type="number" min="1"
+    value="{{ wave.drop_number }}" required></label></p>
+  <p><label>Scheduled for <input name="scheduled_for" type="date"
+    value="{{ wave.scheduled_for or '' }}"></label></p>
+  <p><label>Audience rule (JSON — keys: segment, trade, source, stage, city, zip_prefix,
+    not_responded_to_wave, limit; e.g.
+    <code>{"trade": ["hvac"], "zip_prefix": ["913", "914", "916"], "stage": ["prospect"], "limit": 500}</code>
+    — limit takes a deterministic random sample; stage "prospect" = never mailed)<br>
+    <textarea name="audience_rule" rows="4" cols="60">{{ wave.audience_rule | tojson }}</textarea></label></p>
+  <p><label>Variant split (JSON — variant id → weight; ids are on the Variants page)<br>
+    <textarea name="variant_split" rows="4" cols="60">{{ wave.variant_split | tojson }}</textarea></label></p>
+  <button type="submit">Save changes</button>
+</form>
+<p>Editable while draft only — approval locks the wave. Saving invalidates any earlier
+preview; you'll re-preview before approving.</p>
+{% endblock %}
