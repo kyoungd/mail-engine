@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>List intake</h1>
+{% if report %}
+<p><strong>Intake report:</strong>
+  loaded {{ report.loaded }} · deduped {{ report.deduped }} ·
+  invalid {{ report.invalid }} · suppressed {{ report.suppressed }}</p>
+{% endif %}
+<form method="post" action="/intake" enctype="multipart/form-data">
+  <p><label>CSV file <input name="file" type="file" accept=".csv" required></label></p>
+  <p><label>Source <input name="source" value="cslb"></label></p>
+  <button type="submit">Load list</button>
+</form>
+<p>Dedupes on CSLB license (against the DB and within the file), normalizes phones to
+E.164, assigns segments. Rows without a trade are invalid; do_not_mail rows load suppressed.</p>
+{% endblock %}

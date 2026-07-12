@@ -23,7 +23,7 @@ from db.session import transaction
 from derivation.rules import derive_stage
 from domain.errors import ValidationError
 from domain.types import ContactFlags, ExecutionReport, RecomputeReport
-from seams.print_api import PrintApi
+from seams.print_api import PrintApi, Recipient
 from service.ingestion import EVENT_COLS, append_event, event_from_row
 from service.waves import resolve_audience
 
@@ -173,8 +173,23 @@ def execute_wave(wave_id: UUID, print_api: PrintApi) -> ExecutionReport:
                 assert piece_row is not None
                 piece_id, piece_status = piece_row
                 if piece_status == "created":
+                    cur.execute(
+                        "select business_name, contact_name, addr_line1, addr_line2, "
+                        "addr_city, addr_state, addr_zip from contacts where id = %s",
+                        (contact_id,),
+                    )
+                    c = cur.fetchone()
+                    assert c is not None
+                    recipient = Recipient(
+                        name=c[0] or c[1] or "Business Owner",
+                        address_line1=c[2] or "",
+                        address_line2=c[3],
+                        city=c[4] or "",
+                        state=c[5] or "",
+                        zip_code=c[6] or "",
+                    )
                     result = print_api.submit_piece(
-                        mailer_code, creatives.get(variant_id, {})
+                        mailer_code, creatives.get(variant_id, {}), recipient
                     )
                     cur.execute(
                         "update pieces set lob_id = %s, cost_cents = %s, "

@@ -1,0 +1,125 @@
+"""The real Lob client behind the PrintApi seam (docs.lob.com, verified 2026-07-11;
+decision record: docs/decisions.md). Stdlib HTTP only — no new dependencies.
+
+- submit: POST /v1/postcards, Basic auth (key as username), `Idempotency-Key` header =
+  our mailer code (the resumability guarantee), mailer code also in metadata +
+  merge_variables so webhooks and creative can both carry it.
+- webhooks: HMAC-SHA256 over f"{timestamp}.{raw body}", headers Lob-Signature +
+  Lob-Signature-Timestamp, 5-minute tolerance. postcard.processed_for_delivery is the
+  delivery proxy (USPS never scans a postcard into the mailbox); other tracking events
+  are untracked -> None.
+"""
+
+import base64
+import hashlib
+import hmac
+import json
+import urllib.request
+from datetime import UTC, datetime
+from typing import Any, Callable
+
+from domain.enums import EventSource
+from domain.types import Event
+from seams.print_api import Recipient, SubmissionResult
+
+_EVENT_TYPE_MAP = {
+    "postcard.processed_for_delivery": "piece.delivered",
+    "postcard.returned_to_sender": "piece.returned",
+}
+_SIGNATURE_TOLERANCE_SECONDS = 300
+
+
+class BadWebhookSignature(ValueError):
+    pass
+
+
+def _default_transport(url: str, body: bytes, headers: dict[str, str]) -> dict:
+    request = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return json.loads(response.read())
+
+
+class LobPrintApi:
+    def __init__(
+        self,
+        api_key: str,
+        from_address: dict[str, str],
+        webhook_secret: str = "",
+        cost_cents: int = 87,
+        base_url: str = "https://api.lob.com/v1",
+        transport: Callable[[str, bytes, dict[str, str]], dict] | None = None,
+    ) -> None:
+        self.api_key = api_key
+        self.from_address = from_address
+        self.webhook_secret = webhook_secret
+        self.cost_cents = cost_cents
+        self.base_url = base_url
+        self.transport = transport or _default_transport
+
+    def submit_piece(
+        self, mailer_code: str, creative: dict[str, Any], recipient: Recipient
+    ) -> SubmissionResult:
+        payload = {
+            "to": {
+                "name": recipient.name,
+                "address_line1": recipient.address_line1,
+                "address_line2": recipient.address_line2 or "",
+                "address_city": recipient.city,
+                "address_state": recipient.state,
+                "address_zip": recipient.zip_code,
+            },
+            "from": self.from_address,
+            "front": creative.get("front", ""),
+            "back": creative.get("back", ""),
+            "size": creative.get("size", "4x6"),
+            "mail_type": creative.get("mail_type", "usps_first_class"),
+            "use_type": "marketing",
+            "merge_variables": {"mailer_code": mailer_code},
+            "metadata": {"mailer_code": mailer_code},
+        }
+        auth = base64.b64encode(f"{self.api_key}:".encode()).decode()
+        headers = {
+            "Authorization": f"Basic {auth}",
+            "Content-Type": "application/json",
+            "Idempotency-Key": mailer_code,
+        }
+        response = self.transport(
+            f"{self.base_url}/postcards", json.dumps(payload).encode(), headers
+        )
+        return SubmissionResult(external_id=response["id"], cost_cents=self.cost_cents)
+
+    def parse_webhook(self, raw: bytes, headers: dict[str, str]) -> Event | None:
+        lower = {k.lower(): v for k, v in headers.items()}
+        signature = lower.get("lob-signature", "")
+        timestamp = lower.get("lob-signature-timestamp", "")
+        expected = hmac.new(
+            self.webhook_secret.encode(),
+            f"{timestamp}.".encode() + raw,
+            hashlib.sha256,
+        ).hexdigest()
+        if not signature or not hmac.compare_digest(expected, signature):
+            raise BadWebhookSignature("Lob webhook signature mismatch")
+        age = abs(datetime.now(UTC).timestamp() - int(timestamp) / 1000)
+        if age > _SIGNATURE_TOLERANCE_SECONDS:
+            raise BadWebhookSignature("Lob webhook timestamp outside tolerance")
+
+        data = json.loads(raw)
+        event_type = _EVENT_TYPE_MAP.get(data.get("event_type", {}).get("id", ""))
+        if event_type is None:
+            return None
+        body = data.get("body", {})
+        occurred = data.get("date_created")
+        at = (
+            datetime.fromisoformat(occurred.replace("Z", "+00:00"))
+            if occurred
+            else datetime.now(UTC)
+        )
+        return Event(
+            id=0,
+            source=EventSource.LOB,
+            type=event_type,
+            occurred_at=at,
+            ingested_at=at,
+            external_id=data.get("id"),
+            payload={"mailer_code": (body.get("metadata") or {}).get("mailer_code")},
+        )

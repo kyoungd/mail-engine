@@ -22,6 +22,7 @@ def test_parse_webhook_translates_delivered_to_canonical_event():
 
     event = fake.parse_webhook(raw, {})
 
+    assert event is not None
     assert event.type == "piece.delivered"
     assert event.source == EventSource.LOB
     assert event.external_id == "evt_1"
@@ -31,4 +32,6 @@ def test_parse_webhook_translates_delivered_to_canonical_event():
 def test_parse_webhook_translates_returned():
     fake = FakePrintApi()
     raw = json.dumps({"status": "returned", "mailer_code": "xyz", "id": "evt_2"}).encode()
-    assert fake.parse_webhook(raw, {}).type == "piece.returned"
+    event = fake.parse_webhook(raw, {})
+    assert event is not None
+    assert event.type == "piece.returned"

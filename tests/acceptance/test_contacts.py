@@ -15,7 +15,7 @@ from service.execution import recompute_state
 from service.ingestion import ingest_event
 
 FIELDS = [
-    "cslb_license", "business_name", "trade", "phone", "addr_state",
+    "list_key", "business_name", "trade", "phone", "addr_state",
     "do_not_mail", "segment",
 ]
 
@@ -50,12 +50,12 @@ def test_load_list_counts_normalizes_and_segments(clean_db, tmp_path, readonly_u
     path = _write_csv(
         tmp_path / "list.csv",
         [
-            {"cslb_license": "L1", "business_name": "A Plumbing", "trade": "plumber",
+            {"list_key": "cslb-L1", "business_name": "A Plumbing", "trade": "plumber",
              "phone": "(818) 679-3565", "addr_state": "ca"},
-            {"cslb_license": "L2", "business_name": "B Electric", "trade": "electrician",
+            {"list_key": "cslb-L2", "business_name": "B Electric", "trade": "electrician",
              "phone": "bad", "addr_state": "CA", "do_not_mail": "true"},
-            {"cslb_license": "L1", "trade": "plumber"},  # duplicate license
-            {"cslb_license": "L3", "trade": ""},         # invalid: no trade
+            {"list_key": "cslb-L1", "trade": "plumber"},  # duplicate key
+            {"list_key": "cslb-L3", "trade": ""},         # invalid: no trade AND no segment
         ],
     )
     report = load_list(path)
@@ -63,7 +63,7 @@ def test_load_list_counts_normalizes_and_segments(clean_db, tmp_path, readonly_u
 
     with psycopg.connect(readonly_url) as conn:
         with conn.cursor() as cur:
-            cur.execute("select phone_e164, segment from contacts where cslb_license = 'L1'")
+            cur.execute("select phone_e164, segment from contacts where list_key = 'cslb-L1'")
             row = cur.fetchone()
             assert row is not None
             phone, segment = row
@@ -71,11 +71,29 @@ def test_load_list_counts_normalizes_and_segments(clean_db, tmp_path, readonly_u
     assert segment == "plumber-CA"
 
 
+def test_load_list_trade_less_row_with_segment_is_valid(clean_db, tmp_path, readonly_url):
+    """The FBN shape: no trade, targetable via segment."""
+    path = _write_csv(
+        tmp_path / "fbn.csv",
+        [{"list_key": "fbn-ca-2026000001", "business_name": "New Biz",
+          "trade": "", "segment": "fbn-ca-2026"}],
+    )
+    report = load_list(path, source="fbn-ca-2026")
+    assert (report.loaded, report.invalid) == (1, 0)
+
+    with psycopg.connect(readonly_url) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "select trade, segment, source from contacts where list_key = 'fbn-ca-2026000001'"
+            )
+            assert cur.fetchone() == (None, "fbn-ca-2026", "fbn-ca-2026")
+
+
 def test_load_list_dedupes_against_existing_rows(clean_db, tmp_path, owner_conn):
     with owner_conn.cursor() as cur:
-        cur.execute("insert into contacts (cslb_license, trade) values ('L9', 'plumber')")
+        cur.execute("insert into contacts (list_key, trade) values ('cslb-L9', 'plumber')")
     owner_conn.commit()
-    path = _write_csv(tmp_path / "l.csv", [{"cslb_license": "L9", "trade": "plumber"}])
+    path = _write_csv(tmp_path / "l.csv", [{"list_key": "cslb-L9", "trade": "plumber"}])
     report = load_list(path)
     assert report.loaded == 0
     assert report.deduped == 1
@@ -104,6 +122,26 @@ def test_suppress_sets_flag_appends_event_and_derives_suppressed(
 
 def test_suppress_is_one_way_no_unsuppress_verb():
     assert not hasattr(contacts, "unsuppress")
+
+
+def test_opt_out_halts_mail_immediately_without_a_recompute(clean_db, owner_conn, readonly_url):
+    from service.waves import resolve_audience
+
+    contact_id = _seed_contact(owner_conn)  # plumber, do_not_mail = false
+    suppress(contact_id, "opt_out")
+    # No recompute has run — the audience resolver must already exclude them.
+    with owner_conn.cursor() as cur:
+        remaining = resolve_audience(cur, {"trade": ["plumber"]})
+    assert contact_id not in remaining
+
+    with psycopg.connect(readonly_url) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "select do_not_mail, do_not_text from contacts where id = %s", (contact_id,)
+            )
+            row = cur.fetchone()
+            assert row is not None
+            assert row == (True, True)
 
 
 def test_suppress_rejects_bad_reason(clean_db, owner_conn):

@@ -1,7 +1,7 @@
 """Creative and wave-lifecycle verbs (service contract §2).
 
-The audience rule is data: a small JSON filter (segment, trade, stage,
-not_responded_to_wave) resolved against current state. `_audience_where` is the single
+The audience rule is data: a small JSON filter (segment, trade, source, stage,
+not_responded_to_wave, limit) resolved against current state. `_audience_where` is the single
 source of that interpretation — `preview_audience` and (Phase 3) `execute_wave` both
 resolve through it, so what is approved is exactly what fires. do_not_mail and
 suppressed contacts are always excluded, unconditionally.
@@ -23,7 +23,7 @@ from domain.errors import ValidationError
 from domain.types import AudiencePreview, SampleContact
 
 # Grammar of the audience rule. Unknown keys are rejected, not ignored.
-_AUDIENCE_KEYS = {"segment", "trade", "stage", "not_responded_to_wave"}
+_AUDIENCE_KEYS = {"segment", "trade", "source", "stage", "not_responded_to_wave", "limit"}
 # A contact who received a piece but has not responded sits in one of these stages.
 _NON_RESPONSE_STAGES = ["prospect", "in_sequence"]
 # Placeholder per-piece cost until the print seam supplies a real estimate (Phase 3).
@@ -36,6 +36,12 @@ def validate_audience_rule(rule: dict[str, Any]) -> None:
         raise ValidationError(
             "unknown_audience_key", f"unknown audience keys: {sorted(unknown)}"
         )
+    if "limit" in rule:
+        limit = rule["limit"]
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+            raise ValidationError(
+                "bad_limit", f"limit must be a positive integer, got {limit!r}"
+            )
 
 
 def _audience_where(rule: dict[str, Any]) -> tuple[sql.Composed, list[Any]]:
@@ -53,6 +59,9 @@ def _audience_where(rule: dict[str, Any]) -> tuple[sql.Composed, list[Any]]:
     if "trade" in rule:
         clauses.append(sql.SQL("c.trade = any(%s)"))
         params.append(list(rule["trade"]))
+    if "source" in rule:
+        clauses.append(sql.SQL("c.source = any(%s)"))
+        params.append(list(rule["source"]))
     if "stage" in rule:
         clauses.append(sql.SQL("c.stage_snapshot::text = any(%s)"))
         params.append(list(rule["stage"]))
@@ -80,14 +89,25 @@ def _state_hash(contact_ids: list[str], variant_split: dict[str, Any]) -> str:
 
 def resolve_audience(cur, rule: dict[str, Any]) -> list[UUID]:
     """Resolve the rule to a deterministic, ordered list of contact ids. Shared by
-    preview and execution so the two can never diverge over unchanged state."""
+    preview and execution so the two can never diverge over unchanged state. A `limit`
+    takes a deterministic pseudo-random sample (hash order, not insertion order), so
+    a capped wave is an unbiased slice AND stable between preview and drop."""
     where, params = _audience_where(rule)
-    cur.execute(
-        sql.SQL("select c.id from contacts c where {where} order by c.id").format(
-            where=where
-        ),
-        params,
-    )
+    if "limit" in rule:
+        cur.execute(
+            sql.SQL(
+                "select c.id from contacts c where {where} "
+                "order by md5(c.id::text), c.id limit %s"
+            ).format(where=where),
+            [*params, rule["limit"]],
+        )
+    else:
+        cur.execute(
+            sql.SQL("select c.id from contacts c where {where} order by c.id").format(
+                where=where
+            ),
+            params,
+        )
     return [r[0] for r in cur.fetchall()]
 
 
@@ -145,15 +165,17 @@ def preview_audience(wave_id: UUID) -> AudiencePreview:
             if row is None:
                 raise ValidationError("no_wave", f"no wave {wave_id}")
             audience_rule, variant_split = row
-            where, params = _audience_where(audience_rule)
-            cur.execute(
-                sql.SQL(
-                    "select c.id, c.business_name, c.segment, c.stage_snapshot "
-                    "from contacts c where {where} order by c.id"
-                ).format(where=where),
-                params,
-            )
-            rows = cur.fetchall()
+            # Resolve through the SAME path approval and execution use — never a
+            # parallel query, or preview could diverge from what fires (e.g. `limit`).
+            audience = resolve_audience(cur, audience_rule)
+            rows = []
+            if audience:
+                cur.execute(
+                    "select id, business_name, segment, stage_snapshot "
+                    "from contacts where id = any(%s) order by id",
+                    (audience,),
+                )
+                rows = cur.fetchall()
 
     by_segment: dict[str, int] = {}
     by_stage: dict[str, int] = {}

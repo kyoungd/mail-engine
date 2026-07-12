@@ -35,7 +35,7 @@ Two founders. Young (technical, owns mail channel) — primary operator: compose
 
 ## 6. Functional requirements
 
-**FR-1 List intake.** Bulk-load CSLB list: dedupe, E.164 phone normalization, NCOA/CASS address validation, segment assignment (trade, license class, geography). Intake report with counts.
+**FR-1 List intake.** Bulk-load purchased lists through one intake adapter per source format (CSLB contractor list; county FBN feeds, starting with CA — other states will arrive in other formats): filter to live records, dedupe on an adapter-prefixed per-list key, E.164 phone normalization, NCOA/CASS address validation, segment assignment. The spine never learns a vendor's columns. Intake report with counts.
 
 **FR-2 Creative variants.** Variants stored with required one-line hypothesis and creative payload. A variant without a hypothesis cannot exist.
 
@@ -55,7 +55,7 @@ Two founders. Young (technical, owns mail channel) — primary operator: compose
 
 **FR-10 Judgment job.** Nightly, after sync and recompute: deterministic rules detect conditions (quiet responder, hot response, demo no-show, activation stall/partial, returned mail, wave anomaly, pending approval, orphan events, aging-out), AI composes 30-second action briefs (template fallback — delivery never depends on the model). Discipline: 5-nudge daily budget with priority overflow, per-contact cooldown, expiry not escalation, one morning digest per founder via NMC's own sending, silence as valid output. Nudges logged as events; the job grades itself monthly.
 
-**FR-11 Web UI.** Thin window over service verbs: wave dashboard, approval queue (with preview + approve button — the system's one gated action), contact timeline, pipeline view, activation board. No analysis features; renders state and gates actions only.
+**FR-11 Web UI.** Thin window over service verbs (v1: every founder-initiated verb is fronted; one verb per route, no logic in the web layer): wave index + composer (draft, preview, cancel), approval queue (preview + approve button — approval remains the gate before any drop), variant catalog (create requires hypothesis), contact search + timeline with founder actions (note, next action, lost, suppress-with-confirm), list intake (CSV upload + report), orphan queue (view + resolve pass), pipeline view, activation board, due nudges. No analysis features. Execution stays job-only: `execute_wave`, `sync`, `recompute`, and the nightly are never routed — dropping mail is a job, not an HTTP call.
 
 **FR-12 Conversational analysis.** Ad-hoc questions answered by AI (Claude Code) via SQL through a read-only role against retained raw history. Post-wave learnings memo quoting variant hypotheses against results. Recurring questions graduate to fixed UI panels; novel ones never require new UI.
 
@@ -98,7 +98,7 @@ Per the implementation plan: Phase 0 skeleton → 1 truth machinery → 2 contra
 
 ## 12. Open questions
 
-1. Lob vs. PostGrid final call — decide on address-verification quality and per-piece price at current volumes (seam makes this low-stakes).
+1. ~~Lob vs. PostGrid final call~~ — **DECIDED 2026-07-11: Lob** (see docs/decisions.md; chosen on API fit at price parity after verified quotes from Stannp/Poplar; PostGrid remains the named fallback, re-quote at >5k pieces/month).
 2. `hot_response` same-day delivery vs. morning digest only — start digest-only; promote if wave-1 response latency data says hours matter.
 3. Partner's nudge channel (SMS vs. email) — his preference, ask him.
 4. Whether affiliate-referred prospects enter this system's pipeline view from day one or only post-response — leaning day-one with `owner=partner`, confirm with him before wave 1.

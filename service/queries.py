@@ -16,8 +16,10 @@ from domain.enums import ContactStage
 from domain.types import (
     ActivationCard,
     ContactCard,
+    ContactSummary,
     Event,
     Nudge,
+    Variant,
     VariantStat,
     WaveDashboard,
     WaveSummary,
@@ -182,6 +184,92 @@ def get_activation_board() -> list[ActivationCard]:
             )
         )
     return cards
+
+
+def list_waves() -> list[WaveSummary]:
+    """Every wave regardless of status, newest drop first — the wave index view."""
+    with readonly_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "select id, name, drop_number, status, scheduled_for from waves "
+                "order by drop_number desc, created_at desc"
+            )
+            return [
+                WaveSummary(
+                    id=r[0],
+                    name=r[1],
+                    drop_number=r[2],
+                    status=r[3],
+                    scheduled_for=r[4],
+                )
+                for r in cur.fetchall()
+            ]
+
+
+def list_variants() -> list[Variant]:
+    """Every creative variant with its hypothesis, newest first."""
+    with readonly_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "select id, name, hypothesis, creative, created_at from variants "
+                "order by created_at desc"
+            )
+            return [
+                Variant(
+                    id=r[0],
+                    name=r[1],
+                    hypothesis=r[2],
+                    creative=r[3],
+                    created_at=r[4],
+                )
+                for r in cur.fetchall()
+            ]
+
+
+def search_contacts(q: str, limit: int = 50) -> list[ContactSummary]:
+    """Browse/search contacts by name, trade, phone, list key, segment, or source.
+    An empty query browses (source is not null, so every contact matches '%%')."""
+    pattern = f"%{q.strip()}%"
+    with readonly_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "select id, business_name, contact_name, trade, segment, phone_e164, "
+                "list_key, source, stage_snapshot, do_not_mail from contacts "
+                "where business_name ilike %s or contact_name ilike %s or trade ilike %s "
+                "or phone_e164 ilike %s or list_key ilike %s or segment ilike %s "
+                "or source ilike %s "
+                "order by business_name nulls last, id limit %s",
+                (pattern, pattern, pattern, pattern, pattern, pattern, pattern, limit),
+            )
+            return [
+                ContactSummary(
+                    id=r[0],
+                    business_name=r[1],
+                    contact_name=r[2],
+                    trade=r[3],
+                    segment=r[4],
+                    phone_e164=r[5],
+                    list_key=r[6],
+                    source=r[7],
+                    stage_snapshot=ContactStage(r[8]),
+                    do_not_mail=r[9],
+                )
+                for r in cur.fetchall()
+            ]
+
+
+def list_orphans() -> list[Event]:
+    """Unattributed events, newest first — the orphan queue FR-6 surfaces instead of
+    guessing at attribution."""
+    with readonly_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                sql.SQL(
+                    "select {cols} from events where contact_id is null "
+                    "order by occurred_at desc, id desc"
+                ).format(cols=EVENT_COLS)
+            )
+            return [event_from_row(r) for r in cur.fetchall()]
 
 
 def list_due_nudges(as_of: date | None = None) -> list[Nudge]:

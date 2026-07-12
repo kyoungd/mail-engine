@@ -2,22 +2,31 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Mail Engine</title>
-  <style>
-    body { font-family: system-ui, sans-serif; margin: 2rem; }
-    table { border-collapse: collapse; }
-    th, td { border: 1px solid #ccc; padding: 4px 8px; text-align: left; }
-    nav a { margin-right: 1rem; }
-    button { padding: 6px 14px; }
-  </style>
+  <link rel="stylesheet" href="/static/pico.classless.min.css">
 </head>
 <body>
-  <nav>
-    <a href="/pipeline">Pipeline</a>
-    <a href="/activation">Activation</a>
-    <a href="/approvals">Approvals</a>
-  </nav>
-  <hr>
-  {% block content %}{% endblock %}
+  <header>
+    <nav>
+      <ul>
+        <li><strong>Mail Engine</strong></li>
+      </ul>
+      <ul>
+        <li><a href="/waves">Waves</a></li>
+        <li><a href="/approvals">Approvals</a></li>
+        <li><a href="/pipeline">Pipeline</a></li>
+        <li><a href="/activation">Activation</a></li>
+        <li><a href="/contacts">Contacts</a></li>
+        <li><a href="/variants">Variants</a></li>
+        <li><a href="/intake">Intake</a></li>
+        <li><a href="/orphans">Orphans</a></li>
+        <li><a href="/nudges">Nudges</a></li>
+      </ul>
+    </nav>
+  </header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
 </body>
 </html>

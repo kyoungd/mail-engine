@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Waves</h1>
+<p><a href="/waves/new">+ New wave</a></p>
+<table>
+  <tr><th>Wave</th><th>Drop</th><th>Status</th><th>Scheduled</th><th></th><th></th></tr>
+  {% for w in waves %}
+  <tr>
+    <td><a href="/waves/{{ w.id }}">{{ w.name }}</a></td>
+    <td>{{ w.drop_number }}</td>
+    <td>{{ w.status }}</td>
+    <td>{{ w.scheduled_for or '—' }}</td>
+    <td>
+      {% if w.status == 'draft' %}<a href="/waves/{{ w.id }}/approve">review &amp; approve →</a>{% endif %}
+    </td>
+    <td>
+      {% if w.status not in ('executing', 'sent', 'cancelled') %}
+      <form method="post" action="/waves/{{ w.id }}/cancel"
+            onsubmit="return confirm('Cancel wave {{ w.name }}?')" style="margin:0">
+        <button type="submit">cancel</button>
+      </form>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% endblock %}

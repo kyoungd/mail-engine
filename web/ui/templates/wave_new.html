@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>New wave</h1>
+<form method="post" action="/waves/new">
+  <p><label>Name <input name="name" required></label></p>
+  <p><label>Drop number <input name="drop_number" type="number" min="1" required></label></p>
+  <p><label>Scheduled for <input name="scheduled_for" type="date"></label></p>
+  <p><label>Audience rule (JSON — keys: segment, trade, source, stage, not_responded_to_wave,
+    limit; e.g. <code>{"segment": ["plumber-los-angeles"], "limit": 500}</code> — limit takes a
+    deterministic random sample)<br>
+    <textarea name="audience_rule" rows="4" cols="60">{}</textarea></label></p>
+  <p><label>Variant split (JSON — variant id → weight; ids are on the Variants page)<br>
+    <textarea name="variant_split" rows="4" cols="60">{}</textarea></label></p>
+  <button type="submit">Save draft</button>
+</form>
+<p>Drafting only stores the rule — the audience resolves at preview and again at execution.</p>
+{% endblock %}

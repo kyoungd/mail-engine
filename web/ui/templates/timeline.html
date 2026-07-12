@@ -7,4 +7,39 @@
   <tr><td>{{ e.occurred_at }}</td><td>{{ e.source }}</td><td>{{ e.type }}</td></tr>
   {% endfor %}
 </table>
+
+<h3>Add note</h3>
+<form method="post" action="/contacts/{{ contact_id }}/note">
+  <select name="note_type">
+    <option value="note.general">general</option>
+    <option value="note.demo_call">demo call</option>
+    <option value="note.partner">partner</option>
+  </select>
+  <input name="text" size="60" placeholder="what happened" required>
+  <button type="submit">Add</button>
+</form>
+
+<h3>Set next action</h3>
+<form method="post" action="/contacts/{{ contact_id }}/next-action">
+  <input name="action_date" type="date" required>
+  <input name="note" size="60" placeholder="what to do" required>
+  <button type="submit">Set</button>
+</form>
+
+<h3>Declare lost</h3>
+<form method="post" action="/contacts/{{ contact_id }}/lost"
+      onsubmit="return confirm('Declare this conversation lost?')">
+  <input name="reason" size="60" placeholder="why" required>
+  <button type="submit">Lost</button>
+</form>
+
+<h3>Suppress</h3>
+<form method="post" action="/contacts/{{ contact_id }}/suppress"
+      onsubmit="return confirm('Suppression is permanent and irreversible. Proceed?')">
+  <select name="reason">
+    <option value="do_not_mail">do_not_mail (stop mail)</option>
+    <option value="opt_out">opt_out (stop mail + SMS)</option>
+  </select>
+  <button type="submit">Suppress — irreversible</button>
+</form>
 {% endblock %}

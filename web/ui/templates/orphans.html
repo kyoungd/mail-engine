@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Orphan events</h1>
+<p>{{ events | length }} unattributed event(s).
+  Attribution never guesses — these matched no mailer code, thread, or phone.</p>
+<form method="post" action="/orphans/resolve" style="margin:0 0 1rem">
+  <button type="submit">Run resolution pass</button>
+</form>
+<table>
+  <tr><th>When</th><th>Source</th><th>Type</th><th>Payload</th></tr>
+  {% for e in events %}
+  <tr>
+    <td>{{ e.occurred_at }}</td>
+    <td>{{ e.source }}</td>
+    <td>{{ e.type }}</td>
+    <td><code>{{ e.payload | tojson }}</code></td>
+  </tr>
+  {% endfor %}
+</table>
+{% endblock %}

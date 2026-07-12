@@ -43,9 +43,11 @@ mail-engine/
 │   ├── nightly.py        # orchestrator: sync → recompute → judgment (order matters)
 │   ├── sync.py           # runs each ResponseFeed through ingestion
 │   └── drop.py           # picks up approved+due waves → execution.execute_wave
+├── intake/
+│   └── fbn_ca.py         # per-format list adapters: raw vendor file → canonical intake CSV (stdlib only)
 ├── web/
 │   ├── api.py            # thin HTTP over service/ (FastAPI); no logic
-│   └── ui/               # the window + approval button
+│   └── ui/               # the window + founder-initiated actions (v1); execution stays job-only
 └── config/
     └── params.py         # judgment parameters; reads config table
 ```

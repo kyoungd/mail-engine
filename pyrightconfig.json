@@ -3,5 +3,5 @@
   "venv": ".venv",
   "pythonVersion": "3.12",
   "typeCheckingMode": "basic",
-  "include": ["domain", "db", "derivation", "resolution", "service", "seams", "jobs", "judgment", "config", "ai", "web", "tests"]
+  "include": ["domain", "db", "derivation", "resolution", "service", "seams", "jobs", "judgment", "config", "ai", "web", "intake", "tests"]
 }

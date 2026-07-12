@@ -33,46 +33,46 @@ def _segment(trade: str, state: str | None) -> str:
 
 
 def load_list(csv_path: str, source: str = "cslb") -> IntakeReport:
-    """Bulk intake. Dedupes on cslb_license (against the DB and within the file),
-    normalizes phones to E.164, assigns a segment. Rows without a trade are invalid
-    and skipped. do_not_mail rows load suppressed. Returns the counts."""
+    """Bulk intake of a canonical intake CSV (the output of an intake adapter, see
+    intake/). Dedupes on list_key (against the DB and within the file), normalizes
+    phones to E.164, assigns a segment. A row must be targetable — trade or segment —
+    else it is invalid and skipped (source-specific rules like CSLB's "no trade = junk"
+    live in that list's adapter). do_not_mail rows load suppressed. Returns the counts."""
     loaded = deduped = invalid = suppressed = 0
     seen: set[str] = set()
 
     with transaction() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                "select cslb_license from contacts where cslb_license is not null"
-            )
+            cur.execute("select list_key from contacts where list_key is not null")
             existing = {r[0] for r in cur.fetchall()}
 
             with open(csv_path, newline="") as handle:
                 for row in csv.DictReader(handle):
-                    trade = (row.get("trade") or "").strip()
-                    if not trade:
+                    trade = _clean(row, "trade")
+                    segment = _clean(row, "segment") or (
+                        _segment(trade, _clean(row, "addr_state")) if trade else None
+                    )
+                    if not segment:
                         invalid += 1
                         continue
 
-                    license_no = _clean(row, "cslb_license")
-                    if license_no and (license_no in existing or license_no in seen):
+                    list_key = _clean(row, "list_key")
+                    if list_key and (list_key in existing or list_key in seen):
                         deduped += 1
                         continue
-                    if license_no:
-                        seen.add(license_no)
+                    if list_key:
+                        seen.add(list_key)
 
                     do_not_mail = (row.get("do_not_mail") or "").strip().lower() in _TRUTHY
-                    segment = _clean(row, "segment") or _segment(
-                        trade, _clean(row, "addr_state")
-                    )
 
                     cur.execute(
                         "insert into contacts "
-                        "(cslb_license, business_name, contact_name, trade, license_class, "
+                        "(list_key, business_name, contact_name, trade, license_class, "
                         "phone_e164, email, addr_line1, addr_line2, addr_city, addr_state, "
                         "addr_zip, segment, source, do_not_mail) "
                         "values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                         (
-                            license_no,
+                            list_key,
                             _clean(row, "business_name"),
                             _clean(row, "contact_name"),
                             trade,
@@ -119,8 +119,13 @@ def suppress(contact_id: UUID, reason: str) -> None:
                     "update contacts set do_not_mail = true where id = %s", (contact_id,)
                 )
             else:
+                # opt_out halts both channels immediately: mail via do_not_mail (so the
+                # audience resolver excludes them before the next recompute), SMS via
+                # do_not_text. Matches the suppressed derivation (opt_out => suppressed).
                 cur.execute(
-                    "update contacts set do_not_text = true where id = %s", (contact_id,)
+                    "update contacts set do_not_mail = true, do_not_text = true "
+                    "where id = %s",
+                    (contact_id,),
                 )
 
 

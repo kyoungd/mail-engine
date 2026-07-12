@@ -446,31 +446,38 @@ following unproven — nobody may read green fakes as production-ready:
 - New unit tests only where you find internals worth scaffolding while building the
   harness; they remain disposable, no authority.
 
-### Divergences found during this analysis (flag, do not silently fix)
+### Divergences found during this analysis — TRIAGED
 
-Per implementation-plan ground rule 1, these are **escalation items** — the tests above
-assert *current* behavior where noted; none of these authorizes a code change:
+The analysis surfaced six divergences. They were triaged; three were fixed (with tests),
+three remain deferred. Any §-scenario above that assumed the old behavior asserts the
+*new* behavior below.
 
-1. **`wave_anomaly` is half-built**: the design (judgment job §2) specifies "failure rate
-   > FAIL_PCT, **or zero responses by day RESP_CHECK_DAYS**"; `judgment/rules/wave_anomaly.py`
-   implements only the failure-rate half; `Params.resp_check_days = 10` exists unused. Do
-   not write a test for the unimplemented half — record it in the escalation.
-2. **`RULESET_VERSION`** (`derivation/rules.py`, currently `"2"`) is documented as "stamped
-   on snapshots" but no column/write exists.
-3. **`judgment/rules/assertions/` was planned (Phase 4) and not built** — §K covers the
-   ground as tests meanwhile.
-4. **The opt-out window** (`e2e_supp_optout_before_recompute_window`): `suppress(reason=
-   'opt_out')` sets `do_not_text` + the event only; audience exclusion engages at the next
-   recompute. A drop in between mails an opted-out contact. Real compliance nuance —
-   escalate; the pinned test flips one assertion when the decision lands.
-5. **Halted-mid-drop wave vs `run_drops`**: a crash leaves the wave `executing`, but
-   `run_drops` selects only `status='approved'` — the resume therefore requires a direct
-   `execute_wave` call, not the job. Assert whichever behavior you observe and record the
-   operational gap in the escalation.
-6. **`load_list` has no `owner` column mapping** (migration 0004 added `contacts.owner`,
-   default `'young'`) — partner-owned contacts can't be created through any verb. The
-   routing tests need it; use the documented SQL exception and include this in the
-   escalation.
+**Resolved (fixed with a test):**
+
+1. **The opt-out window — FIXED.** `suppress('opt_out')` now sets `do_not_mail = true` as
+   well as `do_not_text`, so the audience resolver excludes an opted-out contact
+   immediately, before the next recompute (matches the suppressed derivation:
+   opt_out ⇒ suppressed ⇒ no mail). Test:
+   `test_contacts.py::test_opt_out_halts_mail_immediately_without_a_recompute`.
+2. **`run_drops` couldn't resume a crashed drop — FIXED.** It now selects
+   `status in ('approved','executing')`, so the job resumes a wave left `executing` by a
+   mid-drop crash (`execute_wave` is idempotent). Test:
+   `test_jobs.py::test_run_drops_resumes_a_crashed_executing_wave`.
+3. **`wave_anomaly` was half-built — FIXED.** The rule now also fires on a *dead* wave —
+   out past `RESP_CHECK_DAYS` with zero response — not just on high failure rate. Tests:
+   `test_judgment_rules.py::test_wave_anomaly_fires_on_a_dead_wave` (+ two near-misses).
+
+**Deferred (recorded; the tests pin current behavior):**
+
+4. **`load_list` has no `owner` mapping** (migration 0004 added `contacts.owner`, default
+   `'young'`). Not needed yet — the CSLB list is entirely Young's; partner-owned contacts
+   arrive via a not-yet-built affiliate-intake path. Routing tests use the documented SQL
+   exception. When affiliate intake is built, `load_list` can honor an `owner` CSV column.
+5. **`RULESET_VERSION`** (`derivation/rules.py`) is documented as "stamped on snapshots"
+   but no column/write exists. Auditability, not function — deferred (needs a schema column).
+6. **`judgment/rules/assertions/`** (the data doc's "continuous data assertions") was
+   planned in Phase 4 and not built; it needs the missing `data.md §3` spec written first.
+   §K pins those invariants as tests meanwhile.
 
 ### The standing rule (restated from the implementation plan, § Cross-cutting)
 

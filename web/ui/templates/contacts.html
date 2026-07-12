@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Contacts</h1>
+<form method="get" action="/contacts">
+  <input name="q" value="{{ q }}" placeholder="name, trade, phone, list key, segment, source">
+  <button type="submit">Search</button>
+</form>
+<table>
+  <tr><th>Business</th><th>Contact</th><th>Trade</th><th>Segment</th><th>Source</th><th>Phone</th><th>List key</th><th>Stage</th><th>DNM</th></tr>
+  {% for c in contacts %}
+  <tr>
+    <td><a href="/contacts/{{ c.id }}">{{ c.business_name or c.id }}</a></td>
+    <td>{{ c.contact_name or '' }}</td>
+    <td>{{ c.trade or '' }}</td>
+    <td>{{ c.segment or '' }}</td>
+    <td>{{ c.source }}</td>
+    <td>{{ c.phone_e164 or '' }}</td>
+    <td>{{ c.list_key or '' }}</td>
+    <td>{{ c.stage_snapshot }}</td>
+    <td>{{ '✕' if c.do_not_mail else '' }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endblock %}

@@ -108,6 +108,44 @@ def test_audience_always_excludes_do_not_mail(clean_db, owner_conn):
     assert preview_audience(wave_id).count == 2
 
 
+def test_audience_rule_filters_by_source(clean_db, owner_conn):
+    """FBN-style targeting: a trade-less list is addressed by its source."""
+    _seed_prospects(owner_conn, 2)  # source defaults to 'cslb'
+    with owner_conn.cursor() as cur:
+        cur.execute(
+            "insert into contacts (segment, source) values ('fbn-ca-2026', 'fbn-ca-2026')"
+        )
+    owner_conn.commit()
+
+    wave_id = draft_wave("fbn-wave", 1, {"source": ["fbn-ca-2026"]}, {}, _future())
+    assert preview_audience(wave_id).count == 1
+
+
+def test_limit_takes_deterministic_unbiased_sample(clean_db, owner_conn):
+    _seed_prospects(owner_conn, 20)
+    wave_id = draft_wave("w", 1, {"trade": ["plumber"], "limit": 5}, {}, _future())
+
+    first = preview_audience(wave_id)
+    second = preview_audience(wave_id)
+    assert first.count == 5
+    assert first.state_hash == second.state_hash  # same sample every resolve
+
+    with owner_conn.cursor() as cur:
+        sampled = resolve_audience(cur, {"trade": ["plumber"], "limit": 5})
+        full = resolve_audience(cur, {"trade": ["plumber"]})
+    # exact expectation: md5-of-uuid order (the unbiased deterministic sample)
+    import hashlib
+
+    expected = sorted(full, key=lambda u: hashlib.md5(str(u).encode()).hexdigest())[:5]
+    assert sampled == expected
+
+
+def test_limit_must_be_positive_integer(clean_db):
+    for bad in (0, -3, "500", True, 2.5):
+        with pytest.raises(ValidationError):
+            draft_wave("w-bad", 1, {"limit": bad}, {}, _future())
+
+
 def test_not_responded_to_wave_targets_only_non_responders(clean_db, owner_conn):
     non_responder, responder = _seed_prospects(owner_conn, 2)
     variant_id = create_variant("v", "h", {})

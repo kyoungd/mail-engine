@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help up down migrate test lint fmt nuke
+.PHONY: help up down migrate run test lint fmt nuke
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -14,6 +14,10 @@ down: ## Stop Postgres (keeps data volume)
 migrate: ## Apply migrations as the owner role
 	@set -a && . ./.env && set +a && \
 		uv run yoyo apply --batch --database "$$OWNER_DATABASE_URL" db/migrations
+
+run: ## Start the web window (sources .env)
+	@set -a && . ./.env && set +a && \
+		uv run uvicorn web.api:app --host 127.0.0.1 --port 8000
 
 test: ## Run the test suite
 	uv run pytest

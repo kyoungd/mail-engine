@@ -43,8 +43,11 @@ record_note(contact_id, note_type, text) -> EventId
 
 ```
 load_list(csv_path, source='cslb') -> IntakeReport
-    Bulk intake: dedupe, normalize phones to E.164, NCOA/CASS validation,
-    segment assignment. Returns counts: loaded, deduped, invalid, suppressed.
+    Bulk intake of a canonical intake CSV (produced by a per-format adapter
+    in intake/ — e.g. intake/fbn_ca.py). Dedupe on list_key, normalize phones
+    to E.164, NCOA/CASS validation. A row must be targetable (trade or
+    segment) or it is invalid. Returns counts: loaded, deduped, invalid,
+    suppressed.
 
 suppress(contact_id, reason: 'do_not_mail'|'opt_out') -> None
     Sets the human-authored flag AND appends contact.opt_out event.

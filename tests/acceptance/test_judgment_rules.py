@@ -244,6 +244,42 @@ def test_wave_anomaly_near_miss_low_failure(clean_db, owner_conn, readonly_url):
     assert _evaluate(readonly_url, wave_anomaly) == []
 
 
+def _set_executed(conn, wave_id, days_ago):
+    with conn.cursor() as cur:
+        cur.execute("update waves set executed_at = %s where id = %s", (_dt(days_ago), wave_id))
+    conn.commit()
+
+
+def test_wave_anomaly_fires_on_a_dead_wave(clean_db, owner_conn, readonly_url):
+    # delivered fine, but out past RESP_CHECK_DAYS with zero response
+    wave_id, variant_id = _wave(owner_conn)
+    _set_executed(owner_conn, wave_id, 15)
+    for i in range(10):
+        _piece(owner_conn, wave_id, variant_id, "delivered", i)
+    assert [h.wave_id for h in _evaluate(readonly_url, wave_anomaly)] == [wave_id]
+
+
+def test_wave_anomaly_near_miss_too_recent_to_be_dead(clean_db, owner_conn, readonly_url):
+    wave_id, variant_id = _wave(owner_conn)
+    _set_executed(owner_conn, wave_id, 3)  # only 3 days out, RESP_CHECK_DAYS is 10
+    for i in range(10):
+        _piece(owner_conn, wave_id, variant_id, "delivered", i)
+    assert _evaluate(readonly_url, wave_anomaly) == []
+
+
+def test_wave_anomaly_near_miss_when_a_response_arrived(clean_db, owner_conn, readonly_url):
+    wave_id, variant_id = _wave(owner_conn)
+    _set_executed(owner_conn, wave_id, 15)
+    for i in range(10):
+        _piece(owner_conn, wave_id, variant_id, "delivered", i)
+    with owner_conn.cursor() as cur:
+        cur.execute("select contact_id from pieces where wave_id = %s limit 1", (wave_id,))
+        row = cur.fetchone()
+        assert row is not None
+    _event(owner_conn, row[0], "call.inbound", _dt(14))
+    assert _evaluate(readonly_url, wave_anomaly) == []
+
+
 # --- approval_pending ----------------------------------------------------------
 
 

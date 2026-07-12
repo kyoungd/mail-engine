@@ -30,7 +30,9 @@ class FakePrintApi:
         self.printed: dict[str, SubmissionResult] = {}
         self.submit_calls = 0
 
-    def submit_piece(self, mailer_code: str, creative: dict[str, Any]) -> SubmissionResult:
+    def submit_piece(
+        self, mailer_code: str, creative: dict[str, Any], recipient=None
+    ) -> SubmissionResult:
         if mailer_code in self.printed:
             return self.printed[mailer_code]
         if self.fail_after is not None and len(self.printed) >= self.fail_after:
@@ -40,13 +42,16 @@ class FakePrintApi:
         self.printed[mailer_code] = result
         return result
 
-    def parse_webhook(self, raw: bytes, headers: dict[str, str]) -> Event:
+    def parse_webhook(self, raw: bytes, headers: dict[str, str]) -> Event | None:
         data = json.loads(raw)
+        event_type = _WEBHOOK_STATUS_TO_TYPE.get(data["status"])
+        if event_type is None:
+            return None
         at = datetime.now(UTC)
         return Event(
             id=0,
             source=EventSource.LOB,
-            type=_WEBHOOK_STATUS_TO_TYPE[data["status"]],
+            type=event_type,
             occurred_at=at,
             ingested_at=at,
             external_id=data.get("id"),

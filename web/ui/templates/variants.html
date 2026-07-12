@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Variants</h1>
+<table>
+  <tr><th>Name</th><th>ID (for the wave form's variant split)</th><th>Hypothesis</th><th>Created</th></tr>
+  {% for v in variants %}
+  <tr>
+    <td>{{ v.name }}</td>
+    <td><code>{{ v.id }}</code></td>
+    <td>{{ v.hypothesis }}</td>
+    <td>{{ v.created_at.date() }}</td>
+  </tr>
+  {% endfor %}
+</table>
+
+<h3>New variant</h3>
+<form method="post" action="/variants">
+  <p><label>Name <input name="name" required></label></p>
+  <p><label>Hypothesis (required — a variant without one cannot exist)<br>
+    <textarea name="hypothesis" rows="2" cols="60" required></textarea></label></p>
+  <p><label>Creative (JSON payload)<br>
+    <textarea name="creative" rows="4" cols="60">{}</textarea></label></p>
+  <button type="submit">Create variant</button>
+</form>
+{% endblock %}

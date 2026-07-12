@@ -32,10 +32,14 @@ cp .env.example .env          # then edit the values (see §3a)
 make up                       # start Postgres 15, create the read-only role
 make migrate                  # apply migrations 0001–0004
 make test                     # full suite — proves the install
-uv run uvicorn web.api:app    # the web window at http://localhost:8000
+make run                      # the web window at http://localhost:8000
 ```
 
-`make` targets: `up`, `down`, `migrate`, `test`, `lint`, `fmt`, `nuke` (`make help`).
+`make` targets: `up`, `down`, `migrate`, `run`, `test`, `lint`, `fmt`, `nuke` (`make help`).
+
+> The app reads its two `*_DATABASE_URL`s straight from the process environment — there is
+> no dotenv loader in the app itself. `make run` (like `make migrate`) sources `.env` first;
+> a bare `uv run uvicorn web.api:app` only works if you export the variables yourself.
 
 ---
 
@@ -113,7 +117,7 @@ are proposed — they're finalized when each client is built.)*
 
 | Collect | What it is |
 |---------|-----------|
-| **CSLB list** | the purchased contractor list — CSV loaded via `load_list` |
+| **Purchased lists** | CSLB contractor list, county FBN feeds (CA in hand). Each format goes through its adapter in `intake/` (e.g. `python -m intake.fbn_ca raw.csv --year 2026 -o out.csv`), then the canonical CSV loads via `load_list` / the `/intake` page |
 
 ### 3c. Operational config — HAS DEFAULTS (collect only to override)
 

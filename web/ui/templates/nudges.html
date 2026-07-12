@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Due nudges</h1>
+<table>
+  <tr><th>Contact</th><th>Due</th><th>Note</th></tr>
+  {% for n in nudges %}
+  <tr>
+    <td><a href="/contacts/{{ n.contact_id }}">{{ n.contact_id }}</a></td>
+    <td>{{ n.next_action_at }}</td>
+    <td>{{ n.next_action_note or '' }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endblock %}

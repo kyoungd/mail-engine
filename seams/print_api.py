@@ -21,13 +21,28 @@ class SubmissionResult:
     cost_cents: int
 
 
+@dataclass(frozen=True, kw_only=True)
+class Recipient:
+    """The mailing destination for one piece, built from the contact row."""
+
+    name: str
+    address_line1: str
+    address_line2: str | None = None
+    city: str
+    state: str
+    zip_code: str
+
+
 class PrintApi(Protocol):
-    def submit_piece(self, mailer_code: str, creative: dict[str, Any]) -> SubmissionResult:
-        """Submit one piece. MUST be idempotent on `mailer_code` (the vendor
-        idempotency key), so a resumed drop never double-prints."""
+    def submit_piece(
+        self, mailer_code: str, creative: dict[str, Any], recipient: Recipient
+    ) -> SubmissionResult:
+        """Submit one piece to `recipient`. MUST be idempotent on `mailer_code` (the
+        vendor idempotency key), so a resumed drop never double-prints."""
         ...
 
-    def parse_webhook(self, raw: bytes, headers: dict[str, str]) -> Event:
-        """Translate a vendor delivery webhook into a canonical taxonomy event.
+    def parse_webhook(self, raw: bytes, headers: dict[str, str]) -> Event | None:
+        """Translate a vendor delivery webhook into a canonical taxonomy event, or
+        None for vendor event types we don't track. Raises on a bad signature.
         Vendor field names never appear in the returned event's shape."""
         ...

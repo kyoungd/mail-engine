@@ -12,7 +12,7 @@ The organizing principle: **everything flowing in is a fact, everything flowing 
 
 | Source | Tempo | Nature |
 |---|---|---|
-| CSLB list | One-time bulk load | Cleaned at intake (dedupe, NCOA/CASS); never trusted as fresh afterward |
+| Purchased lists (CSLB, county FBN feeds, …) | One-time bulk load per list, via a per-format intake adapter (`intake/`) | Cleaned at intake (dedupe on adapter-prefixed `list_key`, NCOA/CASS); never trusted as fresh afterward. Per-list shapes, coverage facts, and filter traps: [list-shapes.md](list-shapes.md) |
 | Lob webhooks | Real-time, per piece | Printed / delivered / returned — the denominator of every response rate |
 | PostHog | Nightly pull | Web response: landing visits, funnel steps, keyed by `?r=` mailer code |
 | NeverMissCall | Nightly pull | Phone response: calls, SMS threads, bookings from the dogfooded campaign line |
@@ -86,10 +86,10 @@ create type event_source as enum ('lob', 'posthog', 'nmc', 'human', 'system');
 
 create table contacts (
   id                uuid primary key default gen_random_uuid(),
-  cslb_license      text unique,
+  list_key          text unique,   -- per-list dedupe key, adapter-prefixed ('cslb-123456', 'fbn-ca-2024023299')
   business_name     text,
   contact_name      text,
-  trade             text not null,
+  trade             text,          -- nullable: unknown for non-trade lists (FBN); such rows target by segment/source
   license_class     text,
   phone_e164        text,
   email             text,

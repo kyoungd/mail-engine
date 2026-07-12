@@ -13,10 +13,10 @@ from domain.enums import ContactStage, EventSource, PieceStatus, WaveStatus
 @dataclass(frozen=True, kw_only=True)
 class Contact:
     id: UUID
-    cslb_license: str | None = None
+    list_key: str | None = None
     business_name: str | None = None
     contact_name: str | None = None
-    trade: str
+    trade: str | None = None
     license_class: str | None = None
     phone_e164: str | None = None
     email: str | None = None
@@ -177,6 +177,23 @@ class WaveDashboard:
     responses: int
     cost_cents: int
     cost_per_response_cents: int | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class ContactSummary:
+    """search_contacts row — the browse/search view, distinct from the pipeline's
+    ContactCard (which carries response-state math this view doesn't need)."""
+
+    id: UUID
+    business_name: str | None
+    contact_name: str | None
+    trade: str | None
+    segment: str | None
+    phone_e164: str | None
+    list_key: str | None
+    source: str
+    stage_snapshot: ContactStage
+    do_not_mail: bool
 
 
 @dataclass(frozen=True, kw_only=True)

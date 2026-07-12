@@ -15,7 +15,7 @@ def run_drops(print_api: PrintApi, as_of: date) -> list[ExecutionReport]:
         with conn.cursor() as cur:
             cur.execute(
                 "select id from waves "
-                "where status = 'approved' and scheduled_for <= %s "
+                "where status in ('approved', 'executing') and scheduled_for <= %s "
                 "order by scheduled_for, created_at",
                 (as_of,),
             )

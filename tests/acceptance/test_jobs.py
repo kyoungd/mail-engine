@@ -112,3 +112,22 @@ def test_run_drops_fires_only_due_approved_waves(clean_db, owner_conn, readonly_
     assert len(reports) == 1
     assert reports[0].pieces_created == 2
     assert _count(readonly_url, "select count(*) from pieces where wave_id = %s", (wave_id,)) == 2
+
+
+def test_run_drops_resumes_a_crashed_executing_wave(clean_db, owner_conn, readonly_url):
+    with owner_conn.cursor() as cur:
+        for _ in range(5):
+            cur.execute("insert into contacts (trade) values ('plumber')")
+    owner_conn.commit()
+    variant_id = create_variant("v", "h", {})
+    scheduled = datetime.now(UTC).date() + timedelta(days=1)
+    wave_id = draft_wave("w", 1, {"trade": ["plumber"]}, {str(variant_id): 1}, scheduled)
+    approve_wave(wave_id, "young")
+
+    with pytest.raises(RuntimeError):
+        run_drops(FakePrintApi(fail_after=2), scheduled)  # crashes -> wave left 'executing'
+    assert _count(readonly_url, "select count(*) from pieces where wave_id = %s", (wave_id,)) == 2
+
+    reports = run_drops(FakePrintApi(), scheduled)  # the job resumes the executing wave
+    assert len(reports) == 1
+    assert _count(readonly_url, "select count(*) from pieces where wave_id = %s", (wave_id,)) == 5

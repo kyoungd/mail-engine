@@ -165,3 +165,68 @@ def test_list_due_nudges_one_query(clean_db, owner_conn, one_round_trip):
 
     nudges = one_round_trip(queries.list_due_nudges, date(2026, 6, 1))
     assert [n.contact_id for n in nudges] == [due]
+
+
+def test_list_waves_one_query_all_statuses_newest_drop_first(clean_db, owner_conn, one_round_trip):
+    with owner_conn.cursor() as cur:
+        cur.execute(
+            "insert into waves (name, drop_number, audience_rule, variant_split) "
+            "values ('first-drop', 1, %s, %s)",
+            (Json({}), Json({})),
+        )
+        cur.execute(
+            "insert into waves (name, drop_number, audience_rule, variant_split, status) "
+            "values ('second-drop', 2, %s, %s, 'sent')",
+            (Json({}), Json({})),
+        )
+    owner_conn.commit()
+
+    waves = one_round_trip(queries.list_waves)
+    assert [w.name for w in waves] == ["second-drop", "first-drop"]
+
+
+def test_list_variants_one_query_with_hypothesis(clean_db, owner_conn, one_round_trip):
+    with owner_conn.cursor() as cur:
+        cur.execute(
+            "insert into variants (name, hypothesis, creative) values ('v1', 'h1', %s)",
+            (Json({"headline": "x"}),),
+        )
+    owner_conn.commit()
+
+    variants = one_round_trip(queries.list_variants)
+    assert len(variants) == 1
+    assert variants[0].name == "v1"
+    assert variants[0].hypothesis == "h1"
+    assert variants[0].creative == {"headline": "x"}
+
+
+def test_search_contacts_one_query_matches_fields(clean_db, owner_conn, one_round_trip):
+    hit = _seed_contact(owner_conn, business_name="Acme Plumbing", phone_e164="+13105551212")
+    _seed_contact(owner_conn, business_name="Other Corp")
+
+    by_name = one_round_trip(queries.search_contacts, "acme")
+    assert [c.id for c in by_name] == [hit]
+
+    by_phone = one_round_trip(queries.search_contacts, "3105551212")
+    assert [c.id for c in by_phone] == [hit]
+
+    assert one_round_trip(queries.search_contacts, "zzz-no-match") == []
+
+
+def test_search_contacts_empty_query_browses_all(clean_db, owner_conn, one_round_trip):
+    _seed_contact(owner_conn, business_name="A")
+    _seed_contact(owner_conn, business_name="B")
+
+    assert len(one_round_trip(queries.search_contacts, "")) == 2
+
+
+def test_list_orphans_one_query_unattributed_newest_first(clean_db, owner_conn, one_round_trip):
+    from service.ingestion import ingest_event
+
+    attributed_to = _seed_contact(owner_conn)
+    ingest_event("nmc", "call.inbound", AT, {}, contact_id=attributed_to)
+    older = ingest_event("nmc", "sms.inbound", AT + timedelta(days=1), {"phone": "x"})
+    newer = ingest_event("posthog", "page.visit", AT + timedelta(days=2), {})
+
+    orphans = one_round_trip(queries.list_orphans)
+    assert [e.id for e in orphans] == [newer, older]
