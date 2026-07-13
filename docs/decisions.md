@@ -53,3 +53,17 @@ collect PostGrid + Lob Enterprise + Stannp quotes with real volume history. The
   rejected for programmatic queries → keyset pagination on (timestamp, uuid)).
 - Live-verify at first real pull (no keys in .env yet): the timestamp-literal
   format PostHog returns vs. what the keyset WHERE clause parses.
+
+---
+
+## Postcard size: 6x9 First Class (decided 2026-07-12)
+
+4x6 judged too small for the audience (50yo trades: big phone number, readable
+type, larger QR) and too easy to lose in the mail stack. Verified Lob rates
+(help.lob.com pricing-details, effective 2025-07-13, postage-inclusive):
+4x6 FC Dev $0.872 / 6x9 FC Dev **$0.993** / 6x9 Std Dev $0.966. Delta = $0.121/pc
+(+$60 per 500-piece wave); break-even ≈ +14% response — oversize lift usually
+clears that, and it's re-testable as a wave-level size A/B if wave-1 economics
+say otherwise. **Stay First Class** (Std saves 2.7c and breaks the 2-5-day
+delivery predictability the 3-drop cadence + RESP_CHECK_DAYS depend on).
+LOB_COST_CENTS 87 → 99. Geometry: 9.25in x 6.25in full-bleed (0.125in/edge).
