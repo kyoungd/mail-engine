@@ -232,6 +232,24 @@ def get_wave(wave_id: UUID) -> WaveDetail:
             )
 
 
+def get_variant(variant_id: UUID) -> Variant:
+    """One variant with its creative — the preview page renders exactly what's stored."""
+    with readonly_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "select id, name, hypothesis, creative, created_at "
+                "from variants where id = %s",
+                (variant_id,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                raise ValidationError("no_variant", f"no variant {variant_id}")
+            return Variant(
+                id=row[0], name=row[1], hypothesis=row[2], creative=row[3],
+                created_at=row[4],
+            )
+
+
 def list_variants() -> list[Variant]:
     """Every creative variant with its hypothesis, newest first."""
     with readonly_connection() as conn:

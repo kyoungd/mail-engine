@@ -18,7 +18,7 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import FastAPI, File, Form, Request, UploadFile
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -33,6 +33,7 @@ from service.queries import (
     get_approval_queue,
     get_contact_timeline,
     get_pipeline,
+    get_variant,
     get_wave,
     get_wave_dashboard,
     list_due_nudges,
@@ -49,6 +50,11 @@ from service.waves import (
     preview_audience,
     update_wave,
 )
+
+# Substituted for {{mailer_code}} in creative previews. Deliberately NOT a real
+# piece's code: a real code followed from a preview would register a fake response
+# attributed to a real contact. This one matches nothing and lands as an orphan.
+_PREVIEW_MAILER_CODE = "SAMPLE7X29Q"
 
 app = FastAPI(title="Mail Engine")
 _UI_DIR = Path(__file__).resolve().parent / "ui"
@@ -350,6 +356,30 @@ def ui_create_variant(
 ):
     create_variant(name, hypothesis, _json_field("creative", creative))
     return RedirectResponse("/variants", status_code=303)
+
+
+@app.get("/creatives")
+def ui_creatives(request: Request):
+    return templates.TemplateResponse(
+        request, "creatives.html", {"variants": list_variants()}
+    )
+
+
+@app.get("/variants/{variant_id}/preview")
+def ui_variant_preview(request: Request, variant_id: UUID):
+    return templates.TemplateResponse(
+        request, "variant_preview.html", {"variant": get_variant(variant_id)}
+    )
+
+
+@app.get("/variants/{variant_id}/creative/{side}")
+def ui_variant_creative(variant_id: UUID, side: str):
+    """The stored creative HTML as its own document (no style inheritance either
+    way), with a sample mailer code substituted."""
+    if side not in ("front", "back"):
+        raise ValidationError("bad_side", "side must be 'front' or 'back'")
+    html = get_variant(variant_id).creative.get(side, "")
+    return HTMLResponse(html.replace("{{mailer_code}}", _PREVIEW_MAILER_CODE))
 
 
 @app.get("/contacts")

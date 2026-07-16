@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Preview — {{ variant.name }}</h1>
+<p><em>{{ variant.hypothesis }}</em></p>
+<p>Size: <code>{{ variant.creative.get('size', '4x6') }}</code> ·
+  Mailer code shown is a sample — browser render is for copy/layout review only;
+  the Lob test proof remains the print truth (fonts, bleed trim, address block).</p>
+
+{% set dims = {'6x9': (888, 600), '6x11': (1080, 600), '4x6': (600, 408)} %}
+{% set wh = dims.get(variant.creative.get('size', '4x6'), (600, 408)) %}
+{% for side in ('front', 'back') %}
+<h3>{{ side }} —
+  <a href="/variants/{{ variant.id }}/creative/{{ side }}" target="_blank">open full size</a></h3>
+<div style="width: {{ (wh[0] * 0.6) | int }}px; height: {{ (wh[1] * 0.6) | int }}px; overflow: hidden; border: 1px solid #999;">
+  <iframe sandbox src="/variants/{{ variant.id }}/creative/{{ side }}"
+          style="width: {{ wh[0] }}px; height: {{ wh[1] }}px; border: 0;
+                 transform: scale(0.6); transform-origin: top left;"></iframe>
+</div>
+{% endfor %}
+
+<p><a href="/variants">&larr; back to variants</a></p>
+{% endblock %}

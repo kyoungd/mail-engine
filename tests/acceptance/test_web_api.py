@@ -276,6 +276,42 @@ def test_ui_variants_create_and_list(clean_db):
     assert "bold beats subtle" in page.text
 
 
+def test_creatives_gallery_renders_every_variant(clean_db):
+    a = create_variant("gal-a", "h1", {"front": "<html>A</html>", "back": "", "size": "6x9"})
+    b = create_variant("gal-b", "h2", {"front": "<html>B</html>", "back": ""})
+
+    page = client.get("/creatives")
+    assert page.status_code == 200
+    assert "gal-a" in page.text and "gal-b" in page.text
+    assert f"/variants/{a}/creative/front" in page.text
+    assert f"/variants/{b}/preview" in page.text
+    assert "sandbox" in page.text
+
+
+def test_variant_preview_page_isolates_creative_in_sandboxed_iframes(clean_db):
+    variant_id = create_variant(
+        "v6x9", "big cards draw", {
+            "front": "<html><body><h1>FRONT</h1></body></html>",
+            "back": "<html><body>getnevermisscall.com/?r={{mailer_code}}</body></html>",
+            "size": "6x9",
+        },
+    )
+
+    preview = client.get(f"/variants/{variant_id}/preview")
+    assert preview.status_code == 200
+    assert "sandbox" in preview.text
+    assert f"/variants/{variant_id}/creative/front" in preview.text
+    assert f"/variants/{variant_id}/creative/back" in preview.text
+
+    raw = client.get(f"/variants/{variant_id}/creative/back")
+    assert raw.status_code == 200
+    assert "?r=SAMPLE7X29Q" in raw.text  # sample code, never a live piece's
+    assert "{{mailer_code}}" not in raw.text
+
+    assert client.get(f"/variants/{variant_id}/creative/left").status_code == 409
+    assert client.get(f"/variants/{uuid4()}/preview").status_code == 409
+
+
 def test_api_variant_requires_hypothesis(clean_db):
     response = client.post(
         "/api/variants", json={"name": "v", "hypothesis": "  ", "creative": {}}

@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Creatives</h1>
+<p>Browser render, sample mailer code — copy/layout review only; the Lob test proof
+remains the print truth. Newest first.</p>
+
+{% set dims = {'6x9': (888, 600), '6x11': (1080, 600), '4x6': (600, 408)} %}
+{% for v in variants %}
+{% set wh = dims.get(v.creative.get('size', '4x6'), (600, 408)) %}
+<article>
+  <h3>{{ v.name }}
+    <small>({{ v.creative.get('size', '4x6') }}) —
+      <a href="/variants/{{ v.id }}/preview">full preview</a></small></h3>
+  <p><em>{{ v.hypothesis }}</em></p>
+  <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+    {% for side in ('front', 'back') %}
+    <div style="width: {{ (wh[0] * 0.42) | int }}px; height: {{ (wh[1] * 0.42) | int }}px; overflow: hidden; border: 1px solid #999;">
+      <iframe sandbox src="/variants/{{ v.id }}/creative/{{ side }}"
+              style="width: {{ wh[0] }}px; height: {{ wh[1] }}px; border: 0;
+                     transform: scale(0.42); transform-origin: top left;"></iframe>
+    </div>
+    {% endfor %}
+  </div>
+</article>
+{% endfor %}
+{% endblock %}
