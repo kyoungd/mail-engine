@@ -24,8 +24,14 @@ from domain.types import AudiencePreview, SampleContact
 
 # Grammar of the audience rule. Unknown keys are rejected, not ignored.
 _AUDIENCE_KEYS = {
-    "segment", "trade", "source", "stage", "city", "zip_prefix",
-    "not_responded_to_wave", "limit",
+    "segment",
+    "trade",
+    "source",
+    "stage",
+    "city",
+    "zip_prefix",
+    "not_responded_to_wave",
+    "limit",
 }
 # A contact who received a piece but has not responded sits in one of these stages.
 _NON_RESPONSE_STAGES = ["prospect", "in_sequence"]
@@ -36,15 +42,11 @@ _ESTIMATED_PIECE_COST_CENTS = 73
 def validate_audience_rule(rule: dict[str, Any]) -> None:
     unknown = set(rule) - _AUDIENCE_KEYS
     if unknown:
-        raise ValidationError(
-            "unknown_audience_key", f"unknown audience keys: {sorted(unknown)}"
-        )
+        raise ValidationError("unknown_audience_key", f"unknown audience keys: {sorted(unknown)}")
     if "limit" in rule:
         limit = rule["limit"]
         if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
-            raise ValidationError(
-                "bad_limit", f"limit must be a positive integer, got {limit!r}"
-            )
+            raise ValidationError("bad_limit", f"limit must be a positive integer, got {limit!r}")
 
 
 def _audience_where(rule: dict[str, Any]) -> tuple[sql.Composed, list[Any]]:
@@ -107,16 +109,13 @@ def resolve_audience(cur, rule: dict[str, Any]) -> list[UUID]:
     if "limit" in rule:
         cur.execute(
             sql.SQL(
-                "select c.id from contacts c where {where} "
-                "order by md5(c.id::text), c.id limit %s"
+                "select c.id from contacts c where {where} order by md5(c.id::text), c.id limit %s"
             ).format(where=where),
             [*params, rule["limit"]],
         )
     else:
         cur.execute(
-            sql.SQL("select c.id from contacts c where {where} order by c.id").format(
-                where=where
-            ),
+            sql.SQL("select c.id from contacts c where {where} order by c.id").format(where=where),
             params,
         )
     return [r[0] for r in cur.fetchall()]
@@ -126,9 +125,7 @@ def create_variant(name: str, hypothesis: str, creative: dict[str, Any]) -> UUID
     """Hypothesis is required and non-empty — the schema enforcing the
     information-buying posture. There is no exceptions parameter."""
     if not hypothesis or not hypothesis.strip():
-        raise ValidationError(
-            "empty_hypothesis", "a variant requires a non-empty hypothesis"
-        )
+        raise ValidationError("empty_hypothesis", "a variant requires a non-empty hypothesis")
     with transaction() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -139,6 +136,41 @@ def create_variant(name: str, hypothesis: str, creative: dict[str, Any]) -> UUID
             row = cur.fetchone()
             assert row is not None
             return row[0]
+
+
+def _is_frozen(cur, variant_id: UUID) -> bool:
+    """A variant is frozen once any wave that carries it has been approved. Keys on
+    approved_at, which never clears — not on status, which walks approved -> executing
+    -> sent and would thaw the variant the moment it mailed. Cancelling an approved
+    wave does not thaw it either: the approval happened."""
+    cur.execute(
+        "select exists (select 1 from waves where approved_at is not null "
+        "and jsonb_exists(variant_split, %s))",
+        (str(variant_id),),
+    )
+    row = cur.fetchone()
+    return bool(row and row[0])
+
+
+def update_variant(variant_id: UUID, name: str, hypothesis: str, creative: dict[str, Any]) -> None:
+    """Full replace, mirroring create_variant. Editable only until approved: approval
+    is the promise that this exact card is what fires, so from that moment the row is
+    the record of what was approved and revision means minting a new variant."""
+    if not hypothesis or not hypothesis.strip():
+        raise ValidationError("empty_hypothesis", "a variant requires a non-empty hypothesis")
+    with transaction() as conn:
+        with conn.cursor() as cur:
+            if _is_frozen(cur, variant_id):
+                raise ValidationError(
+                    "frozen",
+                    f"variant {variant_id} is in an approved wave and cannot be edited",
+                )
+            cur.execute(
+                "update variants set name = %s, hypothesis = %s, creative = %s where id = %s",
+                (name, hypothesis, Json(creative), variant_id),
+            )
+            if cur.rowcount == 0:
+                raise ValidationError("no_variant", f"no variant {variant_id}")
 
 
 def draft_wave(
@@ -188,8 +220,14 @@ def update_wave(
             cur.execute(
                 "update waves set name = %s, drop_number = %s, audience_rule = %s, "
                 "variant_split = %s, scheduled_for = %s where id = %s",
-                (name, drop_number, Json(audience_rule), Json(variant_split),
-                 scheduled_for, wave_id),
+                (
+                    name,
+                    drop_number,
+                    Json(audience_rule),
+                    Json(variant_split),
+                    scheduled_for,
+                    wave_id,
+                ),
             )
 
 
@@ -198,9 +236,7 @@ def preview_audience(wave_id: UUID) -> AudiencePreview:
     and a sample of 10. This is what the approval screen renders."""
     with readonly_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                "select audience_rule, variant_split from waves where id = %s", (wave_id,)
-            )
+            cur.execute("select audience_rule, variant_split from waves where id = %s", (wave_id,))
             row = cur.fetchone()
             if row is None:
                 raise ValidationError("no_wave", f"no wave {wave_id}")
@@ -265,9 +301,7 @@ def approve_wave(wave_id: UUID, approved_by: str, state_hash: str | None = None)
             variant_ids = list(variant_split.keys())
             if not variant_ids:
                 raise ValidationError("no_variants", "variant_split is empty")
-            cur.execute(
-                "select count(*) from variants where id::text = any(%s)", (variant_ids,)
-            )
+            cur.execute("select count(*) from variants where id::text = any(%s)", (variant_ids,))
             found = cur.fetchone()
             assert found is not None
             if found[0] != len(variant_ids):
@@ -277,15 +311,11 @@ def approve_wave(wave_id: UUID, approved_by: str, state_hash: str | None = None)
                 )
 
             if scheduled_for is None or scheduled_for <= datetime.now(UTC).date():
-                raise ValidationError(
-                    "not_future", "scheduled_for must be a future date"
-                )
+                raise ValidationError("not_future", "scheduled_for must be a future date")
 
             audience = resolve_audience(cur, audience_rule)
             if not audience:
-                raise ValidationError(
-                    "empty_audience", "audience resolves to zero contacts"
-                )
+                raise ValidationError("empty_audience", "audience resolves to zero contacts")
 
             if state_hash is not None:
                 current = _state_hash([str(x) for x in audience], variant_split)
@@ -314,6 +344,4 @@ def cancel_wave(wave_id: UUID) -> None:
                 raise ValidationError("too_late", f"cannot cancel a {row[0]} wave")
             if row[0] == "cancelled":
                 return
-            cur.execute(
-                "update waves set status = 'cancelled' where id = %s", (wave_id,)
-            )
+            cur.execute("update waves set status = 'cancelled' where id = %s", (wave_id,))

@@ -10,6 +10,7 @@ import pytest
 from psycopg.types.json import Json
 
 from domain.errors import ValidationError
+from service.queries import get_variant
 from service.waves import (
     approve_wave,
     cancel_wave,
@@ -17,6 +18,7 @@ from service.waves import (
     draft_wave,
     preview_audience,
     resolve_audience,
+    update_variant,
     update_wave,
 )
 
@@ -58,6 +60,74 @@ def test_create_variant_requires_nonempty_hypothesis(clean_db):
 
 def test_create_variant_returns_id(clean_db):
     assert create_variant("v1", "tests headline A vs B", {"copy": "A"}) is not None
+
+
+# --- freeze at approval --------------------------------------------------------
+
+
+def _approved_wave(owner_conn, variant_id, name="freeze-wave"):
+    _seed_prospects(owner_conn, 3)
+    wave_id = draft_wave(name, 1, {"trade": ["plumber"]}, {str(variant_id): 1.0}, _future())
+    approve_wave(wave_id, "young", preview_audience(wave_id).state_hash)
+    return wave_id
+
+
+def test_update_variant_edits_an_unapproved_variant(clean_db):
+    v = create_variant("v1", "hypothesis", {"front": "A"})
+    update_variant(v, "v1 revised", "sharper hypothesis", {"front": "B"})
+    got = get_variant(v)
+    assert got.name == "v1 revised"
+    assert got.hypothesis == "sharper hypothesis"
+    assert got.creative["front"] == "B"
+
+
+def test_update_variant_rejects_once_approved(clean_db, owner_conn):
+    v = create_variant("v1", "hypothesis", {"front": "A"})
+    _approved_wave(owner_conn, v)
+    with pytest.raises(ValidationError):
+        update_variant(v, "v1", "hypothesis", {"front": "B"})
+
+
+def test_variant_stays_frozen_after_the_wave_is_sent(clean_db, owner_conn):
+    # status walks approved -> executing -> sent. Keying the freeze on
+    # status == 'approved' would thaw a variant the moment it mailed; the freeze
+    # keys on approved_at, which never clears.
+    v = create_variant("v1", "hypothesis", {"front": "A"})
+    wave_id = _approved_wave(owner_conn, v)
+    with owner_conn.cursor() as cur:
+        cur.execute(
+            "update waves set status = 'sent', executed_at = now() where id = %s",
+            (wave_id,),
+        )
+    owner_conn.commit()
+
+    with pytest.raises(ValidationError):
+        update_variant(v, "v1", "hypothesis", {"front": "B"})
+
+
+def test_variant_in_a_draft_wave_is_still_editable(clean_db, owner_conn):
+    _seed_prospects(owner_conn, 3)
+    v = create_variant("v1", "hypothesis", {"front": "A"})
+    draft_wave("draft-wave", 1, {"trade": ["plumber"]}, {str(v): 1.0}, _future())
+
+    update_variant(v, "v1", "hypothesis", {"front": "B"})
+    assert get_variant(v).creative["front"] == "B"
+
+
+def test_variant_stays_frozen_after_an_approved_wave_is_cancelled(clean_db, owner_conn):
+    # approval is a promise that was made; cancelling the wave does not unmake it
+    v = create_variant("v1", "hypothesis", {"front": "A"})
+    wave_id = _approved_wave(owner_conn, v)
+    cancel_wave(wave_id)
+
+    with pytest.raises(ValidationError):
+        update_variant(v, "v1", "hypothesis", {"front": "B"})
+
+
+def test_update_variant_still_requires_a_hypothesis(clean_db):
+    v = create_variant("v1", "hypothesis", {})
+    with pytest.raises(ValidationError):
+        update_variant(v, "v1", "   ", {})
 
 
 # --- lifecycle -----------------------------------------------------------------
@@ -113,9 +183,7 @@ def test_audience_rule_filters_by_source(clean_db, owner_conn):
     """FBN-style targeting: a trade-less list is addressed by its source."""
     _seed_prospects(owner_conn, 2)  # source defaults to 'cslb'
     with owner_conn.cursor() as cur:
-        cur.execute(
-            "insert into contacts (segment, source) values ('fbn-ca-2026', 'fbn-ca-2026')"
-        )
+        cur.execute("insert into contacts (segment, source) values ('fbn-ca-2026', 'fbn-ca-2026')")
     owner_conn.commit()
 
     wave_id = draft_wave("fbn-wave", 1, {"source": ["fbn-ca-2026"]}, {}, _future())
@@ -133,17 +201,13 @@ def test_audience_rule_filters_by_city_case_insensitive_and_zip_prefix(clean_db,
         )
     owner_conn.commit()
 
-    wave_id = draft_wave(
-        "sfv-city", 1, {"city": ["Van Nuys", "northridge"]}, {}, _future()
-    )
+    wave_id = draft_wave("sfv-city", 1, {"city": ["Van Nuys", "northridge"]}, {}, _future())
     assert preview_audience(wave_id).count == 2
 
     zip_wave = draft_wave("sfv-zip", 1, {"zip_prefix": ["913", "914"]}, {}, _future())
     assert preview_audience(zip_wave).count == 2
 
-    combo = draft_wave(
-        "sfv-combo", 1, {"trade": ["hvac"], "zip_prefix": ["908"]}, {}, _future()
-    )
+    combo = draft_wave("sfv-combo", 1, {"trade": ["hvac"], "zip_prefix": ["908"]}, {}, _future())
     assert preview_audience(combo).count == 1
 
 
@@ -189,9 +253,7 @@ def test_not_responded_to_wave_targets_only_non_responders(clean_db, owner_conn)
                 (contact_id, wave1, variant_id, f"MC-{contact_id}"),
             )
         # the responder has advanced past in_sequence
-        cur.execute(
-            "update contacts set stage_snapshot = 'responded' where id = %s", (responder,)
-        )
+        cur.execute("update contacts set stage_snapshot = 'responded' where id = %s", (responder,))
     owner_conn.commit()
 
     with owner_conn.cursor() as cur:
@@ -250,9 +312,7 @@ def test_update_wave_edits_a_draft_in_place(clean_db, owner_conn, readonly_url):
     wave_id = draft_wave("w", 1, {"trade": ["plumber"]}, {str(v1): 1}, _future())
 
     later = _future() + timedelta(days=1)
-    update_wave(
-        wave_id, "w renamed", 2, {"trade": ["plumber"], "limit": 1}, {str(v2): 1}, later
-    )
+    update_wave(wave_id, "w renamed", 2, {"trade": ["plumber"], "limit": 1}, {str(v2): 1}, later)
 
     with psycopg.connect(readonly_url) as conn:
         with conn.cursor() as cur:
