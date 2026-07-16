@@ -67,3 +67,48 @@ clears that, and it's re-testable as a wave-level size A/B if wave-1 economics
 say otherwise. **Stay First Class** (Std saves 2.7c and breaks the 2-5-day
 delivery predictability the 3-drop cadence + RESP_CHECK_DAYS depend on).
 LOB_COST_CENTS 87 → 99. Geometry: 9.25in x 6.25in full-bleed (0.125in/edge).
+
+---
+
+## Creative style: typographic, no image backgrounds (decided 2026-07-13)
+
+All postcards are text-only on solid color — no photo/image backgrounds. Operator
+preference, explicitly NOT data-backed: the deep-research run (docs/research-postcard-
+design.md) looked for a typographic-vs-photo-led answer and found none in primary
+sources. Rationale that IS true (just not "lifts response" true): (1) text-only is
+differentiated in a mailstream of glossy photo cards — reads as a notice, not an ad;
+(2) no photo = no contrast tax on the big-type message, protecting the one CONFIRMED
+design finding (14pt+ legibility for 50+ eyes); (3) self-contained HTML, no image-
+hosting step. Reversible: if wave-1 response is soft, a photo-led card is a cheap
+4th A/B variant. Until then, default = typographic. Don't re-add image backgrounds
+without a fresh decision.
+
+---
+
+## Phone response: hand-matched, undercount accepted (decided 2026-07-15)
+
+Wave 1's card makes the **demo line (424-407-1682) the primary CTA** and the landing URL
+secondary. There is no `NmcFeed` implementing the `ResponseFeed` protocol (seams/ has
+`posthog.py` and a test fake only), so **no call or text to any NMC line reaches the
+spine**. Web response is captured; phone response is not.
+
+**Decision: ship anyway. Hand-match phone responders from Twilio against the contact list
+after each wave; accept the undercount.** At ~500 pieces and single-digit response (~15
+responses), fifteen lookups costs less than building the feed, and it measures the
+caller-ID hit rate — which is the number that should decide whether the feed is worth
+building at all. Building it now would be sizing an unbuilt thing by guesswork.
+FR-6 already resolves by exact phone, and CSLB is 99.9% E.164, so the matching side works;
+only the transport is missing. This is PRD §9's stated posture ("accept imperfection,
+measure it") executed manually instead of automatically.
+
+**⚠️ The readout MUST account for this, because the error is directional.** The funnel is
+deliberately built so the *demo* carries conversion and the URL is the afterthought — so
+the channel we can see is the weaker one BY DESIGN. URL-only numbers understate response
+and overstate cost-per-response, and "the card worked, we couldn't see it" looks identical
+to "the card failed." **Do not retire a creative on URL-only evidence.** Hand-match first,
+then read.
+
+Revisit trigger: wave-1's hit rate. High hit rate → the feed mostly automates a working
+manual step (worth building). Low hit rate (he calls from his cell, not the listed
+business line) → the feed would not have saved us either, and the real fix is a
+per-piece-coded response path, not a feed.

@@ -2,5 +2,22 @@
   "name": "w1 6x9 loss-math",
   "hypothesis": "Dollar-quantified loss framing (the job went to whoever answered) outdraws unquantified pain copy — losses are felt harder than missed gains.",
   "size": "6x9",
-  "mail_type": "usps_first_class"
+  "mail_type": "usps_first_class",
+  "notes": {
+    "parent": "ghost 6x9 a1 pain-led (0773fa8f) — INFERRED, confirm. Positioned as the quantified arm against a1's unquantified loss copy; not a literal edit of a1's HTML.",
+    "change_vs_parent": "ONE change: the loss is priced ($400) instead of unnamed. Loss frame, 6x9, typographic style, dark ground, and the call-or-text mechanic are held constant.",
+    "grounding": {
+      "'It went to whoever picked up.' (the loss frame)": "CONFIRMED — claim #1. A loss (someone took the job) M=3.48 vs non-gain M=2.65 vs gain M=2.49; rips-irsp.com/articles/10.5334/irsp.15. This line is what makes the card a loss frame; without it the headline is a priced non-gain.",
+      "'$400' (the quantification)": "UNSOURCED BET. Not derived from CSLB data, NMC booking history, or any cited study — chosen because it sounds plausible. NO confirmed claim addresses quantification at all (the five cover framing, efficacy-mediation, typography, QR-tracking behavior, benchmarks). Indirect support only: claim #1's framing x personal-relevance interaction (t(222)=4.79, p=.001) implies a concrete stake may raise relevance vs an abstract 'a job'. That is an inference from an interaction term, NOT a finding. Do not cite it as research-backed.",
+      "6x9 format": "CONFIRMED — claim #3 (14pt body recommended, 12pt floor) plus a dominant phone number do not fit 4x6. decisions.md 2026-07-12; note the oversized-lift lore that originally justified 6x9 was REFUTED, and the rationale re-grounded on typography instead.",
+      "54pt / 27pt type": "CONFIRMED — claim #3, 50+ readership. Caveat (PMC 9376262): legibility gains stop at a critical size; bigger is not linearly better.",
+      "no QR": "Not an evidence call — the pipeline has no per-piece QR generation, so the printed code/URL carries attribution. Claim #4 (82% of marketers track via QR/URL) is marketer behavior, NOT evidence this audience prefers QR."
+    },
+    "scope_limit": "A result here CANNOT support or refute loss framing (claim #1). Both this card and ghost 6x9 a1 are loss-framed, so the pairing tests QUANTIFIED vs UNQUANTIFIED loss only. The claim-#1 test is a1 (loss) vs a2 (benefit). Second limit: $400 is fixed across all six trades, whose average tickets differ widely — so a poor result may mean 'wrong number for this segment' rather than 'quantification does not work'. Do not retire quantification on this card's result alone.",
+    "rejected": [
+      "4x6 — 14pt body + dominant phone do not fit (decisions.md 2026-07-12). Reopen only if the type/phone constraint changes.",
+      "Per-trade dollar figure — would need a {{ticket_value}} merge variable; the mechanism exists ({{mailer_code}} is substituted the same way) but is not built and no ticket data is sourced. Deferred, not dismissed: this is the fix if $400 reads wrong per segment.",
+      "Image background — creative style decision 2026-07-13 (typographic, no image backgrounds)."
+    ]
+  }
 }
