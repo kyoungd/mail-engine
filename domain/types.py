@@ -34,6 +34,7 @@ class Contact:
     next_action_note: str | None = None
     do_not_mail: bool = False
     do_not_text: bool = False
+    is_seed: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -143,12 +144,32 @@ class SampleContact:
 
 @dataclass(frozen=True, kw_only=True)
 class AudiencePreview:
-    count: int
+    count: int  # total pieces that will fire, seeds included (approve renders what fires)
+    seed_count: int  # of which this many are seed pieces (FR-4), shown distinctly
     by_segment: dict[str, int]
     by_stage: dict[str, int]
     estimated_cost_cents: int
     sample: list[SampleContact]
     state_hash: str  # fingerprint of the resolved audience + variant split (approve carries it back)
+
+
+@dataclass(frozen=True)
+class SeedReport:
+    """ensure_seed_contacts output: how many seed contacts exist after the upsert, and
+    how many of those this run created (vs. already present)."""
+
+    total: int
+    created: int
+
+
+@dataclass(frozen=True, kw_only=True)
+class VariantProof:
+    """One variant's Lob test-render, shown on the approval screen (FR-3). The pdf_url
+    is the vendor's final rendering — the print truth the founder approves."""
+
+    variant_id: UUID
+    variant_name: str
+    pdf_url: str
 
 
 @dataclass(frozen=True, kw_only=True)

@@ -1,0 +1,9 @@
+list_key,business_name,contact_name,trade,license_class,phone,email,addr_line1,addr_line2,addr_city,addr_state,addr_zip,segment,do_not_mail
+cslb-e2e-001,Ace Rapid Plumbing,Ace Rapid Plumbing Inc,plumber,C36,213-555-0142,,200 N Spring St,,Los Angeles,CA,90012,plumber-ca,
+cslb-e2e-002,Bayview Drain Co,Bayview Drain Co,plumber,C36,415-555-0173,,185 Berry St,,San Francisco,CA,94107,plumber-ca,
+cslb-e2e-003,Capitol Pipe Works,Capitol Pipe Works,plumber,C36,916-555-0128,,915 I St,,Sacramento,CA,95814,plumber-ca,
+cslb-e2e-004,Delta Flow Plumbing,Delta Flow Plumbing,plumber,C36,619-555-0164,,1200 3rd Ave,,San Diego,CA,92101,plumber-ca,
+cslb-e2e-005,Evergreen Plumbing,Evergreen Plumbing,plumber,C36,213-555-0199,,200 N Main St,,Los Angeles,CA,90012,plumber-ca,true
+cslb-e2e-006,Frost HVAC Systems,Frost HVAC Systems,hvac,C20,510-555-0117,,1 Frank H Ogawa Plz,,Oakland,CA,94612,hvac-ca,
+cslb-e2e-001,Ace Rapid Plumbing DUP,Ace Rapid Plumbing,plumber,C36,213-555-0142,,200 N Spring St,,Los Angeles,CA,90012,plumber-ca,
+cslb-e2e-008,Ghost No-Trade LLC,Ghost No-Trade,,,,,,,,,,,

@@ -42,6 +42,26 @@ def test_submit_sends_idempotency_key_and_mailer_code():
     assert payload["mail_type"] == "usps_first_class"
 
 
+def test_render_proof_posts_and_returns_pdf_url():
+    calls = []
+
+    def transport(url, body, headers):
+        calls.append((url, json.loads(body), headers))
+        return {"id": "psc_proof", "url": "https://lob-proofs.test/psc_proof.pdf"}
+
+    client = LobPrintApi("test_key", FROM, transport=transport)
+
+    result = client.render_proof({"front": "<h1>{{mailer_code}}</h1>", "back": "b", "size": "6x9"})
+
+    assert result.pdf_url == "https://lob-proofs.test/psc_proof.pdf"
+    (url, payload, headers), = calls
+    assert url.endswith("/postcards")
+    assert payload["front"] == "<h1>{{mailer_code}}</h1>"
+    assert payload["size"] == "6x9"
+    assert payload["merge_variables"]["mailer_code"]      # a sample code so the QR renders
+    assert headers["Authorization"].startswith("Basic ")  # uses the (test) key it was built with
+
+
 def test_submit_truncates_recipient_name_to_lob_40_char_limit():
     calls = []
     long_name = Recipient(

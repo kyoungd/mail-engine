@@ -16,6 +16,7 @@ class _Rule:
     def evaluate(self, cur, params, as_of: date) -> list[Hit]:
         cur.execute(
             "select c.id from contacts c where "
+            "c.is_seed = false and "  # seeds never enter the judgment machinery (FR-7)
             "(select count(*) from events e "
             "  where e.contact_id = c.id and e.type = 'piece.returned') >= %s",
             (RETURNED_SUPPRESSION_COUNT,),

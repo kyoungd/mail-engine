@@ -16,7 +16,8 @@ class _Rule:
     def evaluate(self, cur, params, as_of: date) -> list[Hit]:
         cur.execute(
             "select c.id from contacts c "
-            "where c.stage_snapshot in ('responded', 'in_conversation') "
+            "where c.is_seed = false "  # seeds never enter the judgment machinery (FR-7)
+            "and c.stage_snapshot in ('responded', 'in_conversation') "
             "and coalesce((select max(e.occurred_at) from events e "
             "  where e.contact_id = c.id and e.type = any(%s)), 'epoch') "
             "< %s::date - make_interval(days => %s) "

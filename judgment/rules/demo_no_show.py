@@ -15,7 +15,8 @@ class _Rule:
         cur.execute(
             "select distinct c.id from contacts c "
             "join events e on e.contact_id = c.id and e.type = 'demo.no_show' "
-            "where not exists (select 1 from events e2 "
+            "where c.is_seed = false "  # seeds never enter the judgment machinery (FR-7)
+            "and not exists (select 1 from events e2 "
             "  where e2.contact_id = c.id and e2.type = 'demo.booked' "
             "  and e2.occurred_at > e.occurred_at)"
         )

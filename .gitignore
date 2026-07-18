@@ -1,4 +1,7 @@
 .env
+# Founder seed addresses (real home/office addresses) — env-specific, never committed.
+# The committed template is config/seeds.example.json.
+config/seeds.json
 .venv/
 __pycache__/
 *.pyc
@@ -6,4 +9,11 @@ __pycache__/
 .ruff_cache/
 .mutmut-cache
 mutants/
-uv.lock
+
+# Session/working state, not product. This is DEVELOPMENT's current state —
+# production has no use for dev session notes, and it churns every session.
+# ⚠️ Untracked = no git history and no GitHub backup. If this box dies, it dies.
+# Durable cross-environment knowledge (how to deploy, the two-env split, the
+# test-suite guard, settled decisions) belongs in decisions.md / INSTALL.md /
+# PRD.md — which stay tracked — NOT here.
+docs/current-state.md

@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
+from psycopg import errors as pg_errors
 from psycopg import sql
 from psycopg.types.json import Json
 
@@ -20,7 +21,8 @@ from db.readonly import readonly_connection
 from db.session import transaction
 from domain.enums import ContactStage
 from domain.errors import ValidationError
-from domain.types import AudiencePreview, SampleContact
+from domain.types import AudiencePreview, SampleContact, VariantProof
+from seams.print_api import PrintApi
 
 # Grammar of the audience rule. Unknown keys are rejected, not ignored.
 _AUDIENCE_KEYS = {
@@ -56,6 +58,10 @@ def _audience_where(rule: dict[str, Any]) -> tuple[sql.Composed, list[Any]]:
     clauses: list[sql.Composable] = [
         sql.SQL("c.do_not_mail = false"),
         sql.SQL("c.stage_snapshot <> 'suppressed'"),
+        # Seeds never come through the rule — resolve_audience appends them to every
+        # wave separately, so excluding them here prevents a rule-less wave from
+        # counting a seed twice (FR-4).
+        sql.SQL("c.is_seed = false"),
     ]
     params: list[Any] = []
     if "segment" in rule:
@@ -90,14 +96,37 @@ def _audience_where(rule: dict[str, Any]) -> tuple[sql.Composed, list[Any]]:
     return sql.SQL(" and ").join(clauses), params
 
 
-def _state_hash(contact_ids: list[str], variant_split: dict[str, Any]) -> str:
-    """Fingerprint of exactly what a preview showed — the resolved audience and the
-    variant split. approve_wave carries it back so a wave whose audience drifted since
-    preview cannot be approved stale."""
+def _state_hash(
+    contact_ids: list[str],
+    variant_split: dict[str, Any],
+    creative_checksums: dict[str, str],
+) -> str:
+    """Fingerprint of exactly what a preview showed — the resolved audience, the variant
+    split, AND each variant's creative. approve_wave carries it back so a wave whose
+    audience OR creative drifted since preview cannot be approved stale: you approve the
+    exact creative you proofed, not merely the same variant id."""
     canonical = json.dumps(
-        {"audience": sorted(contact_ids), "variants": variant_split}, sort_keys=True
+        {
+            "audience": sorted(contact_ids),
+            "variants": variant_split,
+            "creatives": creative_checksums,
+        },
+        sort_keys=True,
     )
     return hashlib.sha256(canonical.encode()).hexdigest()[:16]
+
+
+def _creative_checksums(cur, variant_split: dict[str, Any]) -> dict[str, str]:
+    """Checksum each variant's current creative, keyed by variant id. Folded into the
+    state hash so editing a creative after preview invalidates the approval."""
+    ids = list(variant_split.keys())
+    if not ids:
+        return {}
+    cur.execute("select id::text, creative from variants where id::text = any(%s)", (ids,))
+    return {
+        vid: hashlib.sha256(json.dumps(creative, sort_keys=True).encode()).hexdigest()[:16]
+        for vid, creative in cur.fetchall()
+    }
 
 
 def resolve_audience(cur, rule: dict[str, Any]) -> list[UUID]:
@@ -118,7 +147,12 @@ def resolve_audience(cur, rule: dict[str, Any]) -> list[UUID]:
             sql.SQL("select c.id from contacts c where {where} order by c.id").format(where=where),
             params,
         )
-    return [r[0] for r in cur.fetchall()]
+    audience = [r[0] for r in cur.fetchall()]
+    # Seeds ride every wave (FR-4), independent of the rule and of any `limit`: the
+    # limit caps the purchased list, not the founder's own sample pieces.
+    cur.execute("select id from contacts where is_seed order by id")
+    audience.extend(r[0] for r in cur.fetchall())
+    return audience
 
 
 def create_variant(name: str, hypothesis: str, creative: dict[str, Any]) -> UUID:
@@ -128,11 +162,16 @@ def create_variant(name: str, hypothesis: str, creative: dict[str, Any]) -> UUID
         raise ValidationError("empty_hypothesis", "a variant requires a non-empty hypothesis")
     with transaction() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                "insert into variants (name, hypothesis, creative) "
-                "values (%s, %s, %s) returning id",
-                (name, hypothesis, Json(creative)),
-            )
+            try:
+                cur.execute(
+                    "insert into variants (name, hypothesis, creative) "
+                    "values (%s, %s, %s) returning id",
+                    (name, hypothesis, Json(creative)),
+                )
+            except pg_errors.UniqueViolation:
+                raise ValidationError(
+                    "duplicate_name", f"a variant named {name!r} already exists"
+                ) from None
             row = cur.fetchone()
             assert row is not None
             return row[0]
@@ -185,12 +224,19 @@ def draft_wave(
     validate_audience_rule(audience_rule)
     with transaction() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                "insert into waves "
-                "(name, drop_number, audience_rule, variant_split, scheduled_for) "
-                "values (%s, %s, %s, %s, %s) returning id",
-                (name, drop_number, Json(audience_rule), Json(variant_split), scheduled_for),
-            )
+            try:
+                cur.execute(
+                    "insert into waves "
+                    "(name, drop_number, audience_rule, variant_split, scheduled_for) "
+                    "values (%s, %s, %s, %s, %s) returning id",
+                    (name, drop_number, Json(audience_rule), Json(variant_split), scheduled_for),
+                )
+            except pg_errors.UniqueViolation:
+                raise ValidationError(
+                    "duplicate_name",
+                    f"an active wave named {name!r} already exists — "
+                    f"cancel it or pick another name",
+                ) from None
             row = cur.fetchone()
             assert row is not None
             return row[0]
@@ -217,18 +263,25 @@ def update_wave(
                 raise ValidationError("no_wave", f"no wave {wave_id}")
             if row[0] != "draft":
                 raise ValidationError("not_draft", f"wave is {row[0]}, not draft")
-            cur.execute(
-                "update waves set name = %s, drop_number = %s, audience_rule = %s, "
-                "variant_split = %s, scheduled_for = %s where id = %s",
-                (
-                    name,
-                    drop_number,
-                    Json(audience_rule),
-                    Json(variant_split),
-                    scheduled_for,
-                    wave_id,
-                ),
-            )
+            try:
+                cur.execute(
+                    "update waves set name = %s, drop_number = %s, audience_rule = %s, "
+                    "variant_split = %s, scheduled_for = %s where id = %s",
+                    (
+                        name,
+                        drop_number,
+                        Json(audience_rule),
+                        Json(variant_split),
+                        scheduled_for,
+                        wave_id,
+                    ),
+                )
+            except pg_errors.UniqueViolation:
+                raise ValidationError(
+                    "duplicate_name",
+                    f"an active wave named {name!r} already exists — "
+                    f"cancel it or pick another name",
+                ) from None
 
 
 def preview_audience(wave_id: UUID) -> AudiencePreview:
@@ -244,10 +297,11 @@ def preview_audience(wave_id: UUID) -> AudiencePreview:
             # Resolve through the SAME path approval and execution use — never a
             # parallel query, or preview could diverge from what fires (e.g. `limit`).
             audience = resolve_audience(cur, audience_rule)
+            checksums = _creative_checksums(cur, variant_split)
             rows = []
             if audience:
                 cur.execute(
-                    "select id, business_name, segment, stage_snapshot "
+                    "select id, business_name, segment, stage_snapshot, is_seed "
                     "from contacts where id = any(%s) order by id",
                     (audience,),
                 )
@@ -256,7 +310,14 @@ def preview_audience(wave_id: UUID) -> AudiencePreview:
     by_segment: dict[str, int] = {}
     by_stage: dict[str, int] = {}
     sample: list[SampleContact] = []
-    for cid, business_name, segment, stage in rows:
+    seed_count = 0
+    for cid, business_name, segment, stage, is_seed in rows:
+        # Seeds count toward the total that fires (below) but are held out of the
+        # segment/stage breakdown and sample — they are the founder's own pieces, not
+        # part of the audience under review.
+        if is_seed:
+            seed_count += 1
+            continue
         key = segment if segment is not None else "(none)"
         by_segment[key] = by_segment.get(key, 0) + 1
         by_stage[stage] = by_stage.get(stage, 0) + 1
@@ -270,12 +331,13 @@ def preview_audience(wave_id: UUID) -> AudiencePreview:
                 )
             )
     return AudiencePreview(
-        count=len(rows),
+        count=len(rows),  # total pieces that fire, seeds included
+        seed_count=seed_count,
         by_segment=by_segment,
         by_stage=by_stage,
         estimated_cost_cents=len(rows) * _ESTIMATED_PIECE_COST_CENTS,
         sample=sample,
-        state_hash=_state_hash([str(r[0]) for r in rows], variant_split),
+        state_hash=_state_hash([str(r[0]) for r in rows], variant_split, checksums),
     )
 
 
@@ -318,7 +380,8 @@ def approve_wave(wave_id: UUID, approved_by: str, state_hash: str | None = None)
                 raise ValidationError("empty_audience", "audience resolves to zero contacts")
 
             if state_hash is not None:
-                current = _state_hash([str(x) for x in audience], variant_split)
+                checksums = _creative_checksums(cur, variant_split)
+                current = _state_hash([str(x) for x in audience], variant_split, checksums)
                 if current != state_hash:
                     raise ValidationError(
                         "stale_preview",
@@ -330,6 +393,38 @@ def approve_wave(wave_id: UUID, approved_by: str, state_hash: str | None = None)
                 "approved_at = now(), approved_audience_count = %s where id = %s",
                 (approved_by, len(audience), wave_id),
             )
+
+
+def wave_proofs(wave_id: UUID, print_api: PrintApi) -> list[VariantProof]:
+    """Render one Lob test-mode proof per variant in the wave — the print truth shown on
+    the approval screen (FR-3). Read-only against our DB; the render itself is a
+    test-environment vendor call (no piece prints, no money moves). Fail-loud: if the
+    vendor can't render, this raises and the approval screen has nothing to show —
+    "no proof, nothing to approve"."""
+    with readonly_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("select variant_split from waves where id = %s", (wave_id,))
+            row = cur.fetchone()
+            if row is None:
+                raise ValidationError("no_wave", f"no wave {wave_id}")
+            (variant_split,) = row
+            ids = list(variant_split.keys())
+            if not ids:
+                raise ValidationError("no_variants", "variant_split is empty")
+            cur.execute(
+                "select id, name, creative from variants where id::text = any(%s) order by name",
+                (ids,),
+            )
+            variants = cur.fetchall()
+
+    return [
+        VariantProof(
+            variant_id=vid,
+            variant_name=name,
+            pdf_url=print_api.render_proof(creative).pdf_url,
+        )
+        for vid, name, creative in variants
+    ]
 
 
 def cancel_wave(wave_id: UUID) -> None:

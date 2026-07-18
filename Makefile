@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help up down migrate run test lint fmt nuke
+.PHONY: help up down migrate run test e2e seed-contacts lint fmt nuke
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -17,10 +17,16 @@ migrate: ## Apply migrations as the owner role
 
 run: ## Start the web window (sources .env)
 	@set -a && . ./.env && set +a && \
-		uv run uvicorn web.api:app --host 127.0.0.1 --port 8001
+		uv run uvicorn web.api:app --host 127.0.0.1 --port $${WEB_PORT:?WEB_PORT not set in .env}
 
-test: ## Run the test suite
+test: ## Run the test suite (fast, offline; e2e deselected)
 	uv run pytest
+
+e2e: ## Full-funnel journey vs the REAL Lob test env (⚠️ wipes mailengine_dev!)
+	@set -a && . ./.env && set +a && uv run pytest -m e2e tests/e2e -v
+
+seed-contacts: ## Upsert founder seed addresses from config/seeds.json (idempotent)
+	@set -a && . ./.env && set +a && uv run python -m jobs.seed_cli
 
 lint: ## Lint (ruff) and type-check (pyright)
 	uv run ruff check .

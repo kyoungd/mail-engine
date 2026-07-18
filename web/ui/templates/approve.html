@@ -1,7 +1,9 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>Approve wave</h1>
-<p><strong>{{ preview.count }}</strong> contacts · estimated {{ preview.estimated_cost_cents }}¢</p>
+<p><strong>{{ preview.count }}</strong> pieces{% if preview.seed_count %}
+  (incl. <strong>{{ preview.seed_count }}</strong> seed){% endif %} ·
+  estimated {{ preview.estimated_cost_cents }}¢</p>
 
 <h3>By segment</h3>
 <ul>{% for k, v in preview.by_segment.items() %}<li>{{ k }}: {{ v }}</li>{% endfor %}</ul>
@@ -11,6 +13,16 @@
 
 <h3>Sample</h3>
 <ul>{% for s in preview.sample %}<li>{{ s.business_name or s.id }} ({{ s.segment or '—' }})</li>{% endfor %}</ul>
+
+<h3>Proof — the print truth</h3>
+<p>Lob's test render of each variant (fonts, bleed trim, address block). This is what
+  actually prints — approve this, not the browser design preview.</p>
+{% for p in proofs %}
+<h4>{{ p.variant_name }} — <a href="{{ p.pdf_url }}" target="_blank">open PDF</a>
+  (if the inline view is blank, Lob is still rendering — refresh, or use the link)</h4>
+<iframe src="{{ p.pdf_url }}" title="Proof — {{ p.variant_name }}"
+        style="width: 100%; height: 480px; border: 1px solid #999;"></iframe>
+{% endfor %}
 
 <form method="post"
       action="/waves/{{ wave_id }}/approve?state_hash={{ preview.state_hash }}&amp;approved_by=young">

@@ -7,15 +7,26 @@ import warnings
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 
+from seams.fakes import FakePrintApi
 from service.waves import create_variant, draft_wave
 
 warnings.simplefilter("ignore")  # starlette testclient httpx deprecation noise
 
-from web.api import app  # noqa: E402
+from web.api import _proof_client, app  # noqa: E402
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def _fake_proof_client():
+    """The approve screen renders Lob proofs; a real render would hit the network.
+    Default every web test to a fake proof client so none makes a vendor call."""
+    app.dependency_overrides[_proof_client] = lambda: FakePrintApi()
+    yield
+    app.dependency_overrides.clear()
 
 
 def _future():
@@ -148,6 +159,15 @@ def test_ui_approve_screen_renders_preview_and_hash(clean_db, owner_conn):
     assert response.status_code == 200
     assert "Approve this wave" in response.text
     assert "state_hash=" in response.text  # the form carries the hash back
+
+
+def test_approve_screen_embeds_a_proof_per_variant(clean_db, owner_conn):
+    _seed_prospects(owner_conn, 2)
+    v1 = create_variant("A", "hA", {"front": "fa", "back": "ba"})
+    wave_id = draft_wave("w2", 1, {"trade": ["plumber"]}, {str(v1): 1.0}, _future())
+    r = client.get(f"/waves/{wave_id}/approve")
+    assert r.status_code == 200
+    assert "lob.test/proof" in r.text  # the fake proof url is embedded (autouse fake client)
 
 
 # --- v1 window: wave composition -----------------------------------------------

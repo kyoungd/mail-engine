@@ -21,6 +21,15 @@ class SubmissionResult:
     cost_cents: int
 
 
+@dataclass(frozen=True)
+class ProofResult:
+    """The vendor's final rendering of a creative — the print truth (fonts, bleed trim,
+    address block), not our HTML design preview. Produced in the vendor's test
+    environment: rendered, never printed or mailed."""
+
+    pdf_url: str
+
+
 @dataclass(frozen=True, kw_only=True)
 class Recipient:
     """The mailing destination for one piece, built from the contact row."""
@@ -39,6 +48,13 @@ class PrintApi(Protocol):
     ) -> SubmissionResult:
         """Submit one piece to `recipient`. MUST be idempotent on `mailer_code` (the
         vendor idempotency key), so a resumed drop never double-prints."""
+        ...
+
+    def render_proof(self, creative: dict[str, Any]) -> ProofResult:
+        """Render one creative in the vendor's test environment and return the final
+        PDF — no piece is printed or mailed. This is what the approval screen shows so
+        the founder approves the file that will actually print, not our design preview.
+        MUST be called against a test-environment key (real money never moves here)."""
         ...
 
     def parse_webhook(self, raw: bytes, headers: dict[str, str]) -> Event | None:

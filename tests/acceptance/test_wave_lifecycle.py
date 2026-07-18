@@ -368,9 +368,12 @@ def test_cancelled_wave_frees_its_name(clean_db, owner_conn):
 
 
 def test_active_wave_name_still_unique(clean_db, owner_conn):
+    # Since the duplicate-name fix (test_duplicate_names.py) the constraint surfaces
+    # as a structured ValidationError, not a raw psycopg.UniqueViolation 500.
     draft_wave("w", 1, {"trade": ["plumber"]}, {}, _future())
-    with pytest.raises(psycopg.errors.UniqueViolation):
+    with pytest.raises(ValidationError) as exc:
         draft_wave("w", 1, {"trade": ["plumber"]}, {}, _future())
+    assert exc.value.code == "duplicate_name"
 
 
 # --- cancel --------------------------------------------------------------------

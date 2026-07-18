@@ -3,6 +3,7 @@ vendor. They model the two properties the real clients must have: submit is idem
 on the mailer code (the vendor idempotency key), and a feed can fail.
 """
 
+import hashlib
 import json
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -11,7 +12,7 @@ from typing import Any
 
 from domain.enums import EventSource
 from domain.types import Event
-from seams.print_api import SubmissionResult
+from seams.print_api import ProofResult, SubmissionResult
 
 _WEBHOOK_STATUS_TO_TYPE = {
     "delivered": "piece.delivered",
@@ -29,6 +30,7 @@ class FakePrintApi:
         self.cost_cents = cost_cents
         self.printed: dict[str, SubmissionResult] = {}
         self.submit_calls = 0
+        self.proof_calls = 0
 
     def submit_piece(
         self, mailer_code: str, creative: dict[str, Any], recipient=None
@@ -41,6 +43,13 @@ class FakePrintApi:
         result = SubmissionResult(external_id=f"lob_{mailer_code}", cost_cents=self.cost_cents)
         self.printed[mailer_code] = result
         return result
+
+    def render_proof(self, creative: dict[str, Any]) -> ProofResult:
+        """Deterministic fake proof: the url encodes a checksum of the creative, so a
+        test can tell two variants' proofs apart without a vendor."""
+        checksum = hashlib.sha256(json.dumps(creative, sort_keys=True).encode()).hexdigest()[:12]
+        self.proof_calls += 1
+        return ProofResult(pdf_url=f"https://lob.test/proof/{checksum}.pdf")
 
     def parse_webhook(self, raw: bytes, headers: dict[str, str]) -> Event | None:
         data = json.loads(raw)

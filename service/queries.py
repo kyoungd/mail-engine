@@ -44,7 +44,10 @@ def get_wave_dashboard(wave_id: UUID) -> WaveDashboard:
                 "exists (select 1 from events e where e.contact_id = p.contact_id "
                 "and e.type = any(%s)) "
                 "from pieces p join variants v on v.id = p.variant_id "
-                "where p.wave_id = %s",
+                "join contacts c on c.id = p.contact_id "
+                # Seed pieces are excluded from every count here: a seed never responds,
+                # so counting it would deflate the response rate (FR-7/FR-13).
+                "where p.wave_id = %s and c.is_seed = false",
                 (list(INBOUND_TYPES), wave_id),
             )
             rows = cur.fetchall()
@@ -134,6 +137,7 @@ def get_pipeline() -> list[ContactCard]:
                 "and e.type = any(%s)) "
                 "from contacts c "
                 "where c.stage_snapshot in ('responded', 'in_conversation') "
+                "and c.is_seed = false "  # seeds never enter the pipeline (FR-7)
                 "order by c.id",
                 (list(INBOUND_TYPES),),
             )
@@ -167,6 +171,7 @@ def get_activation_board() -> list[ActivationCard]:
                 "select a.contact_id, c.business_name, a.signed_up_at, a.forwarding_at, "
                 "a.calendar_at, a.first_lead_at "
                 "from activation a join contacts c on c.id = a.contact_id "
+                "where c.is_seed = false "  # seeds never sign up; exclude defensively (FR-7)
                 "order by a.signed_up_at"
             )
             rows = cur.fetchall()

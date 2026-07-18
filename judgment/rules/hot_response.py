@@ -14,7 +14,8 @@ class _Rule:
     def evaluate(self, cur, params, as_of: date) -> list[Hit]:
         cur.execute(
             "select c.id from contacts c "
-            "where c.stage_snapshot = 'responded' "
+            "where c.is_seed = false "  # seeds never enter the judgment machinery (FR-7)
+            "and c.stage_snapshot = 'responded' "
             "and not exists (select 1 from events e "
             "  where e.contact_id = c.id and e.type = 'nudge.sent')"
         )

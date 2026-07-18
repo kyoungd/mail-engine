@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-from fastapi import FastAPI, File, Form, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -42,6 +42,7 @@ from service.queries import (
     list_waves,
     search_contacts,
 )
+from seams.print_api import PrintApi
 from service.waves import (
     approve_wave,
     cancel_wave,
@@ -49,12 +50,29 @@ from service.waves import (
     draft_wave,
     preview_audience,
     update_wave,
+    wave_proofs,
 )
 
 # Substituted for {{mailer_code}} in creative previews. Deliberately NOT a real
 # piece's code: a real code followed from a preview would register a fake response
 # attributed to a real contact. This one matches nothing and lands as an orphan.
 _PREVIEW_MAILER_CODE = "SAMPLE7X29Q"
+
+def _proof_client() -> PrintApi:
+    """The Lob client used to render approval-screen proofs. Built from LOB_TEST_API_KEY
+    — proofs render in the test environment, never the live one, so no piece prints and
+    no money moves. Injected as a dependency so tests substitute a fake (no network)."""
+    return LobPrintApi(
+        os.environ["LOB_TEST_API_KEY"],
+        {
+            "name": os.environ["LOB_FROM_NAME"],
+            "address_line1": os.environ["LOB_FROM_LINE1"],
+            "address_city": os.environ["LOB_FROM_CITY"],
+            "address_state": os.environ["LOB_FROM_STATE"],
+            "address_zip": os.environ["LOB_FROM_ZIP"],
+        },
+    )
+
 
 app = FastAPI(title="Mail Engine")
 _UI_DIR = Path(__file__).resolve().parent / "ui"
@@ -325,9 +343,16 @@ def ui_update_wave(
 
 
 @app.get("/waves/{wave_id}/approve")
-def ui_approve_screen(request: Request, wave_id: UUID):
+def ui_approve_screen(
+    request: Request, wave_id: UUID, proof_api: PrintApi = Depends(_proof_client)
+):
+    # Render the Lob proofs first: if the vendor can't render, this raises and the
+    # screen never shows an approve button — "no proof, nothing to approve" (FR-3).
+    proofs = wave_proofs(wave_id, proof_api)
     return templates.TemplateResponse(
-        request, "approve.html", {"wave_id": wave_id, "preview": preview_audience(wave_id)}
+        request,
+        "approve.html",
+        {"wave_id": wave_id, "preview": preview_audience(wave_id), "proofs": proofs},
     )
 
 

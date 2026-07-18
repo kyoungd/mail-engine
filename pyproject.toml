@@ -25,8 +25,12 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+# The default suite stays fast and offline: e2e (real Lob, network) is deselected
+# unless explicitly asked for. `make e2e` passes `-m e2e`, which overrides this.
+addopts = "-m 'not e2e'"
 markers = [
     "nightly: slow tests excluded from the in-loop suite",
+    "e2e: full-funnel journey against the real Lob test env (make e2e; wipes mailengine_dev)",
 ]
 
 [tool.ruff]

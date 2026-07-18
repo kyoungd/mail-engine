@@ -9,13 +9,14 @@ judgment slot.
 """
 
 import csv
+import re
 from datetime import UTC, date, datetime
 from uuid import UUID
 
 from db.session import transaction
 from domain.errors import ValidationError
 from domain.phone import to_e164
-from domain.types import IntakeReport
+from domain.types import IntakeReport, SeedReport
 from service.ingestion import ingest_event
 
 _TRUTHY = {"1", "true", "t", "yes", "y"}
@@ -96,6 +97,52 @@ def load_list(csv_path: str, source: str = "cslb") -> IntakeReport:
     return IntakeReport(
         loaded=loaded, deduped=deduped, invalid=invalid, suppressed=suppressed
     )
+
+
+def _seed_key(name: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", name.strip().lower()).strip("-")
+    return f"seed-{slug}"
+
+
+def ensure_seed_contacts(seeds: list[dict]) -> SeedReport:
+    """Upsert founder addresses as is_seed contacts (PRD FR-4) — the seed addresses are
+    config, not a management UI. Idempotent on a derived list_key (seed-<slug of name>):
+    re-running this (a deploy, a cron) never duplicates a seed. Seeds carry no trade and
+    segment='seed'; they ride every wave as one extra piece (resolve_audience) and are
+    excluded from all response metrics (FR-7/FR-13)."""
+    created = 0
+    with transaction() as conn:
+        with conn.cursor() as cur:
+            for seed in seeds:
+                cur.execute(
+                    "insert into contacts (list_key, business_name, is_seed, segment, "
+                    "addr_line1, addr_line2, addr_city, addr_state, addr_zip) "
+                    "values (%s, %s, true, 'seed', %s, %s, %s, %s, %s) "
+                    "on conflict (list_key) do update set "
+                    "business_name = excluded.business_name, is_seed = true, "
+                    "addr_line1 = excluded.addr_line1, addr_line2 = excluded.addr_line2, "
+                    "addr_city = excluded.addr_city, addr_state = excluded.addr_state, "
+                    "addr_zip = excluded.addr_zip "
+                    "returning (xmax = 0)",  # xmax = 0 => this row was inserted, not updated
+                    (
+                        _seed_key(seed["name"]),
+                        seed["name"],
+                        seed["line1"],
+                        seed.get("line2"),
+                        seed["city"],
+                        seed["state"],
+                        seed["zip"],
+                    ),
+                )
+                row = cur.fetchone()
+                assert row is not None
+                if row[0]:
+                    created += 1
+            cur.execute("select count(*) from contacts where is_seed")
+            total_row = cur.fetchone()
+            assert total_row is not None
+
+    return SeedReport(total=total_row[0], created=created)
 
 
 def suppress(contact_id: UUID, reason: str) -> None:
