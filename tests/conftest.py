@@ -1,6 +1,10 @@
 """Shared fixtures. Loads .env, exposes the two connection URLs and the
 migrations directory, and provides a session-scoped fixture that applies
-migrations so acceptance tests run against a live, migrated database."""
+migrations so acceptance tests run against a live, migrated database.
+
+Guarded: this file reads the .env of whichever folder pytest was invoked in, and
+`clean_db` truncates every table against it. `pytest_configure` refuses to start the
+session unless that resolves to a disposable test database — see tests/guard.py."""
 
 import os
 from pathlib import Path
@@ -8,6 +12,8 @@ from pathlib import Path
 import psycopg
 import pytest
 from yoyo import get_backend, read_migrations
+
+from tests.guard import unsafe_test_environment
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MIGRATIONS_DIR = PROJECT_ROOT / "db" / "migrations"
@@ -25,6 +31,20 @@ def _load_dotenv(path: Path) -> None:
 
 
 _load_dotenv(PROJECT_ROOT / ".env")
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Halt the whole session — not skip, not warn — if this is not a test environment."""
+    problem = unsafe_test_environment(
+        os.environ.get("OWNER_DATABASE_URL", ""), os.environ.get("LOB_API_KEY", "")
+    )
+    if problem:
+        pytest.exit(
+            f"REFUSING TO RUN THE TEST SUITE: {problem}\n"
+            f"  invoked in: {PROJECT_ROOT}\n"
+            f"  Run tests from the mail-engine (test) folder instead.",
+            returncode=3,
+        )
 
 
 def _require(name: str) -> str:

@@ -112,3 +112,57 @@ Revisit trigger: wave-1's hit rate. High hit rate → the feed mostly automates 
 manual step (worth building). Low hit rate (he calls from his cell, not the listed
 business line) → the feed would not have saved us either, and the real fix is a
 per-piece-coded response path, not a feed.
+
+## Activation tracking has NO WRITER (found 2026-07-16 — decision OPEN)
+
+**Finding, not a decision — recorded so it is not rediscovered by a churned customer.**
+
+A real test sale (Lob-free drop → localhost landing page → real Stripe test checkout →
+`landing_purchase_completed`) proved the responder path end to end: the contact resolved
+by mailer code and derived to `won`. Then the activation board was **empty**.
+
+**Nothing in the codebase writes the `activation` table.** The only `insert into
+activation` statements anywhere are in four TEST files
+(`test_queries.py:152`, `test_digest_delivery.py:22`, `test_judgment_rules.py:60`,
+`test_judgment_discipline.py:37`) — each inserts the row it then asserts on. Everything
+*around* the writer is built: the table (migration 0001), the reader
+(`get_activation_board`), the UI (`/activation`, `/api/activation`), and both judgment
+rules (`activation_stalled`, `activation_partial`).
+
+**Consequences:** FR-4 is unimplemented; Goal #4 ("Zero activation stalls undetected past
+STALL_DAYS") cannot be met; `activation_stalled` — whose own docstring calls it *"the
+churn cliff, the single most valuable nudge in the system"* — can never fire; `/activation`
+is permanently empty. All with **262 tests green**.
+
+**Why the suite is blind to it:** every activation test fabricates the writer's output
+before exercising the reader. The seam between "a signup happened" and "an activation row
+exists" is the one thing no test crosses. Only driving a real sale crosses it.
+
+### The trap in the obvious fix
+
+Columns are `signed_up_at, forwarding_at, calendar_at, first_lead_at`. Only `signed_up_at`
+is derivable from `signup.completed`. The other three — above all `first_lead_at`, which
+*is* the definition of activated — describe what the customer does inside NeverMissCall,
+and **no `NmcFeed` exists** (see the phone-response decision above: hand-matched).
+
+So shipping only the cheap half is **worse than shipping nothing**: every signup would
+open an activation row whose `first_lead_at` never arrives, and `activation_stalled` would
+fire forever on every customer — the nudge channel crying wolf about the best outcomes the
+business has. "Nudge channel stays trusted" is a stated success metric (PRD §8).
+
+### Options (UNDECIDED)
+
+1. **Hand-stamped** — auto-insert on `signup.completed`, plus a UI action to stamp
+   `first_lead_at`. Consistent with the phone-response posture already chosen; at
+   single-digit customers the manual step is cheaper than the feed, and it measures how
+   often activation actually stalls — the number that should decide whether to automate.
+2. **Build the NmcFeed** — the honest automation, but it is the same feed already deferred
+   once on the grounds that its value is unknown until wave-1 data exists.
+3. **Leave it** — accept that activation is untracked pre-launch, and delete or disable the
+   two rules so they are not mistaken for working coverage.
+
+**Leaning (1)**, for the same reason (1) won for phone. **Do not** ship the `signed_up_at`
+insert on its own — see the trap.
+
+Revisit trigger: the first real signup. Until then the board being empty is *correct* and
+must not be read as "no stalls".
