@@ -166,3 +166,272 @@ insert on its own — see the trap.
 
 Revisit trigger: the first real signup. Until then the board being empty is *correct* and
 must not be read as "no stalls".
+
+---
+
+## Partner-assigned contacts stay in the mail cadence, flagged (decided 2026-07-25)
+
+**Decision:** Assigning a contact to a sales partner does **not** remove it from wave
+audiences. Mail and partner voice run concurrently on the same contact. Responses from
+partner-owned contacts are reported separately in the wave readout (FR-13) rather than
+credited to mail outright. This closes open question 1 in
+`partner-lead-assignment.md`.
+
+**Why.** The multi-touch combination (postcard + a human voice call) is the
+higher-converting play and is standard direct-marketing practice; removing assigned
+contacts from the cadence would forfeit that lift and shrink the wave denominator,
+making response rates across waves non-comparable. Attribution honesty is recoverable
+by segmenting the readout; the mail lift is not recoverable once forfeited.
+
+**The consequence that decided the implementation shape.** `contacts.owner` is
+*mutable current state* — assignments expire (S-4) and are reclaimed (S-5). If the
+readout joins responses to `contacts.owner` as it stands at report time, a contact
+assigned to a partner in March whose assignment expired in June has its March response
+retroactively re-credited to Young. The same wave's readout would then answer
+differently depending on when it is run — a silently drifting historical number, which
+is exactly the failure mode the append-only event spine exists to prevent.
+
+**Therefore: owner-at-response-time is derived from the assignment event stream**
+(`contact.assigned` / `contact.assignment_expired` / `contact.reclaimed`), never read
+from `contacts.owner`. This sits squarely in FR-7's grain — versioned pure functions
+over full history, recomputable after definition changes — and keeps wave readouts
+stable and reproducible.
+
+**Rejected: stamp `owner` onto the response event at capture time.** Simpler to query,
+but it would denormalize derived state into the canonical event taxonomy (which FR-5
+keeps closed), and it would require threading owner through all three independent
+capture paths — PostHog sync, the NMC feed, and Lob webhooks. Derivation touches none
+of them.
+
+**Rejected: remove assigned contacts from wave audiences.** Clean attribution by
+construction, but forfeits the multi-touch lift and breaks cross-wave denominator
+comparability. Attribution is fixable by reporting; lost lift is not.
+
+**Residual risk:** the segmentation is only as good as the completeness of the
+assignment event stream. Any assignment path that writes `contacts.owner` without
+emitting an event silently corrupts historical readouts. `owner` must have exactly
+one writer, and it must emit.
+
+**Re-evaluation trigger:** the first wave whose readout shows partner-owned and
+mail-only response rates diverging enough to change a creative decision — at that
+point the segmentation is carrying real weight and deserves a validation pass.
+
+---
+
+## Partner mail: company channel, funded by earned co-op credit (decided 2026-07-25)
+
+**Decision:** Sales partners do not send their own cold mail to assigned leads. Mail
+fires through the mail engine — coded, approved, cost-tracked. Volume is **earned** via
+co-op credit accrued from closes, never purchased. Recorded as Ground Rule 7 +
+§ Co-op Mail Credit in `../../../docs/partnership-program.md`.
+
+**Compliance is not the reason.** TCPA governs calls and texts; CAN-SPAM governs email.
+B2B postal mail has essentially no consent regime, and Ground Rule 1's logic ("our
+messaging reputation IS the product," per-number carrier verification) is specific to
+SMS and does not transfer to paper. On legal risk alone the answer would be yes.
+
+**Experiment contamination is the reason.** Every wave carries a hypothesis and produces
+a readout grading it (FR-2, FR-13); the 60-day phase's metric is learning-per-hour.
+Uncoded partner mail into the same audience makes variant A vs. variant B unreadable —
+you cannot tell whether the creative won or whether a partner mailed that week. And
+unlike a partner *call*, which is a different channel and can be segmented by ownership
+(`partner-lead-assignment.md` S-8), **a partner postcard is indistinguishable from an
+NMC postcard at the response end.** Secondary: it breaks one-piece-per-contact-per-wave
+in fact, and bypasses FR-3's approve-what-fires gate, which is also the only review
+Ground Rules 2–3 (no income claims, no same-day-activation claims) get on a printed —
+permanent, archivable — claim surface.
+
+**Permitted exception:** warm follow-up mail to a contact the partner has actually
+spoken with. Not a cold-mail problem, and already covered by S-8's ownership
+segmentation. Bounded to non-NMC-branded pieces making no barred claim.
+
+**Funding — co-op, not MDF, not cost-share.** Cost-share (50/50) is rejected outright:
+`partnership-program.md` already promises "no fees of any kind to the partner," and
+charging a commission-only rep for lead gen is the canonical MLM signal the recruiting
+funnel is explicitly built to pre-empt. MDF (discretionary starter allocation) is
+rejected because it answers a non-question — the job is calling, and a partner with a
+batch and a phone is equipped from day one; mail is an unlock, not a prerequisite.
+Co-op remains: budget accrues from proven production, no cash from the partner.
+
+**Denominated in pieces.** Standard co-op rates (1–5% of partner revenue) assume
+distributor volume; 3% of a Solo close is ~$28. Rates set at 250 / 500 / 1,000 pieces
+for Solo / Growth / Power, tier-weighted so partners have a reason to pitch up.
+
+**Ledger stays manual.** Closes are in `nmc_sales_attribution` (Medusa DB), mail budget
+in the mail-engine DB — the two-database separation is a 🔴 invariant, so a balance is
+an app-level correlation, never a join. At 1–3 partners it is the operator entering a
+number. Do not build a ledger service.
+
+**Re-evaluation trigger:** wave-1 response rate and cost-per-response. Credit sizes are
+calibrated against *gross* revenue with per-subscriber COGS unverified; if a 500-piece
+drop does not plausibly yield a close, the credits shrink.
+
+---
+
+## New-customer bonus: 1.5× monthly, two halves, 3-month gate (decided 2026-07-25)
+
+**Decision:** On top of 20%×12 recurring, a one-time bonus of **1.5× the customer's
+monthly subscription** — $150 Solo / $420 Growth / $825 Power — paid in two equal
+halves. First half vests at the customer's **2nd** completed billing month, second at
+the **3rd**. Vesting evaluated at billing-cycle close, not a rolling day count. Unvested
+halves forfeit on cancellation; paid halves are not clawed back. This fires lever (a) of
+the 2026-07-19 compensation decision.
+
+**Why:** 20%×12 alone read as uncompetitive against other remote-closer gigs — $237.60
+of first-year earnings on a Solo close, paid out $19.80 at a time, is a weak answer to
+"why this gig." The bonus roughly doubles first-year Solo earnings ($237.60 → $387.60)
+and, more importantly, front-loads a visible early win, which is the documented
+retention mechanic for commission-only reps.
+
+**Why 1.5× monthly rather than a flat figure.** Scales to every tier and any future one
+from a single sentence in the partner agreement, and keeps the bonus proportional to the
+revenue that funds it. The originally-floated $50–100 flat bounty would have inverted
+under-scaling on Power.
+
+**Why halves, and why the gate is really three months.** The pitch says "two months" and
+that is true of the first half — but the second needs a third successful billing month,
+so retention exposure is three months while the offer stays simple to explain. The
+original single-payment-at-2-months design was **cash-flow negative at the moment of
+payout**: $198 collected, commission already owed, $150 out the door. Two $75 halves in
+months 3 and 4 never go underwater. Gating on retention rather than trial-to-paid (the
+2026-07-19 framing) also stops full bounty being paid on a customer who cancels in
+week 2. Every half clears the $50 minimum payout on its own.
+
+**Knock-on — the three partner costs now stack to ~half of gross revenue.** Commission +
+bonus + co-op mail credit = $636 / $1,587 / $3,136 per Solo / Growth / Power close,
+against $1,188 / $3,348 / $6,588 of year-1 subscription revenue — 53% / 47% / 48%. Each
+component is defensible alone; nobody had looked at them together before this entry. CAC
+payback ~6–7 months on Solo *before* COGS, which is respectable for SaaS, and year 2 is
+near-clean since commission stops at 12 months. Co-op credit figures in
+`partnership-program.md` were re-based to net-of-bonus gross.
+
+**Re-evaluation trigger:** Solo carries the heaviest load (53%) and is the likeliest to
+churn. If early churn or wave-1 economics squeeze this, **Solo's mail credit drops to
+200 pieces first** — it is the only one of the three not promised to the partner up
+front, so it can move without touching the offer or an agreement.
+
+---
+
+## Two programs only: Referral (credit) + Sales Partner (cash). "Affiliate" retired (decided 2026-07-25)
+
+**Decision:** NeverMissCall runs exactly two partner-adjacent programs and no others.
+**Referral** — existing customers naming people they know, paid in account credit, no
+contract, no cash, no payout machinery (`../../../docs/referral-program.md`).
+**Sales Partner** — independent contractors cold-calling B2B for commission + bonus +
+co-op mail credit, under a signed agreement (`../../../docs/partnership-program.md`).
+The name "affiliate" is retired, and `/us/affiliates` is removed. **Reseller is
+explicitly not a category** — it implies organizations with their own sales motions, and
+there is no plan for one.
+
+**Why the old affiliate program failed:** it applied *affiliate* economics (20% × 12 in
+cash) to a *referral* audience — one plumber telling another. That is expensive enough
+to require paperwork (W-9, ACH, 1099, net-30 payout runs) but too small to motivate a
+professional promoter. It fell between two stools, which is why it read as
+uncompetitive. The three models are genuinely distinct: customer referral (credit, zero
+friction), affiliate (publishers, cash, tracking links), sales partner (active selling,
+contract, support). Conflating the first two was the error.
+
+**Nothing was lost.** The registry appendix confirms **no partner code was ever issued**
+under the old program — only channel tags (`sms_sales`, mailer piece codes). Zero live
+referral partners, no commission obligations, no attribution history to preserve.
+
+**The separation principle survives, re-based.** `partnership-program.md`'s "two
+programs, two pages — do not merge them" guardrail was right in substance; only the
+referral side was mis-designed. The doc's stated reason for separation was compliance
+(the referral terms ban cold outreach). The **better** reason is that the two are
+economic complements: referrals are ~3× cheaper per close ($198 foregone revenue vs.
+$636 cash) and warmer, but do not scale on demand — you cannot tell customers to refer
+harder. Sales Partners scale on demand but cost real money. Neither substitutes for the
+other.
+
+**Credit rather than cash is the load-bearing choice.** It removes the entire payout
+apparatus for the casual path: no W-9, no ACH, no 1099, no monthly run — one Stripe
+operation on a customer already in Stripe. It also costs margin rather than revenue and
+retains the referrer.
+
+**Knock-on cleanups:** the Sales Partner offer bullet claimed its cash-payout terms were
+"same structure as the referral program" — no longer true, corrected. The registry's
+`Program` column keeps `referral` as a valid value (now meaning credit-based); no
+migration needed. The retired page leaves references in `footer/index.tsx` and
+`sales-partners/page.tsx` that will dead-link until removed.
+
+**Contact address:** `partners@nevermisscall.com` — one shared **support** mailbox for
+both programs (questions, payout issues, W-9s), replacing `affiliates@`. Deliberately
+not an intake path: Sales Partner applications go through the form, referrals have no
+application. The bare word "partners" is a documented carve-out from naming guardrail
+(1), since the mailbox names a destination rather than either program.
+
+**Re-evaluation trigger:** a single customer producing referral volume that looks like a
+business rather than a favor — at which point the honest conversation is whether they
+should become a Sales Partner, not whether to raise referral rewards.
+
+---
+
+## Contact grain: one row per business; same phone ⇒ same contact (decided 2026-07-27)
+
+**Decision:** the `contacts` table's grain changes from CSLB *license record* to
+**business** — immutable per-source intake tables (`intake_cslb_ca`, `intake_fbn_ca`)
+hold the raw rows; a slim `contacts` becomes phone-unique by construction. Merge rule:
+**CSLB same phone ⇒ same contact, full stop**; FBN one contact per filing (no phone, no
+safe key); never fuzzy-match. Design: `ingest-contact-migration.md` (revision 7,
+approved 2026-07-27 after six independent fresh-context reviews); evidence:
+`to-fix-ingest-and-contact.md`.
+
+**Why:** 1,785 phone numbers span 3,772 contact rows (worst: one plumbing roll-up
+wearing 12 brand names on 909-599-5950). Every rule in the codebase and the partner
+design is about the business behind a phone; the rev-4–6 partner design compensated
+per-verb ("check all twin rows") and every review found the next forgotten spot. A
+principle enforced by vigilance in N places became a structure enforced in one. Merge-key
+measurement was decisive: name-merge 3.1% viable, phone+address 39.7% — only phone
+closes the class.
+
+**Ratified explicitly with the approval:** (a) the **brand-merge judgment** —
+differently-named brands on one number become one contact (commercially correct per the
+Andersen roll-up; an answering-service-shared number also merges, definitionally right
+for voice, costs one postcard for mail); (b) the **one-time readout restatement** —
+merging shrinks denominators, so historical response rates shift honestly; delivered as
+a before/after report; the one sanctioned break in readout reproducibility, which holds
+from the migration forward; (c) relaxing `unique (contact_id, wave_id)` on pieces —
+merged history genuinely holds two wave-1 pieces on one business; enforcement moves to
+audience resolution + mailer-code idempotency.
+
+**Address standardization rides along, identity does not change:** every intake row is
+standardized once (Lob US Address Verification; USPS-canonical + delivery point),
+snapshot persisted on the immutable row; audience resolution dedupes to one piece per
+delivery point per wave and excludes undeliverable primary addresses. **Same address
+never merges contacts** — business parks, shared suites, registered agents make
+address⇒buyer false; over-merge loses leads, while the phone-grain error only wasted
+postcards (~$1,580/wave).
+
+**Sequencing:** this is a spine migration (🔴, own design + implementation plan,
+`ingest-contact-migration-implementation.md`), executed **before** all partner phases;
+partner migrations renumbered 0009/0010; `partner-lead-assignment.md` revision 7
+(deleting the twin-row compensation stratum) follows completion. `phone_facts` is not
+built — it was a workaround for this table not existing.
+
+---
+
+## Standing design-doc conventions: authority map + writer-named-at-declaration (decided 2026-07-27)
+
+**Decision:** two conventions from the partner-design post-mortem
+(`to-fix-ingest-and-contact.md` diagnosis, causes 2–3) are now **standing requirements
+for every design doc**, first instantiated in `ingest-contact-migration.md` §11:
+
+1. **Authority map** — every design doc carries a table: per fact, its source of truth,
+   its writers, its projections/readers. Closes the per-fact authority ambiguity a
+   half-event-sourced architecture forces (owner column vs event stream, stamped vs
+   batch expiry, `nudge.sent` meaning composed-not-delivered — TD-10 is this disease).
+   An empty writers cell is a dead fact, visible at a glance.
+2. **Writer-named-at-declaration** — no stored fact, table, column, seam, or event may
+   be declared without naming, in the same paragraph, its writer, its readers, and its
+   clear/delete path. Broader than the map: a Protocol with no implementation is a dead
+   callee; a lifecycle verb nobody calls is a missing verb (seven instances found in the
+   partner-design churn, two introduced by review patches themselves).
+
+**Why both, not one:** verified by counterfactual (2026-07-26) — identity, authority,
+and lifecycle completeness are three distinct axes; fixing the grain perfectly leaves
+every authority and lifecycle instance standing. For stored facts the map subsumes the
+rule; seams and missing verbs need the rule. Common ancestor: **declaration without
+obligation**. The six-review hardening of the grain design validated both — several
+findings were exactly "declared without writer/reader/clear-path," caught by the
+conventions the doc itself adopted.
