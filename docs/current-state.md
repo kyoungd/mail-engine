@@ -33,12 +33,15 @@ migrations 0001–0007 applied, prod pulled `c99033d`. Design truth:
   run-and-rollback, report is the 🔴 gate before `--execute`. Approval
   ratified brand-merge, the one-time readout restatement, and the pieces
   constraint relax.
-- **`ingest-contact-migration-implementation.md`** — phases: 0 facts/docs
-  (DONE), 1 additive schema+adapters+seam 🟡, 2 spine verbs 🟡, 3
-  audience/execution 🟡, 4 verify_addresses job 🟡, 5 prod merge 🔴. Key
-  executor wrinkle (ground rule 4): fresh envs = migrations + `migrate_grain
-  --execute` (swap DDL lives in the script, not a migration) — wire into
-  `make migrate`/test setup in Phase 1 or post-Phase-2 tests fail.
+- **`ingest-contact-migration-implementation.md` (rev 2** — restructured
+  after its own fresh-context + codebase review found the phase sequencing
+  unsatisfiable**)** — phases: 0 facts/docs (✅ DONE 2026-07-27), 1 additive
+  schema+adapters+seam 🟡 (suite runs PRE-swap), 2 **the swap boundary** 🟡
+  (ALL swap-dependent code — spine verbs + audience + execution re-key — plus
+  the `migrate_grain` wiring land together; suite runs POST-swap from here),
+  3 verify_addresses job 🟡, 4 prod merge 🔴. `migrate_grain` re-run contract
+  pinned: post-swap → no-op; pre-swap with data → loud halt (ceremony
+  required); pre-swap empty → swap auto-applies (fresh envs).
 - **Lob AV facts (verified 2026-07-27, in design §5):** verdict enum
   `deliverable`/`deliverable_{missing,incorrect,unnecessary}_unit`/
   `undeliverable` (only `undeliverable` excludes); `delivery_point_barcode` is
@@ -53,10 +56,13 @@ migrations 0001–0007 applied, prod pulled `c99033d`. Design truth:
 
 1. **Phase 1** (🟡): frozen tests first — migration `0008` (additive DDL incl.
    `is_primary` partial unique), adapters emit `trades`, `AddressVerifier`
-   Protocol + Fake, ground-rule-4 wiring. Show the tests, get the nod, green.
-2. Then phases 2–4 in order, one per session; Phase 5 (prod merge) is 🔴 with
-   the dry-run report as the gate.
-3. After Phase 5: partner rev 7, then the partner queue (radius script, Q6
+   Protocol + Fake. NO swap wiring yet — suite stays pre-swap. Show the
+   tests, get the nod, green.
+2. **Phase 2** is the big one (the swap boundary — may split across sessions
+   *within* the phase, but the boundary isn't claimed until all of it is
+   green and the swap is wired). Then Phase 3; Phase 4 (prod merge) is 🔴
+   with the dry-run report as the gate.
+3. After Phase 4: partner rev 7, then the partner queue (radius script, Q6
    counsel, Q10).
 
 ## Environment (local dev)

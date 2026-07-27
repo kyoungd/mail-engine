@@ -1,6 +1,7 @@
 # Ingest / contact migration — one row per business
 
-*2026-07-27. Status: **DRAFT — awaiting 🔴 operator approval.** This is the design
+*2026-07-27. Status: **APPROVED (🔴 operator approval, 2026-07-27, at revision
+7 after six independent fresh-context reviews).** This is the design
 doc `to-fix-ingest-and-contact.md` § Next session calls for. Direction ("one row
 per business") and the five open questions were decided by the operator
 (2026-07-26 / 2026-07-27); this doc turns those decisions into a buildable spec.
@@ -392,7 +393,7 @@ the §7 preflight globs both cover).
   `AudiencePreview` reports the dropped count (no silent caps).
 - **Undeliverable primary addresses are excluded** (decided 2026-07-27): a
   contact whose primary row's `deliverability` verdict is undeliverable (the
-  exact vendor values are pinned during the §5 ⚠ verification) is dropped at
+  vendor values are pinned in §5's verified vendor facts, 2026-07-27) is dropped at
   audience resolution — the decision record's "trim before a piece is
   composed", realized. The exclusion count is reported in `AudiencePreview`
   alongside the dedupe count (no silent caps). This is `deliverability`'s

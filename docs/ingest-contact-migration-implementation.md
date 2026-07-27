@@ -7,10 +7,25 @@ the design conflict, escalate — do not resolve silently. Companions:
 (dependency rule), `technical-debt.md`, `decisions.md`,
 `partner-lead-assignment-implementation.md` (renumbered by Phase 0).*
 
-*Status: design approved; phase gates as marked. Phases 1–4 are 🟡 — the frozen
-acceptance tests at the top of each phase are the approval gate (show them, get
-the nod, green them; they are the design's §10 tests mapped to phases). Phase 5 —
-the prod merge itself — is 🔴 and gated on the dry-run report per the design.*
+*Status: design approved; Phase 0 complete (2026-07-27); phase gates as
+marked. Phases 1–3 are 🟡 — the frozen acceptance tests at the top of each
+phase are the approval gate (show them, get the nod, green them; they are the
+design's §10 tests mapped to phases, plus phase-local scaffolding tests such
+as migration idempotence and seam conformance). Phase 4 — the prod merge
+itself — is 🔴 and gated on the dry-run report per the design.*
+
+*Revision 2 (2026-07-27, after a fresh-context review of this plan verified
+against the codebase): old Phases 2–3 merged into one phase — the swap
+boundary — because the schema swap and the code that survives it must land
+together (old `execute_wave`'s `on conflict (contact_id, wave_id)` is a hard
+Postgres error once the constraint drops; old `load_list`/`_audience_where`
+read dropped columns). Each phase now states which schema its suite runs
+against; `migrate_grain` gained a pinned re-run contract (ground rule 4).*
+
+*Revision 3 (2026-07-27): second plan review (verdict: approve-as-is with four
+notes) — the notes pinned anyway: test-9 scratch-DB fixture, seam prior-art
+acknowledgment, raw-insert authorization for the uniqueness test, Phase 3
+verdict-class definition, plus two wording nits.*
 
 ---
 
@@ -23,33 +38,59 @@ the prod merge itself — is 🔴 and gated on the dry-run report per the design
    escalation, not a patch.
 2. **The dependency rule is law.** `web`/`jobs` → `service` → `derivation`/
    `resolution` → `domain`; `seams` imported only by `jobs` and
-   `service/execution`. `AddressVerifier` is a seam; `load_list` never touches
-   it — verification is the `verify_addresses` job, nightly-run.
+   `service/execution`. Known prior art, acknowledged so it isn't read as
+   license: `web/api.py` and `service/waves.py` already import the print seam
+   (proofs/webhooks) — pre-existing exceptions, not precedent. For THIS
+   feature the rule binds strictly: `AddressVerifier` is touched only by the
+   `verify_addresses` job (nightly-run); `load_list`, `waves`, and `web`
+   never import it.
 3. **Test-first, two tiers.** Frozen acceptance tests in `tests/acceptance/`
    written from the design's §10 criteria through public verbs only; disposable
-   unit tests below. Modifying a frozen test is an escalation. The three
+   unit tests below. Modifying a frozen test is an escalation. **One
+   pre-authorized exception:** §10 test 4 (phone uniqueness) asserts a DB
+   constraint no public verb can violate by design (`load_list` attaches on a
+   phone match, never inserts a twin) — its fixture uses a raw SQL insert to
+   probe the unique index. That is a fixture action, not a verb bypass, and
+   it is the only one. The three
    inherited frozen tests (`tests/acceptance/test_recompute.py:86`,
    `test_contacts.py:102-120`, `test_human_set_next_action_survives_recompute`)
    follow design §10 test 11: fixture helpers may mechanically follow the
    schema; assertions and scenario semantics change by zero characters.
 4. **Schema truth after this feature = migrations 0001–0008 + `migrate_grain`'s
-   in-script swap.** The order-dependent DDL (pieces-constraint drop,
-   phone-unique index, contact column drops) deliberately lives in the script,
-   not a migration file (design §7). Consequence for every fresh environment
-   (dev, CI, `make test`): after applying migrations, run
-   `migrate_grain --execute` — on an empty/fresh DB it is a no-op merge plus
-   the swap DDL. Wire this into `make migrate` and the test-DB setup in
-   Phase 1, or every schema-dependent test after Phase 2 fails on a
-   half-migrated schema.
+   in-script swap — staged, not immediate.** The order-dependent DDL
+   (pieces-constraint drop, phone-unique index, contact column drops)
+   deliberately lives in the script, not a migration file (design §7). The
+   swap and the code that survives it must cross **one boundary together**:
+   Phase 1's suite runs against the **pre-swap** schema (0001–0008, swap NOT
+   wired); Phase 2 lands every swap-dependent code change AND wires
+   `migrate_grain` into `make migrate`/test-DB setup in the same phase — from
+   Phase 2 on, every fresh environment's schema is migrations + swap. Wiring
+   it earlier breaks the suite (old `execute_wave`'s
+   `on conflict (contact_id, wave_id)` errors outright on a swapped schema);
+   wiring it later makes Phase 2's phone-uniqueness test unwritable.
+   **Re-run contract (pinned):** invoked from `make migrate`/test setup the
+   script must be safe to run repeatedly — post-swap schema detected (no
+   `contacts.list_key` column) → clean no-op exit ("already migrated");
+   pre-swap schema **with data** → fail loud, demanding the full dry-run
+   ceremony (never auto-merge someone's populated DB); pre-swap **empty** DB
+   (fresh env) → apply the swap DDL automatically (the merge over zero rows
+   is trivially the ceremony). The guard must never mask a prod preflight
+   halt — prod is never empty.
 5. **Escalation triggers:** any schema change beyond migration `0008` + the
    script's pinned swap; any change to the five operator-decided answers or the
-   brand-merge judgment; any verb signature this plan does not itself specify;
-   anything that makes a §10 test unwritable as specified; any Lob
-   verification fact that contradicts Phase 0's findings.
+   brand-merge judgment; any verb signature beyond those **the design doc**
+   specifies (`retire_seed(contact_id)`,
+   `update_contact_address(contact_id, addr…)`, the `load_list`/
+   `ensure_seed_contacts` reshapes — the design is the signature authority,
+   this plan only sequences); anything that makes a §10 test unwritable as
+   specified; any Lob verification fact that contradicts Phase 0's findings.
 6. **One phase per session.** `make test` + `ruff` + `pyright` clean at every
    phase boundary. ⚠️ `make test` / `make e2e` **truncate `mailengine_dev`** —
    re-ingest per `current-state.md` before manual verification against dev
-   data.
+   data. **Dev remedy for the re-run guard's halt** (it WILL fire on the
+   populated dev remnant after Phase 2): drop/recreate `mailengine_dev` →
+   `make migrate` (empty pre-swap DB → swap auto-applies) → re-ingest through
+   the new `load_list`. The prod ceremony is never the dev path.
 7. **Renumbering (design §12):** this feature owns migration `0008`. The
    partner plan's "Migration 0008 (partners…)" becomes `0009`+; update
    `partner-lead-assignment-implementation.md`'s numbering in Phase 0 here, and
@@ -57,11 +98,16 @@ the prod merge itself — is 🔴 and gated on the dry-run report per the design
 
 ---
 
-## Phase 0 — Facts, amendments, decisions (no code)
+## Phase 0 — Facts, amendments, decisions (no code) — ✅ COMPLETE 2026-07-27
 
-- **Lob verification facts (⚠ design §5)** — verify against Lob's current
-  primary docs, per the verify-external-facts rule, and record findings in the
-  design doc's §5 before Phase 4 code: (a) US Verification pricing/volume terms
+*All deliverables below exist; listed for the record, not for execution. Do
+not redo. (Lob findings live in design §5 "Vendor facts — VERIFIED
+2026-07-27"; the decisions.md entries, PRD FR-1/FR-4, TD-2 note, and the
+partner-plan 0009/0010 renumbering are all in place.)*
+
+- **Lob verification facts** — verified against Lob's current
+  primary docs, per the verify-external-facts rule; findings recorded in the
+  design doc's §5 (needed before Phase 3 code): (a) US Verification pricing/volume terms
   for the ~102k backfill (84,072 CSLB + 18,359 FBN) and per-ingest increments;
   (b) exact response fields backing `std_*`, `delivery_point`,
   `deliverability`; (c) the verdict values that pin §6's undeliverable
@@ -79,12 +125,11 @@ the prod merge itself — is 🔴 and gated on the dry-run report per the design
   resolution + `mailer_code` idempotency).
 - **`technical-debt.md`**: TD-2 note (authority map adopted as standing
   convention; this migration neither fixes nor worsens TD-2's dead columns).
-- **Partner-plan renumbering** (ground rule 7).
+- **Partner-plan renumbering** (ground rule 7) — done: 0009/0010.
 - **`current-state.md`** rewrite at end of each session, as usual.
 
-**Accept when:** Lob findings are recorded in the design §5 (or the fallback
-decision is made), the decisions.md entries exist, both PRD FRs are amended,
-and the partner plan's migration numbers no longer collide.
+**Accepted 2026-07-27:** Lob findings recorded in design §5, decisions.md
+entries written, both PRD FRs amended, partner migration numbers renumbered.
 
 ## Phase 1 — Additive schema + adapters + seam (🟡, no live-path behavior change)
 
@@ -104,22 +149,28 @@ satisfies the `AddressVerifier` Protocol.
   emits empty.
 - **`seams/`**: `AddressVerifier` Protocol + `FakeVerifier` in `seams/fakes.py`
   (programmable verdicts: deliverable-with-components, no-delivery-point,
-  undeliverable, error). The Lob implementation lands in Phase 4 after
-  Phase 0's fact check.
-- **Ground rule 4 wiring**: `make migrate` / test-DB setup runs
-  `migrate_grain --execute` after migrations. The script itself is Phase 5
-  work — for this phase a stub that applies only the swap DDL on an empty DB
-  is acceptable IF built as the real script's skeleton (same file, same
-  transaction shape), not a throwaway.
+  undeliverable, error). The Lob implementation lands in Phase 3 per
+  Phase 0's verified facts.
+**Suite schema this phase: PRE-swap** (migrations 0001–0008 only;
+`migrate_grain` is NOT wired anywhere yet — ground rule 4). All existing code
+paths still run against the old columns; that is the point of "additive only."
 
 **Accept when:** the frozen tests above are green, `0008` is idempotent, the
-full suite (279 + new) passes, and nothing about live behavior changed
-(old `load_list` still works against the pre-swap dev schema — the cutover
-only happens with the swap).
+full suite (279 + new) passes against the pre-swap schema, and nothing about
+live behavior changed.
 
-## Phase 2 — Spine verbs on the new grain (🟡)
+## Phase 2 — The swap boundary: spine verbs + audience + execution (🟡)
 
-**Frozen tests first** (design §10 tests 1–4 + seed/address verbs):
+*One phase, one boundary (revision 2): every code path that reads the old
+schema converts here, and ground rule 4's wiring lands here too — the swap
+and its surviving code are inseparable (see the revision note up top). It is
+the largest phase; its coherence is the point. If it must split across
+sessions, split WITHIN the phase (verbs first, audience/execution second)
+without wiring the swap or claiming the boundary until all of it is green.*
+
+**Frozen tests first** (design §10 tests 1–6, 8, 10, plus the verb contracts
+and resolution rules — e.g. FBN per-filing — the design pins outside §10's
+numbering):
 determinism (two independent fresh DBs, identical contacts ids-aside);
 resolve-then-insert (N rows one phone → N intake rows 1 contact; pick rule
 incl. a tuple-tie fixture; email whole-group coalesce; untargetable row → no
@@ -129,7 +180,17 @@ uniqueness (second phone-bearing contact fails; nulls don't collide; seeds
 unaffected); FBN per-filing (phone-bearing FBN row → contact with null phone,
 row `is_primary`); `retire_seed` (design §10 test 10: `is_seed` cleared +
 `do_not_mail` set atomically, absent from every audience path, config-entry
-removal doesn't revive); `update_contact_address` stamps `addr_validated_at`.
+removal doesn't revive); `update_contact_address` stamps `addr_validated_at`;
+trade-exists via `trades` (C20|C36 matches both audiences, once each; export
+`hvac|plumber`); delivery-point dedupe (primary-row key; deterministic
+keeper; unverified primary → no dedupe; non-primary sharing a DP dedupes
+nothing; seeds exempt; preview count == executed count; dropped count
+reported); undeliverable exclusion (before dedupe — the undeliverable twin
+never wins the keeper pick; no-delivery-point NOT excluded; count reported);
+resume idempotency on `mailer_code` (killed drop re-runs clean; per-piece
+lookup resolves by `mailer_code` on a merged-history fixture where
+(contact, wave) is ambiguous); the ground-rule-4 re-run guard (post-swap →
+no-op; pre-swap with data → loud halt; pre-swap empty → swap applies).
 
 - **`service/contacts.py`**: `load_list` → parse/validate → in-memory
   resolution by `SOURCE_REGISTRY` (cslb → phone rule; fbn → per-filing) →
@@ -140,34 +201,25 @@ removal doesn't revive); `update_contact_address` stamps `addr_validated_at`.
   intake route unchanged except the registry now validates `source`.
 - **`service/queries.py`**: `search_contacts` over contacts + intake lateral
   (trade / `list_key` hits; trades pipe-delimited in the summary).
-
-**Accept when:** every frozen test above is green and the e2e journey still
-passes end-to-end on the new intake path.
-
-## Phase 3 — Audience + execution on the new grain (🟡)
-
-**Frozen tests first** (design §10 tests 5–6, 8): trade-exists via `trades`
-(C20|C36 matches both audiences, once each; export `hvac|plumber`);
-delivery-point dedupe (primary-row key; deterministic keeper; unverified
-primary → no dedupe; non-primary sharing a DP dedupes nothing; seeds exempt;
-preview count == executed count; dropped count reported); undeliverable
-exclusion (before dedupe — the undeliverable twin never wins the keeper pick;
-no-delivery-point NOT excluded; count reported); resume idempotency on
-`mailer_code` (killed drop re-runs clean; per-piece lookup resolves by
-`mailer_code` on a merged-history fixture where (contact, wave) is ambiguous).
-
 - **`service/waves.py`**: `_audience_where` trade filter → intake `exists`
   over `trades` (unioned per intake table); `resolve_audience` gains
   undeliverable exclusion **then** delivery-point dedupe; `AudiencePreview`
   gains both counts.
 - **`service/execution.py`**: `execute_wave` insert `on conflict (mailer_code)
   do nothing`; per-piece lookup re-keyed on `mailer_code`.
+- **Ground rule 4 wiring**: `migrate_grain` gains the re-run guard;
+  `make migrate` + test-DB setup invoke it after migrations. From this phase
+  on, every fresh environment is post-swap.
 
-**Accept when:** the frozen tests are green and a full wave lifecycle
-(draft → preview → approve → execute with FakePrintApi) runs with the counts
-matching preview.
+**Suite schema this phase: POST-swap** (migrations 0001–0008 +
+`migrate_grain`'s swap, auto-applied on the empty test DB by the guard).
 
-## Phase 4 — Verification job (🟡)
+**Accept when:** every frozen test above is green against the post-swap
+schema, the e2e journey passes end-to-end on the new intake path, and a full
+wave lifecycle (draft → preview → approve → execute with FakePrintApi) runs
+with the counts matching preview.
+
+## Phase 3 — Verification job (🟡)
 
 **Frozen tests first** (design §10 test 7): stamp phase (verdict — including
 undeliverable/no-DP — stamps `std_verified_at` + stores verdict, never
@@ -183,12 +235,23 @@ any other verdict → raw address untouched, guard stays null; re-run no-op;
   the backfill (`--help` per the standing CLI rule).
 
 **Accept when:** frozen tests green with `FakeVerifier`; the Lob impl is
-exercised against Lob's test environment for at least one address of each
-verdict class; the nightly runs it.
+exercised against Lob's test environment for at least one address of each of
+the **three semantic classes the code branches on** — deliverable-with-
+components (inherit runs), verified-without-usable-components (no-DP or
+missing `std_*`; inherit skips), undeliverable (excluded) — plus one vendor
+*error* if producible (a forced timeout/bad-key counts). Producibility of
+each class in Lob's test env is an unverified vendor fact: any class the test
+env cannot deterministically produce stays covered by `FakeVerifier` alone,
+noted in the phase's acceptance record. The nightly runs it.
 
-## Phase 5 — The prod merge (🔴 — dry-run report → operator reads → `--execute`)
+## Phase 4 — The prod merge (🔴 — dry-run report → operator reads → `--execute`)
 
-**Frozen test first** (design §10 test 9, on a fixture DB): dry-run report
+**Frozen test first** (design §10 test 9, on a fixture DB). **Fixture
+mechanism, pinned:** the test builds its own scratch database — apply
+migrations 0001–0008 directly (bypassing the standard test setup, whose
+`migrate_grain` wiring would leave every suite DB already post-swap with the
+old columns gone), seed old-schema rows, then run `migrate_grain`
+dry-run/`--execute` against it. The dry-run report
 matches hand-computed expectations (Andersen-shaped 12-pack, tuple-tie group,
 two-member next-action group → earliest wins, notes merged, report lists it);
 post-migration counts, FK integrity, OR-merged suppression, `is_primary`
