@@ -435,3 +435,65 @@ rule; seams and missing verbs need the rule. Common ancestor: **declaration with
 obligation**. The six-review hardening of the grain design validated both — several
 findings were exactly "declared without writer/reader/clear-path," caught by the
 conventions the doc itself adopted.
+
+## Partner Lead Assignment design + implementation plan APPROVED (decided 2026-07-26, recorded 2026-07-28)
+
+**Decision:** `partner-lead-assignment.md` **revision 6** and its execution brief
+`partner-lead-assignment-implementation.md` are **approved**. Approval was given by the
+operator at the end of the revision-6 session and simply never written down — the
+documents carried "design, not approved" / "awaiting approval" for two days while
+already being decided. Recorded here so ground rule 1 ("the design document is decided
+once approved") has something to point at.
+
+**Ratified with the approval** (per the design's revision-3 note, decisions taken by
+review recommendation are ratified on approval): assignment as a **loan of a batch, not
+a grant of territory**; batch = 12 × weekly dial-hours, rounded to 50, floor 100, cap
+500, with the floor and cap applying only to *derived* batches — an explicit founder
+count bypasses both; **expiry fixed at 90 days for everyone** as the sole anti-hoarding
+mechanism (the holdings ceiling was rejected, not deferred); the **per-channel
+suppression model** — `dnc_registry` (external scrub result, clearable) and
+`do_not_call` (human-authored, permanent, the safe harbor's entity-specific list) are
+separate columns and **neither may reach contact-level `SUPPRESSED`**, which gates mail;
+`assign_batch` does **no network I/O**; scrub freshness comes from `dnc_refresh` at 21
+days, so a dead job drains the assignable pool rather than staling it; commission is
+earned by a **typed** code, never auto-applied, so credit follows evidence of contact
+rather than custody; and the Step 11 trial batch runs through `assign_batch` rather than
+recreating the unrecorded-sheet problem.
+
+**Approved ≠ start building.** Three things bound what happens next:
+
+1. **Sequenced after the grain migration.** Revisions 4–6 spent most of their effort on
+   twin rows (1,785 phones across 3,772 contact rows); `ingest-contact-migration.md`
+   deletes that class outright. **Revision 7 — twin-row stratum deletion — lands after
+   the migration completes**, and building revision 6 first would mean writing
+   twin-handling machinery in order to delete it. Migration numbers already encode the
+   order: grain `0008`, this feature `0009`/`0010`.
+2. **Phase 2 keeps its own 🔴 gate.** Compliance plus the suppression invariant require
+   explicit approval before code. This approval does not carry it.
+3. **Phase 0 is unblocked now, and is the reason recording this matters.** It is
+   entirely non-code and the long poles do not overlap with the grain build unless
+   started: **SAN registration** at `telemarketing.donotcall.gov` (needs NMC's EIN
+   39-3518688; 12-month term, renewal opens 30 days before expiry; no SAN, no scrub),
+   the **counsel hour** (Q6 — B2B exemption, plainly-cellular CSLB numbers,
+   seller-of-record on the SAN; gates John dialing, not code), the **area-code script**
+   (the Chatsworth free-five is disputed by two independent re-measurements that both
+   put 661 in and 747 out; the original method was never recorded, so the subscription
+   list ships from a re-runnable script, not from §6's table), the **paper prongs**
+   (written dialing procedure + signed acknowledgment in the partner agreement), **John's
+   nudge channel** (a build dependency, not a preference — email rides existing SMTP,
+   while "SMS" is new integration work because no arbitrary-send NMC SMS API exists),
+   and **Q10 close-visibility**, which must be decided before the first partner close or
+   a closed customer expires back into the pool and NeverMissCall cold-calls its own
+   subscriber.
+
+**Still open, and unchanged by this approval:** Q6 (counsel), Q7/Q8 (the specific
+area-code set and per-partner radius, pending Phase 0's script), Q9 (partner code
+discount size — a pricing decision), Q10 (close-visibility inflow).
+
+**Doc amendments this approval triggers** (implementation plan, Phase 0): the mail-engine
+PRD in five places (§5's "affiliate" second user, §12 Q4's day-one `owner=partner`
+leaning, §10's non-existent NMC send path, FR-10's founder-only digest, FR-11's
+every-verb-is-fronted rule vs CLI-first assignment verbs); `partnership-program.md`,
+which still prescribes the dropped holdings ceiling and pre-derivation 250–500 batches
+and is the document partners actually read; and a superseding entry for the 2026-07-12
+`signup.completed` note, refined by S-10's consumer-side dedupe.

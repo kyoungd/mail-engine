@@ -6,11 +6,19 @@ not resolve silently. Companions: `direct-mail-ai-data.md` (schema),
 `direct-mail-ai-code-layout.md` (dependency rule), `technical-debt.md` (TD-2, TD-10),
 `decisions.md`.*
 
-*Status: **awaiting approval alongside the design doc.** Phase 2 is 🔴 (compliance +
-the suppression invariant) and requires its own explicit approval before code, per
-`CLAUDE.md` § MOST IMPORTANT RULE. The other phases are 🟡: the frozen acceptance
-tests written at the top of each phase are the approval gate — show them, get the
-nod, green them.*
+*Status: **APPROVED alongside the design doc** — operator approval given at the end of
+the revision-6 session, recorded 2026-07-28. Phase 2 is 🔴 (compliance + the suppression
+invariant) and **still requires its own explicit approval before code**, per
+`CLAUDE.md` § MOST IMPORTANT RULE — this approval does not carry it. The other phases
+are 🟡: the frozen acceptance tests written at the top of each phase are the approval
+gate — show them, get the nod, green them.*
+
+*⚠️ Phases 1–5 stay sequenced **after** `ingest-contact-migration.md` (grain takes
+migration `0008`; this plan takes `0009`/`0010`), and design revision 7 — twin-row
+stratum deletion — lands first, which will simplify the phases that currently carry
+twin-row locking. **Phase 0 is unblocked now** and is the whole point of recording the
+approval: it is all non-code, and the SAN registration and counsel hour have lead times
+that do not overlap with the grain build unless started.*
 
 ---
 

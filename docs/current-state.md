@@ -48,9 +48,16 @@ migrations 0001–0007 applied, prod pulled `c99033d`. Design truth:
   the dedupe key; ~102k backfill ≈ **$920 one-time** (one Growth AV month
   $450 + overage $0.009), separate from the print plan (stays Developer).
   Confirm exact tier prices in dashboard at purchase.
-- **`partner-lead-assignment.md` still rev 6 — do NOT build from it.**
-  Revision 7 (twin-row stratum deletion) comes after the grain migration
-  completes. Its impl plan's migrations renumbered 0009/0010 today.
+- **`partner-lead-assignment.md` rev 6 + its impl plan — APPROVED** (operator
+  approval was given at the end of the rev-6 session and only *recorded*
+  2026-07-28; `decisions.md` carries the entry). **Still do not build the
+  phases yet:** revision 7 (twin-row stratum deletion) comes after the grain
+  migration completes, and building rev 6 first means writing twin-row
+  machinery in order to delete it. Migrations renumbered 0009/0010 (grain
+  holds 0008). Phase 2 keeps its own 🔴 gate. **Phase 0 IS unblocked and
+  should start now** — it is all non-code, and the SAN registration (NMC EIN
+  39-3518688) plus the counsel hour have lead times that do not overlap with
+  the grain build unless started.
 
 ## Next session
 

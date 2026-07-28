@@ -1,6 +1,16 @@
 # Feature Overview — Partner Lead Assignment
 
-*Mail Engine. Revision 6, 2026-07-26 (fourth independent review incorporated). Status: **design, not approved**.*
+*Mail Engine. Revision 6, 2026-07-26 (fourth independent review incorporated).
+Status: **APPROVED** — operator approval given at the end of the revision-6 session,
+recorded 2026-07-28 (it was not written down at the time). Per revision 3's note,
+decisions taken by review recommendation are ratified with this approval.*
+
+*⚠️ Approved ≠ build now. The build stays sequenced **after** `ingest-contact-migration.md`:
+the grain merge (3,772 rows → ~1,785 phone-unique survivors) deletes the twin-row problem
+revisions 4–6 engineered around, and **revision 7 (twin-row stratum deletion)** folds that
+out once the migration lands. Migration numbering already reflects it — grain takes `0008`,
+this feature takes `0009`/`0010`. What approval unlocks today is Phase 0, which is entirely
+non-code and carries real lead time (§10, and the implementation plan's Phase 0).*
 *Companions: `PRD.md` (FR-6 attribution, FR-7 derived state, FR-8 suppression),
 `../../../docs/partnership-program.md` (Steps 11–14, Ground Rules),
 `direct-mail-ai-data.md` (contact table), `decisions.md`, `technical-debt.md`,
