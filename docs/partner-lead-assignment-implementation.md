@@ -10,8 +10,10 @@ not resolve silently. Companions: `direct-mail-ai-data.md` (schema),
 the revision-6 session, recorded 2026-07-28. Phase 2 is 🔴 (compliance + the suppression
 invariant) and **still requires its own explicit approval before code**, per
 `CLAUDE.md` § MOST IMPORTANT RULE — this approval does not carry it. The other phases
-are 🟡: the frozen acceptance tests written at the top of each phase are the approval
-gate — show them, get the nod, green them.*
+are 🟡: the frozen acceptance tests are the approval gate — show them, get the nod,
+green them. **Since 2026-07-28 that gate is taken per BATCH, not per phase — ground
+rule 5 defines the three batches (A: Phase 1 · B: Phase 2, which stays alone because
+it is 🔴 · C: Phases 3–5) and how a batch runs.***
 
 *⚠️ Phases 1–5 stay sequenced **after** `ingest-contact-migration.md` (grain takes
 migration `0008`; this plan takes `0009`/`0010`), and design revision 7 — twin-row
@@ -38,9 +40,41 @@ that do not overlap with the grain build unless started.*
    any event type beyond the six named; any verb signature change **this plan does not
    itself specify** (Phase 2 changes `suppress()` deliberately); anything that makes
    a test in this plan unwritable as specified.
-5. **One phase per session.** Run `make test` + `ruff` + `pyright` clean at every
-   phase boundary. ⚠️ `make test` and `make e2e` **truncate `mailengine_dev`** —
-   re-ingest per `current-state.md` before any manual verification against dev data.
+5. **Three batches, not one-phase-per-session** (amended 2026-07-28; supersedes
+   the original "one phase per session"). Phases were sized by session length,
+   which is a context budget, not a property of the work. Cut only where a
+   contract or schema becomes **fixed**; run free between cuts:
+
+   | Batch | Phases | What is fixed at the cut |
+   |---|---|---|
+   | **A** | 1 | `set_owner` as the single emitting writer, the three ownership event types, the `partners` table, migration `0009` |
+   | **B** | 2 | 🔴 The suppression contract — `suppress()` signature changes, `clear_suppression` appears, `do_not_call` / `dnc_registry` columns, migration `0010`, three more event types |
+   | **C** | 3, 4, 5 | Sender seam → the feature proper → owner-at-response-time. All consume contracts already fixed in A and B; none pins anything new, which is why they are one batch |
+
+   **Batch B stays its own batch whatever the sizing.** It is 🔴 for compliance
+   plus the suppression invariant and requires explicit approval before code —
+   the design approval does not carry it. Never let a free run cross into it or
+   out of it.
+
+   **The gate is per batch, not per phase.** Show the frozen acceptance tests
+   for every phase in the batch, once, get the nod, then green them without
+   further approval. Batching removes *approval* points, never *verification*
+   points — so inside a batch:
+
+   - `make test` + `ruff` + `pyright` clean at **every internal phase
+     boundary**, not only at the batch's end. This matters most in batch C,
+     which spans three phases.
+   - **Commit at every internal phase boundary.** Each is a recovery point.
+   - **Halt and escalate** on anything that would change a contract or schema
+     fixed in an *earlier* batch — in particular, C must never quietly reshape
+     the suppression model B pinned. Ground rule 4's triggers bind unchanged;
+     running free is permission to skip approval, never to exceed scope.
+
+   (Local convenience: the `/batch-build` skill runs this method. The rules
+   above are self-contained and authoritative if it is unavailable.)
+
+   ⚠️ `make test` and `make e2e` **truncate `mailengine_dev`** — re-ingest per
+   `current-state.md` before any manual verification against dev data.
 6. **Events are append-only and the taxonomy is closed.** All six new types enter
    `EVENT_TYPES` deliberately: `contact.assigned`, `contact.assignment_expired`,
    `contact.reclaimed` (Phase 1); `contact.dnc_checked`, `contact.suppressed`,

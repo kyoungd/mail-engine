@@ -8,11 +8,13 @@ the design conflict, escalate — do not resolve silently. Companions:
 `partner-lead-assignment-implementation.md` (renumbered by Phase 0).*
 
 *Status: design approved; Phase 0 complete (2026-07-27); phase gates as
-marked. Phases 1–3 are 🟡 — the frozen acceptance tests at the top of each
-phase are the approval gate (show them, get the nod, green them; they are the
-design's §10 tests mapped to phases, plus phase-local scaffolding tests such
-as migration idempotence and seam conformance). Phase 4 — the prod merge
-itself — is 🔴 and gated on the dry-run report per the design.*
+marked. Phases 1–3 are 🟡 — the frozen acceptance tests are the approval gate
+(show them, get the nod, green them; they are the design's §10 tests mapped to
+phases, plus phase-local scaffolding tests such as migration idempotence and
+seam conformance). **Since 2026-07-28 that gate is taken per BATCH, not per
+phase — ground rule 6 defines the three batches (A: Phase 1 · B: Phase 2 ·
+C: Phase 3) and how a batch runs.** Phase 4 — the prod merge itself — is 🔴 and
+gated on the dry-run report per the design.*
 
 *Revision 2 (2026-07-27, after a fresh-context review of this plan verified
 against the codebase): old Phases 2–3 merged into one phase — the swap
@@ -84,13 +86,43 @@ verdict-class definition, plus two wording nits.*
    `ensure_seed_contacts` reshapes — the design is the signature authority,
    this plan only sequences); anything that makes a §10 test unwritable as
    specified; any Lob verification fact that contradicts Phase 0's findings.
-6. **One phase per session.** `make test` + `ruff` + `pyright` clean at every
-   phase boundary. ⚠️ `make test` / `make e2e` **truncate `mailengine_dev`** —
-   re-ingest per `current-state.md` before manual verification against dev
-   data. **Dev remedy for the re-run guard's halt** (it WILL fire on the
-   populated dev remnant after Phase 2): drop/recreate `mailengine_dev` →
-   `make migrate` (empty pre-swap DB → swap auto-applies) → re-ingest through
-   the new `load_list`. The prod ceremony is never the dev path.
+6. **Three batches, not one-phase-per-session** (amended 2026-07-28; supersedes
+   the original "one phase per session"). Phases were sized by session length,
+   which is a context budget, not a property of the work. Cut only where a
+   contract or schema becomes **fixed**; run free between cuts:
+
+   | Batch | Phases | What is fixed at the cut |
+   |---|---|---|
+   | **A** | 1 | Migration `0008` DDL; the `AddressVerifier` Protocol + Fake. Schema and seam contract pinned; suite still runs **pre-swap** |
+   | **B** | 2 | **The swap boundary** — spine verbs + audience + execution re-key + `migrate_grain` wiring, all crossing together per ground rule 4 |
+   | **C** | 3 | `verify_addresses` implemented against the Protocol already fixed in A — it pins nothing new, which is why it is not its own cut |
+
+   Phase 4 is **not** a coding batch: it is the 🔴 prod merge, gated on the
+   operator reading the dry-run report.
+
+   **The gate is per batch, not per phase.** Show the frozen acceptance tests
+   for every phase in the batch, once, get the nod, then green them without
+   further approval. Batching removes *approval* points, never *verification*
+   points — so inside a batch:
+
+   - `make test` + `ruff` + `pyright` clean at **every internal phase
+     boundary**, not only at the batch's end.
+   - **Commit at every internal phase boundary.** Each is a recovery point; a
+     long free run with one commit at the end is one bad step from losing it.
+   - **Halt and escalate** on anything that would change a contract or schema
+     fixed in an *earlier* batch. That is the one thing a free run must never
+     absorb. Ground rule 5's triggers bind unchanged — running free is
+     permission to skip approval, never to exceed scope.
+
+   (Local convenience: the `/batch-build` skill runs this method. The rules
+   above are self-contained and authoritative if it is unavailable.)
+
+   ⚠️ `make test` / `make e2e` **truncate `mailengine_dev`** — re-ingest per
+   `current-state.md` before manual verification against dev data. **Dev remedy
+   for the re-run guard's halt** (it WILL fire on the populated dev remnant
+   after Phase 2): drop/recreate `mailengine_dev` → `make migrate` (empty
+   pre-swap DB → swap auto-applies) → re-ingest through the new `load_list`.
+   The prod ceremony is never the dev path.
 7. **Renumbering (design §12):** this feature owns migration `0008`. The
    partner plan's "Migration 0008 (partners…)" becomes `0009`+; update
    `partner-lead-assignment-implementation.md`'s numbering in Phase 0 here, and
