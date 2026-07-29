@@ -60,12 +60,24 @@ registration runbook. **Gate: revision 7's own approval — this plan adds no ga
 *After Phase 4, not Phase 3: the "your last export" line reads S-2's generation
 timestamp, which Phase 4 builds. One batch.*
 
-- **`judgment/partner_report.py`** (or `service/` — executor's call, dependency rule
-  permitting): `compose_holdings(cur, partner) -> str | None`. Pure query + format;
+- **`judgment/partner_report.py`** — not "executor's call" (the first draft left this
+  open, which is the one thing a plan must not do). The precedent is unambiguous:
+  `judgment/digest.py` **never imports the `Sender` Protocol**, it receives a sender
+  injected and duck-types it, which is how it honors the dependency rule while calling a
+  seam. The composer follows that exactly — pure compose here, injection at the `jobs/`
+  edge, no `seams` import anywhere in `judgment/`.
+  `compose_holdings(cur, partner) -> str | None`. Pure query + format;
   returns `None` when no line qualifies (a partner with no batch and no removals gets no
   email). Sources per line exactly as the design's table.
-- **`jobs/` wiring**: in the nightly, after `verify_addresses`/`resolve_orphans`/
-  `recompute_state`, per active partner apply the cadence rule; compose → `sender.send`
+- **`jobs/` wiring**: the report runs **LAST in the nightly — after partner Phase 4's
+  expiry job**, and this ordering is binding, not stylistic (found in review, 2026-07-29).
+  Expiry is *"silent and automatic"*: a nightly job returns every past-expiry assignment to
+  the house and *"the contact becomes assignable again immediately."* A report composed
+  before that job tells a partner they hold contacts that are already gone and may already
+  be partner #2's — which is precisely the double-dial failure the re-pull line exists to
+  prevent, reintroduced by the report meant to prevent it. So: after
+  `verify_addresses`/`resolve_orphans`/`recompute_state` **and after expiry**, per active
+  partner **excluding `HOUSE_PARTNER_ID`**, apply the cadence rule; compose → `sender.send`
   → stamp `last_report_at`. **Stamp only after a successful send** — a failed send
   leaves the watermark, so the next nightly retries; one partner's failure must not
   block another's send (per-partner try/except, loud in the report line, run continues,
@@ -84,6 +96,17 @@ timestamp, which Phase 4 builds. One batch.*
   7. Failure: sender raises for partner A → A's `last_report_at` unstamped (next run
      retries), partner B still sent and stamped; the run fails loud.
   8. Null channel → the Phase 3 loud-failure path, not a skip.
+  9. **House exclusion**: the house partner holds contacts and has a valid channel → no
+     report composed, no send attempted, `last_report_at` untouched.
+  10. **Ordering**: a contact whose batch expired today → the expiry job reclaims it
+      first, and the report counts it under *expired*, never under *currently yours*.
+      Constructed by running the nightly end-to-end, not by calling the composer directly
+      — the ordering is the thing under test.
+
+  On test 4's "no effort/dial language": implemented as an absence assertion over a small
+  word list (`dial`, `attempt`, `call`, `worked`). That is a **smoke check, not a
+  guarantee** — it catches a careless line, not a paraphrase. Named as weak so nobody
+  reads it as proof.
 
 ## Phase R3 — close feed consumer 🟡 (contract §8's mail-engine half)
 
@@ -104,12 +127,14 @@ double-count decision**, which is required "before the first partner close" anyw
 
 ## Phase R4 — earnings section 🟡 (after R3 has ingested real closes)
 
-- Extend the composer: closes credited (this period / total, business names), co-op
-  balance via the app-level correlation; vesting line **only when** `trial_to_paid` is
+- Extend the composer: closes credited (this period / total, business names); vesting
+  line **only when** `trial_to_paid` is
   observable (feed `kind`), else "close recorded DATE".
+- **Co-op balance is NOT in scope** — cut from the design in review (no mail-engine spend
+  ledger exists; the programme is main-side).
 - **Frozen tests:** section absent when no close events exist (no placeholder); appears
   with correct counts when they do; a close without vesting data shows no vesting claim;
-  correlation never queries outside the spine (no cross-DB connection in the composer).
+  the composer opens no connection outside the spine.
 
 ## Batching (per `/batch-build`: cut where something becomes fixed)
 

@@ -13,9 +13,19 @@ doc is the MARKETING half — composer, sender, content, cadence. The core site'
 
 ## What this is
 
-One email per active partner, on a fixed cadence, composed by mail-engine and delivered
+One email per active partner **except the house account**, on a fixed cadence, composed by
+mail-engine and delivered
 through partner Phase 3's `Sender` (channel + address from the `partners` row). Plain
 text. No links requiring login — there is nothing to log into, by decision.
+
+**The house account is excluded, and that exclusion is load-bearing** (review correction,
+2026-07-29). `contacts.owner_id` defaults to `HOUSE_PARTNER_ID`, so the house row "holds"
+every unassigned contact — ~100,444 of them — and its channel is seeded to
+`young@nevermisscall.com`. Without the exclusion the operator receives a weekly email
+reading *"Contacts currently yours: 100444"* with no batch and no expiry: pure noise, and
+the kind of noise that trains someone to ignore the channel the real reports arrive on.
+The house id is a pinned constant in `config/params.py`, so this is a filter, not a
+heuristic.
 
 Two sections that ship at different times:
 
@@ -59,18 +69,20 @@ Nothing in section 1 is a performance judgment.
 | Closes credited this period: N (names of businesses) | ingested `signup.completed` events carrying this partner's `partner_code`, correlated to spine contacts |
 | Total closes to date: N | same, cumulative |
 | Bonus status per close: vesting / vested / paid | Medusa-side per `partnership-program.md` (1.5× monthly, two halves, 3-month gate) — **included only when countable**; until trial-to-paid is observable per partner (`kind` in the feed contract), the line reads "close recorded DATE" with no vesting claim |
-| Co-op mail credit balance | correlation of closes against mail-engine's spend ledger — app-level, never a join |
+| ~~Co-op mail credit balance~~ | **Cut (review correction, 2026-07-29).** The co-op programme is defined main-side (`partnership-program.md` § Co-op Mail Credit) and **mail-engine has no spend ledger** — `pieces.cost_cents` is per-piece spend, not an accrual balance. Citing one was an error. If a balance is wanted later it belongs on the core site, which owns the programme, delivered as a feed field — not reconstructed here. Out of scope for v1 per "nothing fancy". |
 
 Same honesty rule as section 1: no line appears unless its data is real. A close with an
 unverifiable vesting state shows the close, not a guessed state.
 
 ## Cadence
 
-**Weekly, plus event-triggered.** Weekly is the heartbeat (the expiry clock is the thing
-a partner most needs to see coming). Additionally, send within a day when a batch is
-newly assigned, or when suppression removes a contact — the S-6 case where waiting up to
-six days for the re-pull prompt is the risk itself. Open for the operator: collapse the
-event-triggered send into "next morning" batching to avoid multiple emails in a day.
+**Weekly, plus event-triggered — and the event-triggered send collapses into the nightly**
+(option closed in review, 2026-07-29, by the "nothing fancy" steer). Weekly is the
+heartbeat, because the expiry clock is the thing a partner most needs to see coming. A
+newly assigned batch, or a suppression removal, brings the next report forward to the next
+nightly run — the S-6 case where waiting up to six days for the re-pull prompt is itself
+the risk. No scheduler, one piece of state; the rule is written out in
+`partner-report-implementation.md` § Cadence.
 
 ## Rules carried over from existing decisions (binding on the implementation)
 
