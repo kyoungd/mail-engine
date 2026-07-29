@@ -65,3 +65,11 @@ def test_dedupes_filing_number_and_keeps_newest_per_business():
     ]
     converted = sorted(convert(rows), key=lambda r: r["list_key"])
     assert [r["list_key"] for r in converted] == ["fbn-ca-2", "fbn-ca-3"]
+
+def test_fbn_emits_empty_trades():
+    """Phase 1 gate (design §2.1): FBN rows carry no license classes, so `trades` is
+    empty — the column exists for every source, the value is source-specific."""
+    (row,) = convert([_raw()])
+    assert "trades" in CANONICAL_FIELDS
+    assert row["trades"] == ""
+    assert row["trade"] == ""

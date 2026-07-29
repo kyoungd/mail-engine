@@ -68,6 +68,34 @@ def test_county_and_classes_filters():
     assert [r["list_key"] for r in la_plumbers] == ["cslb-1"]
 
 
+def test_multiclass_row_emits_all_matching_trades():
+    """Phase 1 gate (design §2.1): `trades` carries EVERY matching NMC trade as the
+    sorted distinct union (§6 pins the ordering, so a pipe-join is deterministic),
+    while `trade` keeps its first-match priority semantics unchanged."""
+    (row,) = convert([_raw(**{"Classifications(s)": "C20|C36"})])
+    assert row["trades"] == "hvac|plumber"  # sorted, not TRADE_BY_CLASS priority
+    assert row["trade"] == "plumber"  # C36 outranks C20 — unchanged behaviour
+
+
+def test_single_class_row_emits_one_trade():
+    (row,) = convert([_raw()])  # C36
+    assert row["trades"] == "plumber"
+    assert row["trade"] == "plumber"
+
+
+def test_trades_ignores_classes_with_no_nmc_trade():
+    """B (general building) maps to no NMC trade, so it never enters `trades`."""
+    (row,) = convert([_raw(**{"Classifications(s)": "B|C-10"})])
+    assert row["trades"] == "electrician"
+    assert row["trade"] == "electrician"
+
+
+def test_trades_joined_canonical_fields():
+    (row,) = convert([_raw()])
+    assert "trades" in CANONICAL_FIELDS
+    assert set(row) == set(CANONICAL_FIELDS)
+
+
 def test_wc_exempt_filter_and_dedupe():
     rows = [
         _raw(LicenseNo="1"),

@@ -12,6 +12,7 @@ from typing import Any
 
 from domain.enums import EventSource
 from domain.types import Event
+from seams.address_verifier import AddressVerificationError, VerificationResult
 from seams.print_api import ProofResult, SubmissionResult
 
 _WEBHOOK_STATUS_TO_TYPE = {
@@ -88,3 +89,53 @@ class FakeSender:
 
     def send(self, founder: str, message: str) -> None:
         self.sent.append((founder, message))
+
+
+class FakeVerifier:
+    """Programmable `AddressVerifier` (design §5). Defaults to the happy path —
+    deliverable, with standardized components and a delivery point.
+
+    The four cases the job must handle, all reachable from the constructor:
+      deliverable-with-components  FakeVerifier()
+      no delivery point            FakeVerifier(delivery_point="")
+      undeliverable                FakeVerifier(deliverability="undeliverable")
+      vendor error                 FakeVerifier(fail=True)
+
+    The last one is the point of the whole seam: a verdict is a result the caller
+    stamps and never re-requests, while an error must leave the row unstamped for the
+    next run to retry. A fake that could only produce verdicts would let a job that
+    conflates them pass its tests.
+    """
+
+    def __init__(
+        self,
+        *,
+        deliverability: str = "deliverable",
+        delivery_point: str = "01234567890",
+        components: bool = True,
+        fail: bool = False,
+    ) -> None:
+        self.deliverability = deliverability
+        self.delivery_point = delivery_point
+        self.components = components
+        self.fail = fail
+        self.calls: list[dict[str, str]] = []
+
+    def verify(self, address: dict[str, str]) -> VerificationResult:
+        self.calls.append(dict(address))
+        if self.fail:
+            raise AddressVerificationError("fake vendor error")
+        if not self.components:
+            return VerificationResult(
+                deliverability=self.deliverability,
+                delivery_point=self.delivery_point,
+            )
+        return VerificationResult(
+            deliverability=self.deliverability,
+            delivery_point=self.delivery_point,
+            std_addr_line1=(address.get("addr_line1") or "").upper(),
+            std_addr_line2=(address.get("addr_line2") or "").upper(),
+            std_addr_city=(address.get("addr_city") or "").upper(),
+            std_addr_state=(address.get("addr_state") or "").upper(),
+            std_addr_zip=f"{(address.get('addr_zip') or '').strip()[:5]}-1234",
+        )

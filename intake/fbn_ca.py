@@ -24,6 +24,7 @@ CANONICAL_FIELDS = [
     "business_name",
     "contact_name",
     "trade",
+    "trades",
     "license_class",
     "phone",
     "email",
@@ -66,6 +67,9 @@ def convert(rows, year: int | None = None) -> list[dict[str, str]]:
             "business_name": name,
             "contact_name": (row.get("RegisteredOwnerName") or "").strip(),
             "trade": "",
+            # FBN filings carry no license classes, so there is no trade to derive.
+            # The column exists for every source; the value is source-specific.
+            "trades": "",
             "license_class": "",
             "phone": "",
             "email": "",

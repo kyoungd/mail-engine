@@ -73,6 +73,11 @@ def convert(
         )
         if trade is None:
             continue
+        # `trade` stays the first-match primary (it feeds segment); `trades` carries
+        # every NMC trade the row's classes map to, as the sorted distinct union so the
+        # pipe-join is deterministic (design §6). A roll-up holding C20|C36 is genuinely
+        # both an HVAC and a plumbing business and must match both audiences.
+        trades = sorted({t for c, t in TRADE_BY_CLASS.items() if c in held})
         if wanted is not None and not (set(held) & wanted):
             continue
 
@@ -91,6 +96,7 @@ def convert(
                 "business_name": (row.get("BusinessName") or "").strip(),
                 "contact_name": (row.get("FullBusinessName") or "").strip(),
                 "trade": trade,
+                "trades": "|".join(trades),
                 "license_class": "|".join(held),
                 "phone": (row.get("BusinessPhone") or "").strip(),
                 "email": "",
