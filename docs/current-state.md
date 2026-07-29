@@ -1,18 +1,18 @@
-# Current state — 2026-07-29: grain Batches A and B SHIPPED; Batch C (Phase 3) is next
+# Current state — 2026-07-29: grain Batches A, B and C SHIPPED; Phase 4 (🔴 prod merge) is next
 
-Batch A (Phase 1) and Batch B (Phase 2) are both committed and green. **The swap
-boundary is crossed**: every fresh environment from here is post-swap, `contacts` is
-business-grain and phone-unique, and the old `list_key`/`trade`/`license_class` columns
-are gone. What remains of the grain plan is Batch C (Phase 3, `verify_addresses`) and
-then Phase 4's 🔴 prod merge.
+Batches A, B and C are committed and green — **all three coding batches of the grain
+plan are done**. The swap boundary is crossed (every fresh environment is post-swap,
+`contacts` is business-grain and phone-unique), and `verify_addresses` exists behind the
+seam fixed in Batch A. What remains is **Phase 4: the 🔴 prod merge**, which is an
+operator ceremony rather than a coding batch — gated on reading the dry-run report.
 
-Everything here is pushed as of the Batch A commit; **Batch B (`4142c52`) is committed
-but not yet pushed** at the time of writing — check `git status -sb` before assuming.
+Batch A is pushed; **Batches B and C are committed but not pushed** at the time of
+writing — check `git status -sb` before assuming.
 
 ## Where we are
 
-Gates green: **349 offline tests** (was 315), ruff + pyright clean, e2e journey green
-against the real Lob test environment. Migrations **0001–0008** applied, plus
+Gates green: **375 offline tests** (was 349 after Batch B, 315 before it), ruff +
+pyright clean, e2e journey green against the real Lob test environment. Migrations **0001–0008** applied, plus
 `migrate_grain`'s in-script swap. Dev DB holds **100,444 contacts / 102,431 intake rows**.
 
 ### Batch A — Phase 1, DONE (`6a99ac0`, pushed)
@@ -71,23 +71,51 @@ broke exactly the two pinning the ordering. And **one assertion was deliberately
 inverted**: `test_pre_swap_columns_untouched` pinned the near side of a boundary Phase 2
 exists to cross.
 
-## Next: Batch C — Phase 3, `verify_addresses`
+### Batch C — Phase 3, DONE
 
-Phase 3 implements the job against the `AddressVerifier` Protocol **already fixed in
-Batch A** — it pins nothing new, which is why it is not its own cut. Two phases:
+`verify_addresses` implemented against the `AddressVerifier` Protocol fixed in Batch A —
+it pins nothing new, which is why it was never its own cut.
 
-1. **Stamp** — sweep intake rows where `std_verified_at is null`, call the seam, store
-   `std_*`/`delivery_point`/`deliverability`/`std_verified_at`. A *verdict* (including
-   undeliverable and no-delivery-point) stamps and is never re-called; a vendor *error*
-   stamps nothing and the next run retries.
-2. **Inherit** — for every contact whose primary row is verified
-   **deliverable-with-components** and whose `addr_validated_at` is still null, copy the
-   `std_*` address onto `contacts.addr_*` and stamp. Any other outcome leaves the raw
-   picked address alone. The null guard makes re-runs no-ops and is what stops the job
-   overwriting an operator's `update_contact_address` edit.
+- **`jobs/verify_addresses.py`** — the two phases. STAMP sweeps intake rows where
+  `std_verified_at is null` and stores the result; a verdict (including undeliverable and
+  no-delivery-point) is stamped and never re-requested, a vendor error stamps nothing and
+  the next run retries. Each row stamps in its own transaction, so one bad row cannot roll
+  back the rows already done or hold up everything behind it. INHERIT copies a usable
+  standardized address from a contact's PRIMARY row when `addr_validated_at` is still
+  null — the guard that makes re-runs no-ops and stops the job overwriting an operator's
+  `update_contact_address` edit.
+- **`seams/lob_address.py`** — the real client. Stdlib HTTP, mirroring `seams/lob.py`.
+  An unrecognized `deliverability` is deliberately an ERROR, not a verbatim store: §6's
+  exclusion reads that column, so a value we don't understand must surface as an
+  unverified row rather than silently failing to exclude a bad address.
+- **Nightly wiring** — `run_nightly(..., verifier=...)`, skipped when unconfigured. Unlike
+  zero feeds, a missing key is not a hard failure: it delays standardization, and
+  unverified rows are never excluded from an audience.
+- **18 frozen acceptance tests + 8 offline unit tests** over the response mapping. These
+  WERE written test-first and watched fail for the right reason
+  (`NameError: verify_addresses is not defined`).
 
-Design §5 + §10 test 7. Then Phase 4's 🔴 prod merge, gated on the operator reading the
-dry-run report.
+**Operator decision recorded (2026-07-29):** the three `deliverable_*_unit` variants are
+deliverable-family and **do inherit**. §5 named the blocked outcomes without placing them;
+§6 already keeps them mailable. Pinned by `test_the_deliverable_unit_variants_still_inherit`.
+
+Full acceptance record — including what Lob's test environment can and cannot simulate —
+is in `ingest-contact-migration-implementation.md` § Acceptance record — Phase 3.
+
+⚠️ **Never run `verify_addresses` against the dev database.** With the Lob *test* key it
+stamps every row `undeliverable` (canned responses), silently emptying every audience;
+with `--fake` every row gets the SAME delivery point, collapsing the entire list to one
+contact under §6's dedupe. The first real sweep belongs to a live key.
+
+## Next: Phase 4 — the 🔴 prod merge
+
+Not a coding batch: an operator ceremony. Pull the release → apply `0008` →
+`migrate_grain` dry run → **read the report** → `--execute`. Stop-the-world; no ingests
+and no wave verbs between `0008` and `--execute`. Gated on the operator reading the
+dry-run report, per design §7 and §10 test 9.
+
+Still open before it: the **Lob AV plan purchase** (~$920 for the ~102k backfill) and the
+**live key rotation (TD-9)**, both listed below.
 
 ## Environment (local dev)
 

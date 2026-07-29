@@ -171,6 +171,17 @@ class AudiencePreview:
     deduped_delivery_point: int  # lost the keeper pick for a shared delivery point
 
 
+@dataclass(frozen=True, kw_only=True)
+class VerifyReport:
+    """`verify_addresses` output. The two phases are counted apart because they answer
+    different questions: `stamped`/`errored` is what the vendor did, `inherited` is what
+    we were willing to write onto a contact off the back of it."""
+
+    stamped: int  # rows that got a verdict (undeliverable included — a verdict is a result)
+    errored: int  # rows the vendor failed on; unstamped, retried next run
+    inherited: int  # contacts that took their primary row's standardized address
+
+
 @dataclass(frozen=True)
 class SeedReport:
     """ensure_seed_contacts output: how many seed contacts exist after the upsert, and

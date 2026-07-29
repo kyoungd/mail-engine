@@ -310,6 +310,45 @@ each class in Lob's test env is an unverified vendor fact: any class the test
 env cannot deterministically produce stays covered by `FakeVerifier` alone,
 noted in the phase's acceptance record. The nightly runs it.
 
+### Acceptance record — Phase 3 (2026-07-29)
+
+Frozen tests green (18) plus 8 offline unit tests over the response mapping.
+
+**Lob test env behaves as a simulator, not a sandbox.** With the test key,
+`/v1/us_verifications` ignores the real address and returns canned data; the
+response body states the contract itself — set `primary_line` to the verdict
+you want and `zip_code` to `11111`. Measured, not assumed:
+
+| Simulated `primary_line` | Verdict returned | Delivery point | Class exercised |
+|---|---|---|---|
+| `deliverable` | `deliverable` | `941333106019` | ✅ deliverable-with-components → inherit runs |
+| `undeliverable` | `undeliverable` | none | ✅ undeliverable → excluded |
+| `deliverable_missing_unit` | `undeliverable` | none | ❌ not producible |
+| `deliverable_incorrect_unit` | `undeliverable` | none | ❌ not producible |
+| `deliverable_unnecessary_unit` | `undeliverable` | none | ❌ not producible |
+
+Vendor **error** exercised live: a bad key returns HTTP 401, which the client maps
+to `AddressVerificationError` (row unstamped, retried next run).
+
+**Covered by `FakeVerifier` alone**, per this phase's own escape clause — the test
+env cannot produce them: *verified-without-usable-components* (a deliverable verdict
+carrying no delivery point or no `std_*`; the test env only ever pairs "not
+deliverable" with "no components"), and the three `deliverable_*_unit` variants.
+Both are covered by `FakeVerifier(delivery_point="")` / `(components=False)` and by
+the `_unit`-variant acceptance test.
+
+⚠️ **Do not run this job against the dev database with either verifier.** The Lob
+*test* key would stamp all 102,431 intake rows `undeliverable` — silently emptying
+every audience — and `--fake` gives every row the SAME delivery point, which
+collapses the whole list to one contact under §6's dedupe. The first real sweep
+belongs to a live key (Phase 4/5's backfill), not to dev.
+
+**Verdict-family decision (operator-approved 2026-07-29):** §5 names the blocked
+outcomes (undeliverable, no delivery point, missing components) without placing the
+three `deliverable_*_unit` variants. They are treated as **deliverable-family and
+therefore inherit**, consistent with §6 keeping them mailable. Pinned by
+`test_the_deliverable_unit_variants_still_inherit`.
+
 ## Phase 4 — The prod merge (🔴 — dry-run report → operator reads → `--execute`)
 
 **Frozen test first** (design §10 test 9, on a fixture DB). **Fixture

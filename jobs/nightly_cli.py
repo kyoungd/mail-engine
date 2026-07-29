@@ -57,6 +57,21 @@ def _build_feeds() -> tuple[list, list[str]]:
     return feeds, skipped
 
 
+def _build_verifier():
+    """The address verifier, or None when unconfigured.
+
+    Deliberately NOT a hard failure the way zero feeds is: a nightly with no verifier
+    still does its job, and unverified rows are never excluded from an audience — they
+    are merely not yet deduplicable (§6). Missing the key delays standardization; it
+    does not corrupt anything."""
+    key = os.environ.get("LOB_API_KEY")
+    if not key:
+        return None
+    from seams.lob_address import LobAddressVerifier
+
+    return LobAddressVerifier(key)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m jobs.nightly_cli",
@@ -112,7 +127,7 @@ def main(argv: list[str] | None = None) -> int:
         print("dry-run — nothing ran")
         return 0
 
-    run_nightly(feeds, since)
+    run_nightly(feeds, since, verifier=_build_verifier())
     print("nightly complete")
     return 0
 
