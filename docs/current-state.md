@@ -174,8 +174,8 @@ Still open before it: the **Lob AV plan purchase** (~$920 for the ~102k backfill
   unwritten — an input to revision 7.
 - **Partner reporting is decided: emailed report, no portal** (2026-07-29,
   `decisions.md`). Rides partner Phase 3's `Sender` (which is also TD-10's fix), so the
-  net-new is a composer + schedule. Activity half ships with Phase 3; the earnings half
-  waits on Q10.
+  net-new is a composer + schedule. The HOLDINGS half (batch, remaining, expiry) ships with Phase 3;
+  earnings wait on Q10. Not a performance report — the spine cannot see effort.
 - **Q6 counsel hour** — queued behind the grain work.
 - **Live Lob key rotation (TD-9)** — still advised, still pending.
 - **Lob AV plan purchase** — needed before Phase 4's live verification and the

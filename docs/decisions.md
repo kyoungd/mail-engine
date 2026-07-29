@@ -590,12 +590,19 @@ report is a new *message type* riding Phase 3's transport, not a new channel.
    feeds FR-10's monthly self-grading, and `next_action_at` drives the founder's own
    queue. A report that reuses `record_nudge` to get delivery would silently arm cooldowns
    and corrupt the grading. It sends without recording a nudge.
-3. **The report splits along the Q10 line, so ship it in two halves.** Everything about
-   *activity* is mail-engine-side and available today — batch size, rows remaining, days
-   to expiry, shortfall by cause. Everything about *earnings* — closes credited,
-   commission, co-op balance — lives in `nmc_sales_attribution` on the Medusa side and
-   therefore needs the **Q10 correlation** first. Ship the activity report with Phase 3;
-   add the earnings section when Q10 lands.
+3. **The report splits along the Q10 line, so ship it in two halves — and the first half
+   is HOLDINGS, not activity.** Everything about what a partner *holds* is mail-engine-side
+   and available today: batch size, rows remaining, days to expiry, shortfall by cause.
+   Everything about *earnings* — closes credited, commission, co-op balance — lives in
+   `nmc_sales_attribution` on the Medusa side and needs the **Q10 correlation** first.
+
+   **Do not call the first half an activity or performance report.**
+   `partnership-program.md` names the reason: *"Activity is one bit. A partner who worked
+   200 contacts and closed nothing looks identical to one who did nothing."* §3 keeps
+   dispositions out of the spine on purpose — effort lives in the partner's own sheet, so
+   the system cannot report it and must not imply it can. What this report honestly
+   carries is **what you hold and when the clock runs out**, which is the thing a partner
+   most needs to see coming. Ship holdings with Phase 3; add earnings when Q10 lands.
 
 **Why not a portal.** The design's own strongest argument for a partner-facing view is
 that an exported sheet cannot be recalled when a contact opts out or a batch expires
