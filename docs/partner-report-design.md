@@ -3,7 +3,10 @@
 *Status: **APPROVED** by the operator, 2026-07-29, as written — with the explicit steer
 "we don't need anything fancy at this time": build the plain version, resist additions. Implements the 2026-07-29
 decisions (`decisions.md`): partners are informed by a periodic emailed report, not a
-portal; the first half is HOLDINGS, not activity. Companions:
+portal; the first half is HOLDINGS, not activity. **Split 2026-07-29 (operator): this
+doc is the MARKETING half — composer, sender, content, cadence. The core site's half
+(close-feed endpoint, trial-to-paid observability, roster) lives in
+`../../../docs/active/to-do-partner-report-support.md`.** Companions:
 `partner-lead-assignment.md` (S-2 export, S-6 staleness, §8 performance),
 `nmc-close-feed-contract.md` (the earnings data's inflow),
 `../../../docs/partnership-program.md` (bonus and co-op structure).*
@@ -81,14 +84,10 @@ event-triggered send into "next morning" batching to avoid multiple emails in a 
    already holds or closed — never other partners' contacts, never counts of the wider
    pool.
 
-## Registration (the other half of "next"), for the record
+## The core site's half
 
-- **Main site — exists.** `nmc_sales_rep` roster, admin-only CRUD
-  (`/store/nmc/admin/sales-reps`), admin-page pattern already in the storefront. Creating
-  a partner = adding a roster row there. If a roster management *page* (vs API) is
-  missing, it is a small clone of the existing admin-page pattern — verify before
-  building.
-- **mail-engine — manual by decision** (2026-07-29): the operator inserts the `partners`
-  row (migration 0009, unbuilt) with channel=email, the report address, radius, weekly
-  hours — and stamps `sales_rep_id` from the main-site roster row, which is the
-  correlation key the earnings section depends on. This runbook belongs in revision 7.
+Everything the report needs from the main app — the close-feed endpoint (earnings
+inflow), trial-to-paid observability, and partner registration via the existing roster —
+is specified in `../../../docs/active/to-do-partner-report-support.md`. One operator
+runbook stays on this side for revision 7: create the roster row on the main site, note
+its `id`, insert the mail-engine `partners` row stamped with that `sales_rep_id`.
