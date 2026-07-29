@@ -555,3 +555,58 @@ checklist item.
 appears** — one direction only. Nothing needs to flow *main app → mail-engine* for
 identity (manual creation covers it). Something still must flow *main app → mail-engine*
 for **closes**, and that is Q10, unchanged and still ahead of the first partner close.
+
+## Partners are kept informed by a periodic emailed report, not a portal (decided 2026-07-29)
+
+**Decision:** partners receive a **simple periodic report by email**. No partner login, no
+portal, no partner-facing auth — the approved design's non-goal (*"Partners do not log into
+the mail engine… No partner-facing auth, ever, at this scale"*) stands unchanged.
+
+**This needs almost no new mechanism, which is why it is the right call.** Partner Phase 3
+already builds every piece:
+
+- `partners.channel` + `channel_address` already exist in migration `0009` and already
+  mean *how to reach this partner* — the house row is seeded `email,
+  young@nevermisscall.com` precisely so Phase 3 has a real address to prove delivery
+  against.
+- Phase 3 is *"a real `Sender` implementation: recipient → channel resolved from the
+  `partners` row; transports per Phase 0's answers (**email via the existing SMTP
+  credentials is the cheap path**)"*, and it wires `jobs/nightly_cli.py` to pass the
+  sender — which is also how **TD-10** gets fixed.
+- Phase 3's loud-failure rule (an unmapped or inactive recipient fails the digest rather
+  than dropping silently) applies to the report unchanged.
+
+So the net-new work is a **report composer and a schedule**, not a delivery mechanism. The
+report is a new *message type* riding Phase 3's transport, not a new channel.
+
+**Three constraints, all learned from things already in this repo.**
+
+1. **Do not ship the report before Phase 3.** TD-10's exact failure is content that is
+   assembled, recorded as sent, and never leaves the machine — with an event named
+   `nudge.sent` telling you otherwise. A partner report built on an unwired `Sender`
+   reproduces that bug with a third party as the victim.
+2. **The report must NOT write `nudge.sent` or stamp `next_action_at`.** Those belong to
+   the judgment machinery: `nudge.sent` is `hot_response`'s "no nudge ever" predicate and
+   feeds FR-10's monthly self-grading, and `next_action_at` drives the founder's own
+   queue. A report that reuses `record_nudge` to get delivery would silently arm cooldowns
+   and corrupt the grading. It sends without recording a nudge.
+3. **The report splits along the Q10 line, so ship it in two halves.** Everything about
+   *activity* is mail-engine-side and available today — batch size, rows remaining, days
+   to expiry, shortfall by cause. Everything about *earnings* — closes credited,
+   commission, co-op balance — lives in `nmc_sales_attribution` on the Medusa side and
+   therefore needs the **Q10 correlation** first. Ship the activity report with Phase 3;
+   add the earnings section when Q10 lands.
+
+**Why not a portal.** The design's own strongest argument for a partner-facing view is
+that an exported sheet cannot be recalled when a contact opts out or a batch expires
+(S-6). That argument is untouched by this decision and remains the graduation path — but
+it is about the **dial list**, not about the partner knowing how they are doing. An email
+report answers the second without taking on 🔴 partner-facing auth, contractor PII in a
+web UI, or a second system a commission-only rep has to remember to open (§8: *"asking a
+commission-only rep to maintain a second system is how the data goes stale"* — a report
+that arrives needs no remembering).
+
+**Open, for revision 7:** cadence (weekly is the obvious default; the expiry clock is the
+thing a partner most needs to see coming) and whether the `Sender` Protocol's
+`send(founder, message)` signature generalizes its first parameter to a recipient, since
+it is now addressing partners as well as founders.
