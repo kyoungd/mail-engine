@@ -1,5 +1,10 @@
 # Interface contract — NMC close feed (main app → mail engine)
 
+**Revised 2026-07-29 (operator decision): the transport is a READ-ONLY connection to the
+Medusa database, not an HTTP endpoint.** §1 records the decision and corrects an error in
+the original draft. Everything from §3 onward — idempotency, watermark, all-closes,
+`kind`, double-counting — is transport-independent and stands unchanged.
+
 *Status: **proposed**, 2026-07-29. The contract both sides implement against so neither
 waits on the other. Companions: `partner-lead-assignment.md` §8 and §11 Q10 (why the spine
 needs this), `../../../docs/partnership-program.md` (the main-app program and its
@@ -13,77 +18,79 @@ and meet in the middle.
 
 ---
 
-## 1. Shape: a pull feed, not a push API
+## 1. Shape: mail-engine reads the Medusa DB read-only
 
-**The main app exposes a read endpoint. mail-engine polls it.** Not the reverse, for four
-reasons that are properties of the systems rather than preferences:
+**Decision (operator, 2026-07-29): mail-engine opens its own read-only connection to the
+Medusa database and queries closes directly. No HTTP endpoint is built.** The accepted
+cost is recorded as **TD-12**.
 
-1. mail-engine has **no public inbound surface** — `web/api.py` is an operator UI bound to
-   `127.0.0.1`. A push would require exposing it to the internet and inventing auth for it.
-   A pull requires neither.
-2. `seams/response_feed.py` **already is this contract**, and already says so: *"NMC is
-   consumed through this same contract as any third party: no special access."* This
-   feed is a `ResponseFeed` implementation and nothing else.
-3. A feed error must **halt the nightly before recompute** — the "never judge stale state"
-   guarantee (`jobs/nightly.py`). A pull propagates that error naturally; a push cannot,
-   because the failure happens on the far side, hours earlier.
-4. Retry is free. A missed poll is corrected by the next one; a missed push needs delivery
-   guarantees, which is a whole outbox.
+**Correction to this document's first draft.** The original §1 argued for an HTTP feed and
+claimed a cross-database connection would breach the 🔴 two-database invariant. **That was
+wrong, and the error was mine.** The PRD says the opposite in as many words: *"Code
+touching both must open two connections… Cross-DB access = two connections, two queries,
+correlate in app code — never a join."* Two connections **is** the sanctioned pattern; the
+invariant forbids sharing one *database* and forbids *joins*, neither of which a read-only
+query does. The draft's "never a shared connection" was a stricter rule I introduced and
+then cited as though the PRD required it.
 
-The main app already runs a transactional outbox (Plan 16, `nmc_event_outbox`) for
-cross-DB propagation. **This contract deliberately does not use it.** The outbox exists to
-guarantee delivery to something that must be told; a feed the consumer re-reads at will
-needs no such guarantee, and adding one would couple mail-engine's uptime to Medusa's
-dispatcher.
+**What the decision buys:** the main app builds nothing. No route, no auth, no paging, no
+serializer — the endpoint, its tests, and its maintenance all disappear. At one-to-three
+partners that is the difference between this shipping and not.
 
----
+**What it costs (TD-12, accepted):** schema coupling with no version boundary — a Medusa
+migration that renames a column breaks mail-engine's nightly with no contract in between,
+where an endpoint would have insulated it. Plus one more credential to hold and rotate.
 
-## 2. The endpoint (main app implements)
+**Two prerequisites, neither optional:**
+
+1. **A read-only Postgres role on the Medusa DB must be created — it does not exist
+   today.** PRD § Production connection strings lists only `medusajs_nmc_user`, the
+   **owner**. Handing mail-engine that credential would give the marketing app *write*
+   access to the subscriber database, which is a materially worse trade than the one being
+   accepted here. `grant connect` + `grant select` on the named tables only.
+2. **Mail-engine gets a third connection helper.** `db/session.py` (`OWNER_DATABASE_URL`)
+   and `db/readonly.py` (`READONLY_DATABASE_URL`) both point at the mail-engine database.
+   A new `db/medusa.py` reading `MEDUSA_READONLY_URL` keeps the boundary legible and keeps
+   the existing helpers single-purpose. **Never** reuse either existing helper for this.
+
+## 2. The query (mail-engine implements, over the read-only role)
+
+Read `nmc_sales_attribution` (verified to carry `id`, `created_at`, `status`), joined in
+**mail-engine's** app code to whatever the main app uses to record the typed code — see
+`website/src/lib/nmc-partner-codes.ts`. `select` only; mail-engine never writes here.
+
+The field list below is now a **column contract**: these are the values mail-engine reads,
+whatever they are named on the Medusa side. The mapping (column → field) is pinned in
+`seams/nmc_closes.py` and is the one place a Medusa rename must be repaired.
+
+One row, as mail-engine sees it after mapping:
 
 ```
-GET /api/nmc/closes?since=<ISO-8601>&limit=<int>
-X-API-KEY: <key>
-```
-
-`X-API-KEY` matches the existing NMC service-to-service convention (PRD § Service-to-Service
-Communication). Read-only; no other verb on this route.
-
-**Response**
-
-```json
-{
-  "closes": [
-    {
-      "id": "nmcclose_01J8...",
-      "recorded_at": "2026-07-29T18:04:11.412Z",
-      "occurred_at": "2026-07-29T17:58:02.000Z",
-      "kind": "signup_completed",
-      "phone_e164": "+18186793565",
-      "partner_code": "JK-01",
-      "mailer_code": null,
-      "subscriber_ref": "cus_QxyZ..."
-    }
-  ],
-  "next_since": "2026-07-29T18:04:11.412Z",
-  "has_more": false
-}
+id            "nmcclose_01J8..." / 4711      -- whatever nmc_sales_attribution.id is
+recorded_at   2026-07-29T18:04:11.412Z
+occurred_at   2026-07-29T17:58:02.000Z
+kind          signup_completed
+phone_e164    +18186793565
+partner_code  JK-01          (nullable)
+mailer_code   null           (nullable)
+subscriber_ref cus_QxyZ...
 ```
 
 | Field | Required | Meaning |
 |---|---|---|
-| `id` | yes | **Stable and immutable forever.** This is the idempotency key — see §4. |
-| `recorded_at` | yes | When the main app durably recorded the close. **The watermark field** — see §5. |
+| `id` | yes | **Stable and immutable forever.** The idempotency key — see §4. `nmc_sales_attribution.id` satisfies this. |
+| `recorded_at` | yes | The watermark — see §5. `created_at` is the candidate; **verify it is never backdated** before relying on it, since a backdated row is a permanently missed close. |
 | `occurred_at` | yes | When the close actually happened. Reported, never used for paging. |
 | `kind` | yes | `signup_completed` \| `trial_to_paid`. See §6 — this is what unblocks the main app. |
-| `phone_e164` | yes, nullable | The correlation key. E.164, normalized by the main app. Null is permitted and means "unattributable" — see §3. |
+| `phone_e164` | yes, nullable | The correlation key. **Normalized to E.164 by mail-engine on read** (`domain/phone.to_e164`) — nothing serves the row, so the main app cannot do it. Null is permitted and means "unattributable" — see §3. |
 | `partner_code` | yes, nullable | The typed partner code, when the subscriber gave one. **Null is normal** and does not mean "not a close". |
 | `mailer_code` | yes, nullable | The postcard `?r=` code, when the signup carried one. Present for funnel closes; null otherwise. Used only for the double-count question in §7. |
 | `subscriber_ref` | yes | Opaque main-app identifier, for audit and back-reference. mail-engine stores it and never interprets it. |
 
-**Ordering and paging.** Rows sorted by `recorded_at` ascending, then `id`. `next_since`
-is the `recorded_at` of the last row returned (or the request's `since` when empty).
-`has_more` tells the consumer to poll again immediately rather than wait for the next
-nightly.
+**Ordering and batching.** `where <recorded_at> > %s order by <recorded_at>, id limit %s`
+— mail-engine owns the loop and keeps reading until a short page comes back. No
+`next_since`/`has_more` protocol: the watermark is the last row's `recorded_at`, held by
+mail-engine (§ R3's `feed_watermarks`), and the main app is not involved.
 
 ---
 
@@ -113,7 +120,7 @@ a failure.
 (`on conflict do nothing`). mail-engine stamps `source = "nmc"` and
 `external_id = <close.id>`, so re-polling the same window is a no-op at any overlap.
 
-Therefore, binding on the main app:
+Therefore, binding on the main app — now as a **schema promise** rather than an API contract:
 
 - **`id` must never change for a given close.** Not on re-processing, not on a Stripe
   webhook replay, not if the row is rebuilt. A regenerated id is a duplicate close in the
@@ -199,17 +206,22 @@ a decision: this is `partner-lead-assignment.md` §11 Q10 and belongs to the ope
 - Emit `signup_completed` now; add `trial_to_paid` when observable.
 
 **mail-engine**
+- `db/medusa.py` — the read-only connection helper (§1 prerequisite 2).
 - `seams/nmc_closes.py` — an `NmcCloseFeed` implementing `ResponseFeed`, `source = "nmc"`,
-  yielding `Event(type="signup.completed", external_id=<close.id>, occurred_at=…,
+  querying over that connection and yielding `Event(type="signup.completed", external_id=<close.id>, occurred_at=…,
   payload={phone_e164, partner_code, mailer_code, subscriber_ref, kind}, contact_id=None)`.
-- Registration in `jobs/nightly_cli.py::_build_feeds` behind its own env vars
-  (`NMC_CLOSE_FEED_URL`, `NMC_CLOSE_FEED_KEY`), skipped-and-reported when unset, exactly
-  like the Lob and PostHog feeds.
+- Registration in `jobs/nightly_cli.py::_build_feeds` behind `MEDUSA_READONLY_URL`,
+  skipped-and-reported when unset, exactly like the Lob and PostHog feeds.
 - A persisted watermark per feed. **`jobs/nightly_cli.py` currently passes a single
   `since` for all feeds** (a 30-day lookback by default) — acceptable at first, since
   over-polling is safe by §4, but a per-feed watermark is the correct end state.
-- No new inbound surface, no new auth on the mail-engine side.
+- No new inbound surface on either side.
+- **The test suite must never hold a Medusa credential that can write.** `tests/guard.py`
+  refuses to run against a non-disposable mail-engine DB; the same fail-closed thinking
+  applies here — tests use a fake feed, not a live Medusa connection.
 
 **Neither side**
-- No shared database, no join, no foreign key across the boundary. Correlation is by
-  phone in app code, per the two-database rule both documents already state.
+- **No join across the boundary, ever, and no shared database.** Two connections, two
+  queries, correlated by phone in app code — which is precisely what the PRD prescribes.
+  A `join` written across these two connections is impossible in Postgres and must not be
+  simulated by pulling one side into a temp table.

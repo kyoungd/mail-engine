@@ -181,27 +181,33 @@ if the §7 decision arrives first, RB may run first without cost.
 
 ## Open — operator decisions this plan will not make (review 2026-07-29)
 
-**O1 — Which close-inflow spec wins? (escalation: two approved-ish docs conflict.)**
-`partner-lead-assignment-implementation.md` Phase 4 specifies the Q10 inflow as *"a new
-seam … over a read-only `MEDUSA_DATABASE_URL` connection"*. `nmc-close-feed-contract.md`
-— which R3 builds against — **forbids exactly that** (*"no shared database … never a
-shared connection"*). Both stamp `EventSource.NMC`, and this plan sequences partner Phase
-4 *before* R3, so an executor could build the DB seam and then R3 builds a second inflow
-of the same fact under the same source with different external ids — the double
-ingestion §7 exists to prevent.
-**Recommendation:** the HTTP contract supersedes; strike Phase 4's Medusa-seam paragraph
-in revision 7. The contract is newer, it honors the two-database rule the PRD makes a 🔴
-invariant, and a read-only cross-DB connection from mail-engine is the coupling every
-other document in this repo refuses. **Needs ratification — it edits an approved plan.**
+**O1 — RESOLVED (operator, 2026-07-29): the read-only Medusa connection wins.** Not the
+HTTP endpoint. `partner-lead-assignment-implementation.md` Phase 4's Medusa-seam paragraph
+therefore **stands as written** and nothing needs striking; `nmc-close-feed-contract.md`
+was revised to describe the DB read, keeping its transport-independent rules (idempotency
+on a stable `id`, watermark on the recorded-at column, all-closes-not-just-coded, `kind`,
+§7 double-counting). Accepted cost recorded as **TD-12**.
 
-**O2 — How does Section 1 render multiple live batches?**
-The design's lines are singular ("Batch assigned N contacts on DATE", "Expires on DATE"),
-but §5 makes refill-before-expiry the intended steady state, so an active partner
-routinely holds two or more unexpired batches with different clocks. Latest-batch-only
-would hide the **earliest** expiry — precisely the clock the design says the partner most
-needs to see coming.
-**Recommendation:** one line per live batch (there will be one to three), with the
-earliest expiry as the section's headline. Not fancy, and it cannot hide a clock.
+*My recommendation had been the opposite, and it rested on an error: I claimed the
+cross-database connection breached the 🔴 two-database invariant. The PRD says the reverse
+— "Code touching both must open two connections" — so two connections is the sanctioned
+pattern and the invariant forbids sharing a database and writing joins, neither of which
+this does. The stricter rule was one I had written into my own contract draft and then
+cited as if it were the PRD's.*
+
+**Two prerequisites this pulls into R3** (contract §1): a **read-only role on the Medusa
+DB, which does not exist today** — only the owner `medusajs_nmc_user`, and shipping *that*
+to marketing would hand the mail engine write access to the subscriber database — and a
+third connection helper `db/medusa.py` on `MEDUSA_READONLY_URL`, never a reuse of the two
+existing helpers, which both point at mail-engine's own database.
+
+**O2 — RESOLVED (operator, 2026-07-29): one line per live batch, earliest expiry as the
+headline.** Section 1 renders every unexpired batch the partner holds — one to three in
+practice, since §5 makes refill-before-expiry the intended pattern — and the section's
+headline clock is the **earliest** expiry across them. Latest-batch-only was rejected: it
+hides exactly the clock the design says the partner most needs to see coming. R2's tests 2
+and 4 extend to a two-batch fixture, and a third test pins that the headline follows the
+earliest expiry rather than the newest batch.
 
 ## Out of scope, restated
 

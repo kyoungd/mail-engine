@@ -45,8 +45,9 @@ All fields are spine queries; sources named so the composer is mechanical.
 
 | Line | Source |
 |---|---|
-| Batch assigned N contacts on DATE | `assignment_batches` (0009) |
-| **Expires on DATE — N days left** | batch expiry (90 days, pinned) |
+| **Headline: earliest expiry across all live batches** — *N days left* | min(`expires_at`) over the partner's unexpired batches (O2, 2026-07-29: a partner routinely holds two or three, and latest-batch-only would hide the clock that matters) |
+| One line per live batch: assigned N contacts on DATE, expires DATE | `assignment_batches` (0009) |
+
 | Contacts currently yours: N | `contacts` where `owner_id = partner` and not suppressed/reclaimed/expired |
 | Removed since last report: N opted out, N reclaimed, N expired | ownership events + suppression flags since last report date |
 | Your last export was generated DATE (N days ago) | `partners.last_export_at`, stamped by `export_batch` — **new column, see R1** (review 2026-07-29: S-2 puts the timestamp in a *column of the emitted CSV*, which persists nothing, so this line had no readable source) |

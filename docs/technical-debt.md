@@ -264,3 +264,50 @@ mix for the CSLB list before committing to any plan, and is the sane first spend
 
 **Fallback if the terms moved materially** (unchanged from §5): scope the backfill to
 mailed audiences only. The schema does not change either way.
+
+---
+
+## TD-12 — mail-engine reads the Medusa DB directly, with no version boundary
+
+**Status:** accepted trade, decided by the operator 2026-07-29 (`decisions.md`,
+`nmc-close-feed-contract.md` §1). Not a defect — a known cost taken deliberately, recorded
+at the operator's instruction so it is not rediscovered as a surprise.
+
+**The trade.** The partner close inflow (Q10) is a **read-only connection from mail-engine
+to the Medusa database**, querying `nmc_sales_attribution` directly, instead of an HTTP
+endpoint the main app would have served. What it buys is large and immediate: the main app
+builds *nothing* — no route, no auth, no paging, no serializer, no tests, no maintenance.
+At one-to-three partners that is the difference between the feature shipping and not.
+
+**This is not an invariant breach.** The PRD's 🔴 two-database rule says *"Code touching
+both must open two connections… Cross-DB access = two connections, two queries, correlate
+in app code — never a join."* Two connections **is** the prescribed pattern. What stays
+forbidden — sharing one database, and joining across them — this does not do. (An earlier
+draft of the contract claimed otherwise; the correction is recorded in its §1.)
+
+**What is actually owed, and why it is debt:**
+
+1. **No version boundary.** A Medusa migration that renames or drops a column
+   mail-engine reads breaks the marketing nightly, silently, with nothing in between to
+   absorb it. An endpoint would have insulated the consumer behind a serializer. The
+   mitigation is procedural — the column contract is listed in
+   `nmc-close-feed-contract.md` §2 and pinned in one place in `seams/nmc_closes.py`, so a
+   break is one file to repair — but procedural is what "debt" means here. **The main app
+   has no test that would catch it**, which is the sharp end: the breakage surfaces in a
+   different repo from the change that caused it.
+2. **A read-only role on the Medusa DB does not exist yet.** PRD § Production connection
+   strings lists only `medusajs_nmc_user`, the **owner**. Until a `select`-only role is
+   created, the only way to satisfy this design is to give the marketing app *write*
+   credentials to the subscriber database — a materially worse trade than the one accepted,
+   and a hard prerequisite rather than a nice-to-have.
+3. **One more credential to hold and rotate**, in one more `.env`, in a repo whose own
+   history includes a live key committed by accident (TD-9). It must be the read-only
+   role's, never the owner's.
+4. **The test suite must never hold a writable Medusa credential.** `tests/guard.py` is
+   fail-closed about the mail-engine database for exactly this class of accident; the same
+   thinking applies here. Tests use a fake feed; no live Medusa connection in the suite.
+
+**When to pay it down.** If a second consumer ever needs closes, or if a Medusa rename
+breaks the nightly once, the endpoint becomes the cheaper option and the contract's §2
+column list is already the spec for it. Not before — this is the right trade at today's
+scale, which is the whole reason it is written down as a trade rather than a mistake.
