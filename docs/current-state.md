@@ -165,7 +165,11 @@ Still open before it: the **Lob AV plan purchase** (~$920 for the ~102k backfill
 - **Activation table has NO writer** (TD-2) — unchanged; the grain preflight asserts it
   stays untouched, and halts if any activation row belongs to a merging contact.
 - **Q10 close-visibility is the main-app ↔ marketing interface**, and it is the one
-  direction that still needs building. Partner identity does NOT: partners are created
+  direction that still needs building. **A contract now exists:**
+  `nmc-close-feed-contract.md` (proposed 2026-07-29) — a pull feed the main app exposes
+  and mail-engine consumes as a `ResponseFeed`, so neither side waits on the other's
+  blocker. One binding open question remains inside it (§7, double-counting against the
+  PostHog inflow). Partner identity does NOT: partners are created
   manually in both systems (decided 2026-07-29, `decisions.md`), so no provisioning or
   sync is needed. But the spine still cannot see a partner-driven close, and until it can,
   a closed customer expires back into the assignable pool and partner #2 cold-calls a
