@@ -134,6 +134,13 @@ Still open before it: the **Lob AV plan purchase** (~$920 for the ~102k backfill
   `cslb-all.csv.pre-trades.bak`. Regenerate with
   `uv run python -m intake.cslb_ca ../ingestion-app-1/MasterLicenseData.csv -o <out>`
   (84,072 rows).
+- ⚠️ **A killed ingest leaves the tables bloated, and the next ingest crawls.** Measured
+  2026-07-29: a re-ingest that normally takes **~48s** took **>10 minutes** after an
+  earlier run was killed mid-transaction. The rollback leaves no dead tuples (autovacuum
+  clears them) but does NOT release the pages — `contacts`/`intake_cslb_ca` sat at
+  30 MB/45 MB with zero live rows. The remedy is the documented one: drop/recreate
+  `mailengine_dev` → `make migrate` → re-ingest (back to 48s, tables at 64 kB/56 kB). Do
+  not just retry the ingest — it gets slower each time.
 - ⚠️ `marketing/ingestion-app-1/` is **131 MB and versioned nowhere** — it holds
   `cslb-all.csv` and `MasterLicenseData.csv`, the only copies of the source data.
 - This cluster's `template1` carries a **collation-version mismatch**, so anything that
