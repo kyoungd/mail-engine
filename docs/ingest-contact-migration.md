@@ -380,6 +380,15 @@ the §7 preflight globs both cover).
   means an undeliverable contact can never win the dedupe and silently drop a
   deliverable duplicate — deliverable mail is never lost to an undeliverable
   twin.
+- **Signature, pinned (operator-decided 2026-07-29):** `resolve_audience` returns a
+  `ResolvedAudience(ids, excluded_undeliverable, deduped_delivery_point)`; all three
+  callers — `preview_audience`, `approve_wave`, `execute_wave` — read `.ids`, and only
+  preview reads the counts. **Rejected: a second `resolve_audience_with_counts` for
+  preview.** Two resolution paths would reintroduce exactly the preview/execution
+  divergence that unifying on this function fixed (`14a58ae`), and that this section's
+  own guarantee — "preview and execution share `resolve_audience`, so the approval screen
+  shows exactly what fires" — depends on. Recorded here because ground rule 5 makes the
+  design the signature authority: without it the next executor re-escalates the question.
 - **`resolve_audience` gains delivery-point dedupe:** after the rule resolves
   and the undeliverable exclusion applies, at most one contact per delivery
   point per wave. A contact's delivery point

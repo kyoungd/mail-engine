@@ -270,6 +270,12 @@ no-op; pre-swap with data → loud halt; pre-swap empty → swap applies).
 - **Ground rule 4 wiring**: `migrate_grain` gains the re-run guard;
   `make migrate` + test-DB setup invoke it after migrations. From this phase
   on, every fresh environment is post-swap.
+- **`tests/conftest.py`**: add `intake_cslb_ca`, `intake_fbn_ca`,
+  `contact_merge_map` to `clean_db`'s truncate list (it currently names the
+  original six tables only). Without this, intake rows leak between tests and
+  the resolve-then-insert cases pass or fail on execution order — a flake that
+  looks like a resolution bug. Mechanical, easy to miss, so it is listed as a
+  deliverable rather than left to be noticed.
 
 **Suite schema this phase: POST-swap** (migrations 0001–0008 +
 `migrate_grain`'s swap, auto-applied on the empty test DB by the guard).
