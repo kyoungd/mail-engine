@@ -229,7 +229,8 @@ defense-in-depth; it belongs only in `.env`.
 **Status:** open, blocks nothing today, but it prices a decision that is coming. Opened
 2026-07-29 while sanity-checking the per-lookup rate quoted in `verify_addresses` work.
 
-The design's §5 backfill math is `$450 + 52k × $0.009 ≈ **$920** one-time` for ~102k
+(The backfill is design §7 step 9 — an ordinary job run after the migration, not a
+numbered phase; the grain plan stops at Phase 4.) The design's §5 backfill math is `$450 + 52k × $0.009 ≈ **$920** one-time` for ~102k
 addresses — one Growth month, then drop the plan. **The per-lookup rates in §5 are
 correct**: re-checked against lob.com/pricing on 2026-07-29 and every tier matched the
 Phase 0 record (2026-07-27) to the cent — Developer `$0.05/additional` with no base,

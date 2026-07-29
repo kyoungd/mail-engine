@@ -166,8 +166,9 @@ Still open before it: the **Lob AV plan purchase** (~$920 for the ~102k backfill
   stays untouched, and halts if any activation row belongs to a merging contact.
 - **Q6 counsel hour** and **Q10** close-visibility — queued behind the grain work.
 - **Live Lob key rotation (TD-9)** — still advised, still pending.
-- **Lob AV plan purchase** — needed before Phase 4's live verification and the Phase 5
-  backfill. The recorded ~$920 may be ~60% low: the per-lookup rates re-checked correct on
+- **Lob AV plan purchase** — needed before Phase 4's live verification and the
+  post-migration backfill (design §7 step 9 — an ordinary job run, NOT a numbered phase;
+  the grain plan stops at Phase 4). The recorded ~$920 may be ~60% low: the per-lookup rates re-checked correct on
   2026-07-29, but the plan BASE fee (Growth "starting at $550/month") is not in that math
   and the page doesn't say whether the $450 AV allowance is inclusive of it. **TD-11** has
   the two questions to settle at checkout. A bounded `--limit N` probe costs `N × $0.05`
