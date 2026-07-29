@@ -1,8 +1,9 @@
 # Partner report — implementation plan
 
 *Execution brief for `partner-report-design.md` (APPROVED 2026-07-29, "nothing fancy").
-Status: **draft — awaiting operator confirmation.** Where this plan and the design
-conflict, escalate. Companions: `partner-lead-assignment-implementation.md` (the host
+Status: **RATIFIED** by the operator 2026-07-29, after a fresh-context review whose two
+blockers and two escalations are all closed below. Where this plan and the design conflict,
+escalate. Companions: `partner-lead-assignment-implementation.md` (the host
 phases), `nmc-close-feed-contract.md` (the earnings inflow),
 `../../../docs/active/to-do-partner-report-support.md` (the core site's half — not
 sequenced here).*

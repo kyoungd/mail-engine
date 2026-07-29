@@ -1,7 +1,10 @@
 # Partner report — design
 
-*Status: **APPROVED** by the operator, 2026-07-29, as written — with the explicit steer
-"we don't need anything fancy at this time": build the plain version, resist additions. Implements the 2026-07-29
+*Status: **APPROVED 2026-07-29, then RATIFIED the same day after review** — the approval
+came first, a fresh-context review then found two blockers and two lines that could never
+honestly render, and the corrected document is what stands ratified. Operator steer,
+binding: "we don't need anything fancy at this time" — build the plain version, resist
+additions. Implements the 2026-07-29
 decisions (`decisions.md`): partners are informed by a periodic emailed report, not a
 portal; the first half is HOLDINGS, not activity. **Split 2026-07-29 (operator): this
 doc is the MARKETING half — composer, sender, content, cadence. The core site's half

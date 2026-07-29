@@ -5,8 +5,8 @@ Medusa database, not an HTTP endpoint.** §1 records the decision and corrects a
 the original draft. Everything from §3 onward — idempotency, watermark, all-closes,
 `kind`, double-counting — is transport-independent and stands unchanged.
 
-*Status: **proposed**, 2026-07-29. The contract both sides implement against so neither
-waits on the other. Companions: `partner-lead-assignment.md` §8 and §11 Q10 (why the spine
+*Status: **RATIFIED** 2026-07-29 (operator), transport revised to the read-only Medusa
+read. The contract both sides implement against so neither waits on the other. Companions: `partner-lead-assignment.md` §8 and §11 Q10 (why the spine
 needs this), `../../../docs/partnership-program.md` (the main-app program and its
 "unverified dependency"), `decisions.md` (the four partner decisions of 2026-07-29).*
 

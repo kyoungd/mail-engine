@@ -626,3 +626,65 @@ repeating that). Operator's words: *"This is fine. We don't need anything fancy 
 time."* That steer is part of the approval: the plain-text two-section report as
 specified, nothing added. Ships with/after partner Phase 3, holdings first, earnings
 after the close feed.
+
+## Partner report: design + plan + close-feed contract RATIFIED (decided 2026-07-29)
+
+**Decision:** all three documents are ratified as corrected —
+`partner-report-design.md`, `partner-report-implementation.md`, and
+`nmc-close-feed-contract.md`. Recorded same-day (the partner-lead-assignment approval sat
+unwritten for two days and earned its own entry about that; not repeating it).
+
+**What ratification covers.** The report is a plain weekly email per active partner
+**except the house account**, on a weekly floor with event triggers collapsed into the
+nightly, composed in `judgment/partner_report.py` and delivered through partner Phase 3's
+injected `Sender`. Section 1 is **holdings** — one line per live batch, earliest expiry as
+the headline, removals since the last report, and the re-pull prompt that turns S-6's
+procedural mitigation into a data-triggered one. Section 2 is **closes only** — which
+businesses, and when. Build order: R1 (columns, riding revision 7 into migration `0009`),
+then RA (R2), then RB (R3 + R4).
+
+**Ratified with the corrections, not before them.** A fresh-context review found two
+blockers, and both were report lines whose data source did not exist:
+
+- the *"your last export was generated DATE"* line — S-2 puts a timestamp in a **column of
+  the emitted CSV**, which persists nothing, and the six new event types include none for
+  export. Fixed by `partners.last_export_at`.
+- the earnings section could not attribute a **single close** — the inflow carries
+  `partner_code`, while `sales_rep_id` had been named "the earnings correlation key"
+  despite appearing in no data that ever reaches mail-engine. Fixed by
+  `partners.partner_code` (unique); `sales_rep_id` stays as the roster back-reference.
+
+Both landed inside the one cheap window the plan itself had identified — *"columns are free
+until 0009 ships"* — so the review cost two column names instead of a future migration.
+**This is the second time in two days that a fresh-context review of a document its own
+author had just declared finished found defects that would have shipped.** The lesson is
+now twice-evidenced and belongs in the method, not in a postmortem.
+
+**Two lines cut rather than deferred:** bonus vesting and co-op balance. Both are main-side
+*ledger* facts, and the report will not reconstruct money it cannot see — a partner reading
+"vested" and not being paid is a trust problem, not a display bug. Money questions belong
+to whoever owns the money.
+
+**Operator decisions taken during the review, both against my recommendation on the
+first:**
+
+1. **The close inflow is a read-only connection to the Medusa DB**, not an HTTP endpoint.
+   My objection rested on an error — I claimed it breached the 🔴 two-database invariant,
+   when the PRD says *"Code touching both must open two connections."* Two connections is
+   the sanctioned pattern; sharing a database and writing joins are what stay forbidden.
+   The main app now writes no code. Accepted cost is **TD-12**, with the real debt named:
+   no version boundary, and no test on the main-app side that would catch a rename, because
+   the breakage surfaces in a different repo from its cause.
+2. **One line per live batch, earliest expiry as the headline** — latest-batch-only would
+   have hidden precisely the clock the design says a partner most needs to see coming.
+
+**Hard prerequisite, not yet met:** a `select`-only role on the Medusa database. It does not
+exist — only the owner `medusajs_nmc_user` — and shipping that credential to marketing
+would hand the mail engine write access to the subscriber database, which is a worse trade
+than the one accepted. 🔴 credential work, tracked in
+`../../../docs/active/to-do-partner-report-support.md` Deliverable 1.
+
+**Still open, and still ahead of the first partner close:** §7 double-counting (a funnel
+close already reaches the spine via PostHog under a different source, so
+`(source, external_id)` will not dedupe the same close read from Medusa). Now entirely
+marketing-side.
