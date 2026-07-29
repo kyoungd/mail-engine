@@ -497,3 +497,61 @@ every-verb-is-fronted rule vs CLI-first assignment verbs); `partnership-program.
 which still prescribes the dropped holdings ceiling and pre-derivation 250–500 batches
 and is the document partners actually read; and a superseding entry for the 2026-07-12
 `signup.completed` note, refined by S-10's consumer-side dedupe.
+
+## Sales partners are created manually; no self-serve signup (decided 2026-07-29)
+
+**Decision:** partner records are created **by hand, by the operator, in both systems**.
+There is no partner self-signup flow and none is planned. "I can create sales-partner
+anywhere" — the operator's words — so neither system needs to provision the other.
+
+**Context.** The question arose from a real asymmetry: partner identity already exists on
+the **main NeverMissCall app** (`nmc_sales_rep` in the Medusa DB — `id, email, name,
+status, created_at`, admin-only CRUD, its own code calling it *"the single source of truth
+for who can sell"*), while `partner-lead-assignment.md` introduces a **separate `partners`
+table in mail-engine** (migration `0009`: name, status, channel, channel_address, address,
+radius_miles, weekly_hours). Same human, two databases, no key between them. The natural
+worry is a provisioning gap — someone signs up on the site and is never created in
+mail-engine.
+
+**What manual creation settles.** That worry is retired. With no self-serve path there is
+no signup event to propagate, so there is **no sync mechanism, no webhook, no outbox and
+no reconciliation job** to build between the main app and mail-engine for partner
+identity. The two tables stay independent by design, each owning what it is actually for:
+`nmc_sales_rep` owns *who may sell and who gets paid*; mail-engine's `partners` owns *who
+may be handed which contacts, within what radius, for how many hours*. Those are different
+concerns and a shared table would serve neither well. The insert-path hole the
+implementation plan flags for partner #2 drops from a systemic risk to an operator
+checklist item.
+
+**What manual creation does NOT settle — two things, deliberately separated.**
+
+1. **A correlation key is still needed.** Commission attribution correlates closes in
+   `nmc_sales_attribution` (Medusa) against mail-engine's spine *at app level, never as a
+   join* (design §8). Manual creation does not remove that correlation; it only means a
+   human sets the key instead of a machine. Without a stored key the correlation falls
+   back to matching on partner **name**, which is fuzzy matching on a human-entered string
+   — precisely the class of thing this codebase refuses everywhere else.
+
+   **Recommendation (cheap now, expensive later):** carry the main app's rep identity on
+   the mail-engine `partners` row — a nullable `sales_rep_id` (or `sales_rep_email`),
+   stamped by the operator at creation. Migration `0009` **has not been written yet**
+   (partner Phase 1, unbuilt), so this is a free column today and a migration `0011`
+   after Phase 1 ships. It is an input to **revision 7**, which is already being written,
+   rather than an amendment to approved revision 6.
+
+2. **Close visibility (Q10) is untouched and still binding.** Manual partner creation does
+   nothing to tell the spine that a partner closed someone. `won` derives from
+   `signup.completed`, which today arrives only via the PostHog coded-landing funnel; a
+   contractor who signs up with a typed partner code and **no mailer code** produces no
+   inflow, so `won` never derives, the assignment expires, and **partner #2 is handed a
+   paying customer to cold-call**. The design calls that the worst outcome the feature can
+   produce short of a compliance claim, and marks it *"must be decided before the first
+   partner close."* Options remain Medusa correlation or a founder close-stamp. If
+   correlation is chosen, match **all** closes by phone rather than only partner-coded
+   ones — the same blindness hides organic and demo-line closes — with the double-count
+   guard against funnel closes that already emit.
+
+**Net:** the interface between the main app and marketing is **narrower than it first
+appears** — one direction only. Nothing needs to flow *main app → mail-engine* for
+identity (manual creation covers it). Something still must flow *main app → mail-engine*
+for **closes**, and that is Q10, unchanged and still ahead of the first partner close.
