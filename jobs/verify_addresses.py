@@ -168,7 +168,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--limit", type=int, default=None,
-        help="stamp at most N rows per intake table (the backfill is billable — cost it first)",
+        help="stamp at most N rows in TOTAL across both intake tables, taking the next N "
+        "unverified ones (the backfill is billable — cost a slice first). The inherit "
+        "phase is never limited: it always sweeps every contact whose guard is still null",
     )
     parser.add_argument(
         "--fake", action="store_true",

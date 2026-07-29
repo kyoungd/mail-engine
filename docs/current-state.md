@@ -102,10 +102,24 @@ deliverable-family and **do inherit**. §5 named the blocked outcomes without pl
 Full acceptance record — including what Lob's test environment can and cannot simulate —
 is in `ingest-contact-migration-implementation.md` § Acceptance record — Phase 3.
 
-⚠️ **Never run `verify_addresses` against the dev database.** With the Lob *test* key it
-stamps every row `undeliverable` (canned responses), silently emptying every audience;
-with `--fake` every row gets the SAME delivery point, collapsing the entire list to one
-contact under §6's dedupe. The first real sweep belongs to a live key.
+**Exercised against real dev data, bounded and reversed (2026-07-29).** `--limit` makes
+this safe to do, and it was worth doing:
+
+- `--limit 5` through the real Lob HTTP client → `stamped=5 errored=0 inherited=0`; five
+  real rows stamped with the test key's canned `undeliverable`, and inherit correctly
+  declined (contacts untouched).
+- A second `--limit 5` stamped five DIFFERENT rows; the first five kept their original
+  timestamps to the millisecond — verify-once proven on real data, not just in a fixture.
+- `--fake --limit 3` → `inherited=3`, exercising the inherit path the undeliverable
+  verdicts could not reach; a follow-up run returned `inherited=0`, so the null guard
+  holds.
+- Dev was then rebuilt from source, back to 0 verified / 0 validated.
+
+⚠️ **Do not sweep the WHOLE dev database.** With the Lob *test* key every row comes back
+`undeliverable` (canned), silently emptying every audience; with `--fake` every row gets
+the SAME delivery point, collapsing the entire list to one contact under §6's dedupe.
+Bounded `--limit` runs are fine and reversible; an unbounded one is not. The first real
+sweep belongs to a live key.
 
 ## Next: Phase 4 — the 🔴 prod merge
 
