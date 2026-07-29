@@ -71,11 +71,22 @@ Nothing in section 1 is a performance judgment.
 |---|---|
 | Closes credited since the last report: N (names of businesses) — *"since last report", never a calendar week; event-triggered sends make the two diverge* | ingested `signup.completed` events carrying this partner's `partner_code`, correlated to spine contacts |
 | Total closes to date: N | same, cumulative |
-| ~~Bonus status per close: vesting / vested / paid~~ **RECOMMEND CUT — needs ratification** | Review 2026-07-29 found this line can *never* appear as written. `kind` distinguishes only `signup_completed` from `trial_to_paid`; "vested" (the two-halves 3-month gate) and "paid" (a payout ran) are Medusa **ledger** facts the feed carries no field for. The co-op line was cut for exactly this reason one row down — a main-side balance must arrive *as a feed field, not be reconstructed here* — and the same rule applies. **Recommendation: cut from v1**; the report shows "close recorded DATE". Add later as a feed field if wanted. |
-| ~~Co-op mail credit balance~~ | **Cut (review correction, 2026-07-29).** The co-op programme is defined main-side (`partnership-program.md` § Co-op Mail Credit) and **mail-engine has no spend ledger** — `pieces.cost_cents` is per-piece spend, not an accrual balance. Citing one was an error. If a balance is wanted later it belongs on the core site, which owns the programme, delivered as a feed field — not reconstructed here. Out of scope for v1 per "nothing fancy". |
 
-Same honesty rule as section 1: no line appears unless its data is real. A close with an
-unverifiable vesting state shows the close, not a guessed state.
+**Two lines cut in review (2026-07-29, operator-approved): bonus vesting and co-op
+balance.** Both were main-side *ledger* facts — "vested" (the two-halves three-month gate),
+"paid" (a payout ran), and an accrued credit balance — and nothing mail-engine reads
+carries them. The co-op line additionally cited a *"mail-engine spend ledger"* that does
+not exist: `pieces.cost_cents` is per-piece spend, not an accrual, and the co-op programme
+is defined main-side in `partnership-program.md` § Co-op Mail Credit.
+The close data answers *did this partner close someone*, not *what have they been paid*.
+Reporting a guessed vesting state would be worse than omitting it: a partner reading
+"vested" and not being paid is a trust problem, not a display bug.
+
+So Section 2 is deliberately narrow: **which businesses this partner closed, and when.**
+Money questions belong to whoever owns the money — the main site — and if a partner should
+see a balance, it should arrive from there, not be reconstructed here.
+
+Same honesty rule as section 1: no line appears unless its data is real.
 
 ## Cadence
 

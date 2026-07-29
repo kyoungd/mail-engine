@@ -162,11 +162,15 @@ double-count decision**, which is required "before the first partner close" anyw
 - Extend the composer: closes credited (this period / total, business names); vesting
   line **only when** `trial_to_paid` is
   observable (feed `kind`), else "close recorded DATE".
-- **Co-op balance is NOT in scope** — cut from the design in review (no mail-engine spend
-  ledger exists; the programme is main-side).
+- **Neither co-op balance nor bonus vesting is in scope** — both cut from the design in
+  review 2026-07-29. No mail-engine spend ledger exists, and vesting/paid are Medusa ledger
+  facts the close data has no field for. R4 therefore needs **no** `kind`-conditional
+  branch at all, which removes the phase's only piece of conditional formatting.
 - **Frozen tests:** section absent when no close events exist (no placeholder); appears
-  with correct counts when they do; a close without vesting data shows no vesting claim;
-  the composer opens no connection outside the spine.
+  with correct counts and names when they do; **the rendered section contains no money
+  language at all** (absence assertion over `vest`, `paid`, `bonus`, `balance`, `$` — the
+  same smoke-check caveat as test 4: it catches a careless line, not a paraphrase); the
+  composer opens no connection outside the spine.
 
 ## Batching (per `/batch-build`: cut where something becomes fixed)
 
