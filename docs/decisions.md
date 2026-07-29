@@ -617,3 +617,12 @@ that arrives needs no remembering).
 thing a partner most needs to see coming) and whether the `Sender` Protocol's
 `send(founder, message)` signature generalizes its first parameter to a recipient, since
 it is now addressing partners as well as founders.
+
+## Partner report design APPROVED as written (decided 2026-07-29)
+
+**Decision:** `partner-report-design.md` is approved — same day it was drafted, recorded
+immediately (the partner-lead-assignment approval went unrecorded for two days; not
+repeating that). Operator's words: *"This is fine. We don't need anything fancy at this
+time."* That steer is part of the approval: the plain-text two-section report as
+specified, nothing added. Ships with/after partner Phase 3, holdings first, earnings
+after the close feed.

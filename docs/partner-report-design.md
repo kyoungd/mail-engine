@@ -1,6 +1,7 @@
 # Partner report — design
 
-*Status: **proposed**, 2026-07-29 — awaiting operator approval. Implements the 2026-07-29
+*Status: **APPROVED** by the operator, 2026-07-29, as written — with the explicit steer
+"we don't need anything fancy at this time": build the plain version, resist additions. Implements the 2026-07-29
 decisions (`decisions.md`): partners are informed by a periodic emailed report, not a
 portal; the first half is HOLDINGS, not activity. Companions:
 `partner-lead-assignment.md` (S-2 export, S-6 staleness, §8 performance),
