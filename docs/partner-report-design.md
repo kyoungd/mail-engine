@@ -13,7 +13,8 @@ doc is the MARKETING half — composer, sender, content, cadence. The core site'
 
 ## What this is
 
-One email per active partner **except the house account**, on a fixed cadence, composed by
+One email per active partner **except the house account**, on a weekly floor with event
+triggers (§ Cadence), composed by
 mail-engine and delivered
 through partner Phase 3's `Sender` (channel + address from the `partners` row). Plain
 text. No links requiring login — there is nothing to log into, by decision.
@@ -24,8 +25,9 @@ every unassigned contact — ~100,444 of them — and its channel is seeded to
 `young@nevermisscall.com`. Without the exclusion the operator receives a weekly email
 reading *"Contacts currently yours: 100444"* with no batch and no expiry: pure noise, and
 the kind of noise that trains someone to ignore the channel the real reports arrive on.
-The house id is a pinned constant in `config/params.py`, so this is a filter, not a
-heuristic.
+The house id is a **planned** pinned constant (`HOUSE_PARTNER_ID`, seeded by partner
+Phase 1 — it is not in `config/params.py` today; an earlier draft of this paragraph
+asserted it was). Once it exists this is a filter, not a heuristic.
 
 Two sections that ship at different times:
 
@@ -47,7 +49,7 @@ All fields are spine queries; sources named so the composer is mechanical.
 | **Expires on DATE — N days left** | batch expiry (90 days, pinned) |
 | Contacts currently yours: N | `contacts` where `owner_id = partner` and not suppressed/reclaimed/expired |
 | Removed since last report: N opted out, N reclaimed, N expired | ownership events + suppression flags since last report date |
-| Your last export was generated DATE (N days ago) | export generation timestamp (S-2) |
+| Your last export was generated DATE (N days ago) | `partners.last_export_at`, stamped by `export_batch` — **new column, see R1** (review 2026-07-29: S-2 puts the timestamp in a *column of the emitted CSV*, which persists nothing, so this line had no readable source) |
 | **→ If any removals: "Re-pull your sheet before your next calling session."** | derived from the removal counts |
 
 The re-pull line is the point of the whole section. S-6's residual risk — a suppressed or
@@ -66,9 +68,9 @@ Nothing in section 1 is a performance judgment.
 
 | Line | Source |
 |---|---|
-| Closes credited this period: N (names of businesses) | ingested `signup.completed` events carrying this partner's `partner_code`, correlated to spine contacts |
+| Closes credited since the last report: N (names of businesses) — *"since last report", never a calendar week; event-triggered sends make the two diverge* | ingested `signup.completed` events carrying this partner's `partner_code`, correlated to spine contacts |
 | Total closes to date: N | same, cumulative |
-| Bonus status per close: vesting / vested / paid | Medusa-side per `partnership-program.md` (1.5× monthly, two halves, 3-month gate) — **included only when countable**; until trial-to-paid is observable per partner (`kind` in the feed contract), the line reads "close recorded DATE" with no vesting claim |
+| ~~Bonus status per close: vesting / vested / paid~~ **RECOMMEND CUT — needs ratification** | Review 2026-07-29 found this line can *never* appear as written. `kind` distinguishes only `signup_completed` from `trial_to_paid`; "vested" (the two-halves 3-month gate) and "paid" (a payout ran) are Medusa **ledger** facts the feed carries no field for. The co-op line was cut for exactly this reason one row down — a main-side balance must arrive *as a feed field, not be reconstructed here* — and the same rule applies. **Recommendation: cut from v1**; the report shows "close recorded DATE". Add later as a feed field if wanted. |
 | ~~Co-op mail credit balance~~ | **Cut (review correction, 2026-07-29).** The co-op programme is defined main-side (`partnership-program.md` § Co-op Mail Credit) and **mail-engine has no spend ledger** — `pieces.cost_cents` is per-piece spend, not an accrual balance. Citing one was an error. If a balance is wanted later it belongs on the core site, which owns the programme, delivered as a feed field — not reconstructed here. Out of scope for v1 per "nothing fancy". |
 
 Same honesty rule as section 1: no line appears unless its data is real. A close with an

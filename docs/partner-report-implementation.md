@@ -9,8 +9,11 @@ sequenced here).*
 
 ## Honest total, up front
 
-Nothing in this plan starts until **grain Phase 4** (🔴 prod merge), **revision 7**, and
-**partner Phases 1–4** land — the report reads tables and rides transport those build.
+**R1 is contributed *during* revision 7** (it is a column list, not code). Everything
+else — R2 onward — starts only after **grain Phase 4** (🔴 prod merge), revision 7, and
+**partner Phases 1–4** land, because the report reads tables and rides transport those
+build. (An earlier draft said "nothing in this plan starts until … revision 7 … lands",
+which contradicted R1 by construction.)
 This plan adds **one schema contribution and two coding batches** on top of that
 sequence. It does not shorten it.
 
@@ -27,10 +30,12 @@ sequence. It does not shorten it.
 5. "Nothing fancy" is binding: plain text, no templating engine, no HTML, no
    per-partner customization beyond the data itself.
 
-## Cadence, resolved (design's one open option)
+## Cadence (closed in the design; restated here as the rule to build)
 
-The design left open whether event-triggered sends collapse into next-morning batching.
-**Resolved by the "nothing fancy" steer: they collapse.** The report is a **nightly
+The design **closed** this option in review — event-triggered sends collapse into the
+nightly, per the "nothing fancy" steer. This section is not a second gate; it writes the
+resolved rule out in buildable form. (`decisions.md` still records cadence as "open, for
+revision 7" from approval time — stale, superseded by the design's § Cadence.) The report is a **nightly
 decision, not a scheduler**: each nightly run, per active partner —
 
     send if  (a) last_report_at is null or ≥7 days ago            [heartbeat]
@@ -38,8 +43,7 @@ decision, not a scheduler**: each nightly run, per active partner —
          or  (c) a removal (opt-out/reclaim/expiry) since last_report_at   [trigger]
 
 One piece of state (`last_report_at`), no cron beyond the nightly that already runs, and
-"within a day" honored by construction. *Flagged for confirmation at plan approval since
-it resolves a design-doc option.*
+"within a day" honored by construction.
 
 ## Phase R1 — schema contribution (no code; rides revision 7 → migration 0009)
 
@@ -51,6 +55,22 @@ ships:
   (decision 2026-07-29). Null permitted: the house row has no roster entry.
 - `last_report_at timestamptz null` — the report watermark. Null = never reported =
   heartbeat fires on the first nightly after the partner activates.
+- **`partner_code text null unique`** — *added by review, 2026-07-29 (blocker).* The close
+  feed carries `partner_code` (`"JK-01"`); nothing in mail-engine mapped that string to a
+  partner, so the earnings section could not attribute a single close. `sales_rep_id` was
+  named "the earnings correlation key" but appears in no data that ever reaches
+  mail-engine — the feed has no such field. This is the failure `decisions.md`
+  (2026-07-29) predicted in writing — *"without a stored key the correlation falls back to
+  matching on partner name … precisely the class of thing this codebase refuses"* — and
+  then walked into with a different key. The operator stamps this at partner creation,
+  alongside `sales_rep_id` (which stays: it is the roster back-reference, not the close
+  key).
+- **`last_export_at timestamptz null`** — *added by review, 2026-07-29 (blocker).* Stamped
+  by `export_batch` (partner Phase 4). S-2 puts a generation timestamp in a **column of
+  the emitted CSV**, which persists nothing, and the event taxonomy adds six types, none
+  export-related — so the design's "your last export was generated DATE" line had no
+  readable source anywhere in the system. Phase 4 must stamp it; noted here because that
+  is a one-line addition to a verb Phase 4 already builds.
 
 Also contributed to revision 7: the close feed's phase home (R3 below) and the
 registration runbook. **Gate: revision 7's own approval — this plan adds no gate.**
@@ -83,7 +103,13 @@ timestamp, which Phase 4 builds. One batch.*
   block another's send (per-partner try/except, loud in the report line, run continues,
   nightly exits nonzero).
 - **Frozen acceptance tests (the R2 gate, shown before greening):**
-  1. Heartbeat: `last_report_at` 8 days ago → sent; 2 days ago → not sent; null → sent.
+  1. Heartbeat: a partner **with holdings**, `last_report_at` 8 days ago → sent; 2 days
+     ago → not sent; null → sent.
+  1b. **Empty partner** (active, no batch, no removals): cadence says send, composer
+      returns `None` → **no email, and `last_report_at` is NOT stamped** (nothing was
+      sent; "stamp only after a successful send" governs). The heartbeat therefore stays
+      true for an empty partner, which is harmless and deliberate — the first real batch
+      produces the first report.
   2. Trigger: batch assigned yesterday, report 3 days ago → sent, names the batch.
   3. Trigger + re-pull line: a suppression removal since last report → sent, contains
      the re-pull sentence and the removal count.
@@ -119,6 +145,12 @@ double-count decision**, which is required "before the first partner close" anyw
 - **`jobs/nightly_cli.py`**: registered behind `NMC_CLOSE_FEED_URL` / `NMC_CLOSE_FEED_KEY`,
   skipped-and-reported when unset (existing pattern). Per-feed watermark persisted
   (a small `feed_watermarks` table — revision 7 decides if it joins 0009 or is 0011).
+  **Writer named, per the standing rule** (review 2026-07-29 — this repo's recurring defect
+  class is the writerless declaration, TD-2): `jobs/sync.py` writes it, after the ingesting
+  transaction commits, from the feed's own `next_since`. Advancing before the commit loses
+  closes on a crash; advancing after re-reads a window at worst, which §4 of the contract
+  makes free. The `Event` payload therefore carries `recorded_at` so the value is available
+  to the writer.
 - **§7 dedupe implemented per the operator's decision** — this plan does not presume it.
 - **Frozen tests:** contract-shape mapping (a canned response → expected Events);
   watermark advances on `recorded_at` not `occurred_at`; re-poll of the same window
@@ -141,11 +173,35 @@ double-count decision**, which is required "before the first partner close" anyw
 | Batch | Phases | What is fixed at the cut |
 |---|---|---|
 | — | R1 | rides revision 7's approval; no batch of its own |
-| **RA** | R2 | the report's content contract (frozen tests 1–8) + the cadence rule |
+| **RA** | R2 | the report's content contract (frozen tests **1–10**, the two review-correction tests included) + the cadence rule |
 | **RB** | R3 + R4 | the feed consumer per the already-pinned contract + the earnings content |
 
 RB after RA is the natural order but they share no code path except the composer file;
 if the §7 decision arrives first, RB may run first without cost.
+
+## Open — operator decisions this plan will not make (review 2026-07-29)
+
+**O1 — Which close-inflow spec wins? (escalation: two approved-ish docs conflict.)**
+`partner-lead-assignment-implementation.md` Phase 4 specifies the Q10 inflow as *"a new
+seam … over a read-only `MEDUSA_DATABASE_URL` connection"*. `nmc-close-feed-contract.md`
+— which R3 builds against — **forbids exactly that** (*"no shared database … never a
+shared connection"*). Both stamp `EventSource.NMC`, and this plan sequences partner Phase
+4 *before* R3, so an executor could build the DB seam and then R3 builds a second inflow
+of the same fact under the same source with different external ids — the double
+ingestion §7 exists to prevent.
+**Recommendation:** the HTTP contract supersedes; strike Phase 4's Medusa-seam paragraph
+in revision 7. The contract is newer, it honors the two-database rule the PRD makes a 🔴
+invariant, and a read-only cross-DB connection from mail-engine is the coupling every
+other document in this repo refuses. **Needs ratification — it edits an approved plan.**
+
+**O2 — How does Section 1 render multiple live batches?**
+The design's lines are singular ("Batch assigned N contacts on DATE", "Expires on DATE"),
+but §5 makes refill-before-expiry the intended steady state, so an active partner
+routinely holds two or more unexpired batches with different clocks. Latest-batch-only
+would hide the **earliest** expiry — precisely the clock the design says the partner most
+needs to see coming.
+**Recommendation:** one line per live batch (there will be one to three), with the
+earliest expiry as the section's headline. Not fancy, and it cannot hide a clock.
 
 ## Out of scope, restated
 
