@@ -25,7 +25,14 @@ from pydantic import BaseModel
 
 from domain.errors import ValidationError
 from jobs.drop import run_drops
-from service.contacts import load_list, record_outcome, set_next_action, suppress
+from service.contacts import (
+    load_list,
+    record_outcome,
+    retire_seed,
+    set_next_action,
+    suppress,
+    update_contact_address,
+)
 from seams.lob import BadWebhookSignature, LobPrintApi
 from service.ingestion import ingest_event, record_note, resolve_orphans
 from service.queries import (
@@ -135,6 +142,14 @@ class ReasonBody(BaseModel):
     reason: str
 
 
+class AddressBody(BaseModel):
+    addr_line1: str | None = None
+    addr_line2: str | None = None
+    addr_city: str | None = None
+    addr_state: str | None = None
+    addr_zip: str | None = None
+
+
 # --- JSON API: one verb per route ----------------------------------------------
 
 
@@ -242,6 +257,27 @@ def api_lost(contact_id: UUID, body: ReasonBody):
 def api_suppress(contact_id: UUID, body: ReasonBody):
     suppress(contact_id, body.reason)
     return {"status": "suppressed"}
+
+
+@app.post("/api/contacts/{contact_id}/address")
+def api_update_address(contact_id: UUID, body: AddressBody):
+    """The one sanctioned operator write of contacts.addr_* (§5) — it stamps
+    addr_validated_at, which is what stops verify_addresses overwriting the correction."""
+    update_contact_address(
+        contact_id,
+        body.addr_line1,
+        body.addr_line2,
+        body.addr_city,
+        body.addr_state,
+        body.addr_zip,
+    )
+    return {"status": "updated"}
+
+
+@app.post("/api/contacts/{contact_id}/retire-seed")
+def api_retire_seed(contact_id: UUID):
+    retire_seed(contact_id)
+    return {"status": "retired"}
 
 
 @app.get("/api/orphans")

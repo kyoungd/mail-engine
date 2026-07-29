@@ -17,6 +17,8 @@ warnings.simplefilter("ignore")  # starlette testclient httpx deprecation noise
 
 from web.api import _proof_client, app  # noqa: E402
 
+from tests.factories import new_contact  # noqa: E402
+
 client = TestClient(app)
 
 
@@ -37,10 +39,7 @@ def _seed_prospects(conn, n) -> list[UUID]:
     ids = []
     with conn.cursor() as cur:
         for _ in range(n):
-            cur.execute("insert into contacts (trade) values ('plumber') returning id")
-            row = cur.fetchone()
-            assert row is not None
-            ids.append(row[0])
+            ids.append(new_contact(cur))
     conn.commit()
     return ids
 
@@ -56,10 +55,7 @@ def _draft(conn, n) -> UUID:
 
 def test_api_pipeline_returns_the_pipeline_verb(clean_db, owner_conn):
     with owner_conn.cursor() as cur:
-        cur.execute(
-            "insert into contacts (trade, stage_snapshot) values ('plumber', 'responded') returning id"
-        )
-        contact_id = cur.fetchone()[0]
+        contact_id = new_contact(cur, stage_snapshot="responded")
     owner_conn.commit()
 
     response = client.get("/api/pipeline")
@@ -345,12 +341,8 @@ def test_api_variant_requires_hypothesis(clean_db):
 
 def test_ui_contacts_search(clean_db, owner_conn):
     with owner_conn.cursor() as cur:
-        cur.execute(
-            "insert into contacts (trade, business_name) values ('plumber', 'Acme Plumbing')"
-        )
-        cur.execute(
-            "insert into contacts (trade, business_name) values ('plumber', 'Other Corp')"
-        )
+        new_contact(cur, business_name="Acme Plumbing")
+        new_contact(cur, business_name="Other Corp")
     owner_conn.commit()
 
     page = client.get("/contacts", params={"q": "acme"})
@@ -459,10 +451,7 @@ def test_orphans_page_and_resolve_route(clean_db, owner_conn):
 
 def test_nudges_page_renders_due_nudges(clean_db, owner_conn):
     with owner_conn.cursor() as cur:
-        cur.execute(
-            "insert into contacts (trade, next_action_at, next_action_note) "
-            "values ('plumber', '2026-01-01', 'call him')"
-        )
+        new_contact(cur, next_action_at="2026-01-01", next_action_note="call him")
     owner_conn.commit()
 
     page = client.get("/nudges")

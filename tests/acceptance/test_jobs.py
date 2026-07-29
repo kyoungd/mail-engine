@@ -16,6 +16,7 @@ from jobs.sync import sync
 from seams.fakes import FakePrintApi, FakeResponseFeed
 from service.ingestion import ingest_event
 from service.waves import approve_wave, create_variant, draft_wave
+from tests.factories import new_contact
 
 AT = datetime(2026, 1, 5, 12, tzinfo=UTC)
 SINCE = datetime(2026, 1, 1, tzinfo=UTC)
@@ -24,7 +25,7 @@ SINCE = datetime(2026, 1, 1, tzinfo=UTC)
 def _seed_contact(conn) -> UUID:
     contact_id = uuid4()
     with conn.cursor() as cur:
-        cur.execute("insert into contacts (id, trade) values (%s, 'plumber')", (contact_id,))
+        new_contact(cur, id=contact_id)
     conn.commit()
     return contact_id
 
@@ -99,7 +100,7 @@ def test_nightly_halts_before_recompute_on_sync_failure(clean_db, owner_conn, re
 def test_run_drops_fires_only_due_approved_waves(clean_db, owner_conn, readonly_url):
     with owner_conn.cursor() as cur:
         for _ in range(2):
-            cur.execute("insert into contacts (trade) values ('plumber')")
+            new_contact(cur)
     owner_conn.commit()
     variant_id = create_variant("v", "h", {})
     scheduled = datetime.now(UTC).date() + timedelta(days=2)
@@ -117,7 +118,7 @@ def test_run_drops_fires_only_due_approved_waves(clean_db, owner_conn, readonly_
 def test_run_drops_resumes_a_crashed_executing_wave(clean_db, owner_conn, readonly_url):
     with owner_conn.cursor() as cur:
         for _ in range(5):
-            cur.execute("insert into contacts (trade) values ('plumber')")
+            new_contact(cur)
     owner_conn.commit()
     variant_id = create_variant("v", "h", {})
     scheduled = datetime.now(UTC).date() + timedelta(days=1)

@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from judgment import digest
 from seams.fakes import FakeSender
+from tests.factories import new_contact
 
 AS_OF = datetime.now(UTC).date()
 
@@ -14,10 +15,7 @@ AS_OF = datetime.now(UTC).date()
 def _stalled(conn):
     contact_id = uuid4()
     with conn.cursor() as cur:
-        cur.execute(
-            "insert into contacts (id, trade, stage_snapshot) values (%s, 'plumber', 'won')",
-            (contact_id,),
-        )
+        new_contact(cur, id=contact_id, stage_snapshot="won")
         cur.execute(
             "insert into activation (contact_id, signed_up_at) values (%s, %s)",
             (contact_id, datetime(2026, 1, 1, tzinfo=UTC)),
@@ -47,7 +45,7 @@ def test_no_sender_delivers_nothing(clean_db, owner_conn):
 
 def test_a_zero_hit_night_sends_no_message(clean_db, owner_conn):
     with owner_conn.cursor() as cur:
-        cur.execute("insert into contacts (trade) values ('plumber')")
+        new_contact(cur)
     owner_conn.commit()
     sender = FakeSender()
 

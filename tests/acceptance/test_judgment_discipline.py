@@ -11,6 +11,7 @@ from psycopg.types.json import Json
 
 from judgment import digest
 from service.nudges import expire_stale_actions
+from tests.factories import new_contact
 
 AS_OF = datetime.now(UTC).date()
 
@@ -22,10 +23,7 @@ def _at(days_from_now: int) -> datetime:
 def _contact(conn, stage="prospect", owner="young") -> UUID:
     contact_id = uuid4()
     with conn.cursor() as cur:
-        cur.execute(
-            "insert into contacts (id, trade, stage_snapshot, owner) values (%s, 'plumber', %s, %s)",
-            (contact_id, stage, owner),
-        )
+        new_contact(cur, id=contact_id, stage_snapshot=stage, owner=owner)
     conn.commit()
     return contact_id
 

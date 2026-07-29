@@ -277,17 +277,34 @@ def list_variants() -> list[Variant]:
 
 def search_contacts(q: str, limit: int = 50) -> list[ContactSummary]:
     """Browse/search contacts by name, trade, phone, list key, segment, or source.
-    An empty query browses (source is not null, so every contact matches '%%')."""
+    An empty query browses (source is not null, so every contact matches '%%').
+
+    Trade and list key moved to the intake rows when contacts became business-grain, so
+    both are searched — and displayed — through a lateral over those rows. A merged
+    business legitimately holds several licence records, so both fields show the sorted
+    distinct union pipe-delimited (`hvac|plumber`) rather than an arbitrary one of them."""
     pattern = f"%{q.strip()}%"
     with readonly_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "select id, business_name, contact_name, trade, segment, phone_e164, "
-                "list_key, source, stage_snapshot, do_not_mail from contacts "
-                "where business_name ilike %s or contact_name ilike %s or trade ilike %s "
-                "or phone_e164 ilike %s or list_key ilike %s or segment ilike %s "
-                "or source ilike %s "
-                "order by business_name nulls last, id limit %s",
+                "with intake as ("
+                "  select contact_id, list_key, trades from intake_cslb_ca"
+                "  union all"
+                "  select contact_id, list_key, trades from intake_fbn_ca"
+                "), agg as ("
+                "  select i.contact_id,"
+                "         string_agg(distinct i.list_key, '|' order by i.list_key) as list_keys,"
+                "         string_agg(distinct t.trade, '|' order by t.trade) as trades"
+                "  from intake i left join lateral unnest(i.trades) as t(trade) on true"
+                "  group by i.contact_id"
+                ") "
+                "select c.id, c.business_name, c.contact_name, a.trades, c.segment, "
+                "c.phone_e164, a.list_keys, c.source, c.stage_snapshot, c.do_not_mail "
+                "from contacts c left join agg a on a.contact_id = c.id "
+                "where c.business_name ilike %s or c.contact_name ilike %s "
+                "or a.trades ilike %s or c.phone_e164 ilike %s or a.list_keys ilike %s "
+                "or c.segment ilike %s or c.source ilike %s "
+                "order by c.business_name nulls last, c.id limit %s",
                 (pattern, pattern, pattern, pattern, pattern, pattern, pattern, limit),
             )
             return [

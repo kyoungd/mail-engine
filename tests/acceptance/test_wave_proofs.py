@@ -18,6 +18,7 @@ from service.waves import (
     update_variant,
     wave_proofs,
 )
+from tests.factories import new_contact
 
 
 def _future():
@@ -28,10 +29,7 @@ def _seed_prospects(conn, n) -> list[UUID]:
     ids = []
     with conn.cursor() as cur:
         for _ in range(n):
-            cur.execute("insert into contacts (trade) values ('plumber') returning id")
-            row = cur.fetchone()
-            assert row is not None
-            ids.append(row[0])
+            ids.append(new_contact(cur))
     conn.commit()
     return ids
 

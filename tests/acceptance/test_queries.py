@@ -12,6 +12,7 @@ from psycopg import Cursor
 from psycopg.types.json import Json
 
 import service.queries as queries
+from tests.factories import new_contact
 
 AT = datetime(2026, 1, 5, 12, tzinfo=UTC)
 
@@ -48,13 +49,8 @@ def one_round_trip(monkeypatch, readonly_url):
 
 def _seed_contact(conn, stage="prospect", **cols) -> UUID:
     contact_id = uuid4()
-    columns = ["id", "trade", "stage_snapshot", *cols.keys()]
-    values = [contact_id, "plumber", stage, *cols.values()]
-    placeholders = ", ".join(["%s"] * len(values))
     with conn.cursor() as cur:
-        cur.execute(
-            f"insert into contacts ({', '.join(columns)}) values ({placeholders})", values
-        )
+        new_contact(cur, id=contact_id, stage_snapshot=stage, **cols)
     conn.commit()
     return contact_id
 

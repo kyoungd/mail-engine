@@ -13,6 +13,7 @@ import psycopg
 import pytest
 from yoyo import get_backend, read_migrations
 
+from jobs.migrate_grain import ensure_swapped
 from tests.guard import unsafe_test_environment
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -71,11 +72,19 @@ def migrations_dir() -> Path:
 
 @pytest.fixture(scope="session")
 def applied_migrations(owner_url: str):
-    """Apply all migrations once for the session; yields (backend, migrations)."""
+    """Apply all migrations once for the session, then the grain swap; yields
+    (backend, migrations).
+
+    From Phase 2 on the suite runs against the POST-swap schema (implementation plan,
+    ground rule 4): migrations 0001-0008 leave `contacts.list_key` in place, and the
+    swap that drops it lives in `migrate_grain`, not a migration file. `ensure_swapped`
+    applies it here because the test DB is empty — the same guard halts loudly on a
+    populated one rather than auto-merging it."""
     backend = get_backend(owner_url)
     migrations = read_migrations(str(MIGRATIONS_DIR))
     with backend.lock():
         backend.apply_migrations(backend.to_apply(migrations))
+    ensure_swapped(owner_url)
     return backend, migrations
 
 
@@ -87,12 +96,17 @@ def owner_conn(owner_url: str, applied_migrations):
 
 @pytest.fixture()
 def clean_db(owner_url: str, applied_migrations):
-    """Truncate all six tables before a DB test so tests don't leak into each other.
-    Function-scoped and opt-in — pure unit tests neither request nor pay for it."""
+    """Truncate every table before a DB test so tests don't leak into each other.
+    Function-scoped and opt-in — pure unit tests neither request nor pay for it.
+
+    The intake tables belong here as much as the original six: without them intake rows
+    leak between tests and the resolve-then-insert cases pass or fail on execution
+    order — a flake that reads as a resolution bug."""
     with psycopg.connect(owner_url) as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "truncate activation, events, pieces, waves, variants, contacts "
+                "truncate activation, events, pieces, waves, variants, contacts, "
+                "intake_cslb_ca, intake_fbn_ca, contact_merge_map "
                 "restart identity cascade"
             )
         conn.commit()

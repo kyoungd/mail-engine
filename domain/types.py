@@ -143,6 +143,21 @@ class SampleContact:
 
 
 @dataclass(frozen=True, kw_only=True)
+class ResolvedAudience:
+    """What `resolve_audience` returns (design §6, operator-decided 2026-07-29).
+
+    All three callers — preview, approve, execute — read `.ids`; only preview reads the
+    counts. Deliberately ONE function rather than a second counts-returning variant for
+    preview: two resolution paths would reintroduce the preview/execution divergence that
+    unifying on this function fixed, and §6's guarantee — the approval screen shows
+    exactly what fires — depends on there being a single path."""
+
+    ids: list[UUID]
+    excluded_undeliverable: int
+    deduped_delivery_point: int
+
+
+@dataclass(frozen=True, kw_only=True)
 class AudiencePreview:
     count: int  # total pieces that will fire, seeds included (approve renders what fires)
     seed_count: int  # of which this many are seed pieces (FR-4), shown distinctly
@@ -151,6 +166,9 @@ class AudiencePreview:
     estimated_cost_cents: int
     sample: list[SampleContact]
     state_hash: str  # fingerprint of the resolved audience + variant split (approve carries it back)
+    # Both trims are reported, never silent (§6, "no silent caps").
+    excluded_undeliverable: int  # primary row's verdict was undeliverable
+    deduped_delivery_point: int  # lost the keeper pick for a shared delivery point
 
 
 @dataclass(frozen=True)

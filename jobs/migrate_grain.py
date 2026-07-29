@@ -29,13 +29,16 @@ table would attach to an arbitrary one of 1,785 duplicated-phone contacts).
 
 import argparse
 import sys
-from collections import Counter, defaultdict
+from collections import defaultdict
 from typing import Any
 
 import psycopg
 
 from db.session import _owner_url
 from intake.cslb_ca import TRADE_BY_CLASS
+from resolution.pick import coalesce_email, pick_winner
+
+__all__ = ["coalesce_email", "pick_winner"]  # re-exported: §3's rule lives in resolution
 
 # Which intake table each contact source belongs to, and the `list_key` prefix that must
 # agree with it. The intake UI defaults `source='cslb'`, so a mis-sourced FBN upload is a
@@ -117,41 +120,6 @@ def _apply_swap_ddl(conn) -> None:
 # --------------------------------------------------------------------------------------
 # §3's pick rule
 # --------------------------------------------------------------------------------------
-
-
-def pick_winner(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """§3, one selection resolving both the tuple tie and the row-within-tuple choice.
-
-    Compute each row's `(addr_line1, addr_city, addr_state, addr_zip)` frequency within
-    the group; the candidate set is every row bearing a tuple of MAXIMUM frequency (all
-    tied tuples' rows together); the winner is the lowest `list_key` in that set.
-
-    `addr_line2` is deliberately outside the tuple, so suite-only variants of one address
-    count as the same address for frequency; the winner row's own `addr_line2` rides along
-    into the mailing address.
-    """
-    freq = Counter(
-        (r["addr_line1"], r["addr_city"], r["addr_state"], r["addr_zip"]) for r in rows
-    )
-    top = max(freq.values())
-    candidates = [
-        r
-        for r in rows
-        if freq[(r["addr_line1"], r["addr_city"], r["addr_state"], r["addr_zip"])] == top
-    ]
-    return min(candidates, key=lambda r: r["list_key"] or "")
-
-
-def coalesce_email(rows: list[dict[str, Any]], winner: dict[str, Any]) -> str | None:
-    """Winner's email if present, else the first non-null by ascending `list_key` over the
-    WHOLE phone group — not just the max-frequency candidate set. Emails are too scarce to
-    discard on an address-frequency technicality (§3)."""
-    if winner.get("email"):
-        return winner["email"]
-    for row in sorted(rows, key=lambda r: r["list_key"] or ""):
-        if row.get("email"):
-            return row["email"]
-    return None
 
 
 def derive_trades(license_class: str | None) -> list[str]:
@@ -278,7 +246,8 @@ def main(argv: list[str] | None = None) -> int:
             "  uv run python -m jobs.migrate_grain                    # dry run + report\n"
             "  uv run python -m jobs.migrate_grain --execute          # commit it\n"
             "  uv run python -m jobs.migrate_grain --fix-source fbn-ca-=fbn-ca-2026\n"
-            "  uv run python -m jobs.migrate_grain --check            # report the guard's view\n\n"
+            "  uv run python -m jobs.migrate_grain --check            # report the guard's view\n"
+            "  uv run python -m jobs.migrate_grain --ensure-swapped   # unattended guard (make migrate)\n\n"
             "Requires OWNER_DATABASE_URL (make targets source .env; this module does not).\n"
             "Apply migration 0008 BEFORE running this."
         ),
@@ -297,9 +266,18 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="report whether the swap has run and stop (no transaction opened)",
     )
+    parser.add_argument(
+        "--ensure-swapped",
+        action="store_true",
+        help="ground rule 4's unattended guard: no-op post-swap, halt on a populated "
+        "pre-swap DB, apply the swap on an empty one (used by make migrate + test setup)",
+    )
     args = parser.parse_args(argv)
 
     url = _owner_url()
+    if args.ensure_swapped:
+        print(ensure_swapped(url))
+        return 0
     with psycopg.connect(url) as conn:
         if args.check:
             print("post-swap (already migrated)" if swap_applied(conn) else "pre-swap")

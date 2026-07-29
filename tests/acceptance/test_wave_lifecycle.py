@@ -11,6 +11,7 @@ from psycopg.types.json import Json
 
 from domain.errors import ValidationError
 from service.queries import get_variant
+from tests.factories import new_contact
 from service.waves import (
     approve_wave,
     cancel_wave,
@@ -31,12 +32,9 @@ def _seed_prospects(conn, n, trade="plumber", segment="plumber-CA", do_not_mail=
     ids = []
     with conn.cursor() as cur:
         for _ in range(n):
-            cur.execute(
-                "insert into contacts (trade, segment, do_not_mail) values (%s, %s, %s) "
-                "returning id",
-                (trade, segment, do_not_mail),
+            ids.append(
+                new_contact(cur, trade=trade, segment=segment, do_not_mail=do_not_mail)
             )
-            ids.append(cur.fetchone()[0])
     conn.commit()
     return ids
 
@@ -168,7 +166,7 @@ def test_preview_matches_resolution_and_is_deterministic(clean_db, owner_conn):
     assert first.count == second.count == 4
 
     with owner_conn.cursor() as cur:
-        resolved = resolve_audience(cur, {"trade": ["plumber"]})
+        resolved = resolve_audience(cur, {"trade": ["plumber"]}).ids
     assert len(resolved) == 4
 
 
@@ -183,7 +181,9 @@ def test_audience_rule_filters_by_source(clean_db, owner_conn):
     """FBN-style targeting: a trade-less list is addressed by its source."""
     _seed_prospects(owner_conn, 2)  # source defaults to 'cslb'
     with owner_conn.cursor() as cur:
-        cur.execute("insert into contacts (segment, source) values ('fbn-ca-2026', 'fbn-ca-2026')")
+        new_contact(
+            cur, trade=None, segment="fbn-ca-2026", source="fbn-ca-2026", intake=False
+        )
     owner_conn.commit()
 
     wave_id = draft_wave("fbn-wave", 1, {"source": ["fbn-ca-2026"]}, {}, _future())
@@ -193,12 +193,12 @@ def test_audience_rule_filters_by_source(clean_db, owner_conn):
 def test_audience_rule_filters_by_city_case_insensitive_and_zip_prefix(clean_db, owner_conn):
     """Region targeting: SFV = a bag of cities or a ZIP band, not a county."""
     with owner_conn.cursor() as cur:
-        cur.execute(
-            "insert into contacts (trade, addr_city, addr_zip) values "
-            "('hvac', 'VAN NUYS', '91406'), "
-            "('hvac', 'Northridge', '91324'), "
-            "('hvac', 'Long Beach', '90802')"
-        )
+        for city, zip_code in (
+            ("VAN NUYS", "91406"),
+            ("Northridge", "91324"),
+            ("Long Beach", "90802"),
+        ):
+            new_contact(cur, trade="hvac", addr_city=city, addr_zip=zip_code)
     owner_conn.commit()
 
     wave_id = draft_wave("sfv-city", 1, {"city": ["Van Nuys", "northridge"]}, {}, _future())
@@ -221,8 +221,8 @@ def test_limit_takes_deterministic_unbiased_sample(clean_db, owner_conn):
     assert first.state_hash == second.state_hash  # same sample every resolve
 
     with owner_conn.cursor() as cur:
-        sampled = resolve_audience(cur, {"trade": ["plumber"], "limit": 5})
-        full = resolve_audience(cur, {"trade": ["plumber"]})
+        sampled = resolve_audience(cur, {"trade": ["plumber"], "limit": 5}).ids
+        full = resolve_audience(cur, {"trade": ["plumber"]}).ids
     # exact expectation: md5-of-uuid order (the unbiased deterministic sample)
     import hashlib
 
@@ -257,7 +257,7 @@ def test_not_responded_to_wave_targets_only_non_responders(clean_db, owner_conn)
     owner_conn.commit()
 
     with owner_conn.cursor() as cur:
-        resolved = resolve_audience(cur, {"not_responded_to_wave": str(wave1)})
+        resolved = resolve_audience(cur, {"not_responded_to_wave": str(wave1)}).ids
     assert resolved == [non_responder]
 
 

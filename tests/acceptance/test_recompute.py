@@ -11,6 +11,7 @@ import pytest
 
 from service.execution import recompute_state
 from service.ingestion import ingest_event
+from tests.factories import new_contact
 
 AT1 = datetime(2026, 1, 1, 12, tzinfo=UTC)
 AT2 = datetime(2026, 1, 3, 12, tzinfo=UTC)
@@ -19,14 +20,8 @@ AT3 = datetime(2026, 1, 4, 12, tzinfo=UTC)
 
 def _seed_contact(conn, **cols) -> UUID:
     contact_id = uuid4()
-    columns = ["id", "trade", *cols.keys()]
-    values = [contact_id, "plumber", *cols.values()]
-    placeholders = ", ".join(["%s"] * len(values))
     with conn.cursor() as cur:
-        cur.execute(
-            f"insert into contacts ({', '.join(columns)}) values ({placeholders})",
-            values,
-        )
+        new_contact(cur, id=contact_id, **cols)
     conn.commit()
     return contact_id
 
@@ -115,7 +110,7 @@ def test_recompute_scales_and_is_deterministic(clean_db, owner_conn, readonly_ur
     contacts, events = 5000, 50000  # 10 events per contact
     with owner_conn.cursor() as cur:
         cur.execute(
-            "insert into contacts (trade) select 'plumber' from generate_series(1, %s)",
+            "insert into contacts (segment) select 'plumber-CA' from generate_series(1, %s)",
             (contacts,),
         )
         cur.execute("select id from contacts")

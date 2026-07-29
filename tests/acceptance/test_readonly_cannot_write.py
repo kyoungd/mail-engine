@@ -19,4 +19,4 @@ def test_readonly_insert_is_denied(readonly_url, applied_migrations):
     with psycopg.connect(readonly_url) as conn:
         with conn.cursor() as cur:
             with pytest.raises(errors.InsufficientPrivilege):
-                cur.execute("insert into contacts (trade) values ('plumber')")
+                cur.execute("insert into contacts (segment) values ('plumber-CA')")

@@ -106,9 +106,13 @@ def _assign_variant(contact_id: UUID, variant_split: dict[str, Any]) -> str:
 def execute_wave(wave_id: UUID, print_api: PrintApi) -> ExecutionReport:
     """The drop verb (jobs-only). Re-resolves the audience, halts on drift beyond
     tolerance vs. the approved size, then creates one piece per contact and submits it.
-    Resumable and idempotent: the unique (contact_id, wave_id) constraint plus the
-    vendor's mailer-code idempotency prevent duplicates, so a killed drop is re-run
-    until clean. Each piece's row and its piece.submitted event are written atomically."""
+    Resumable and idempotent on `mailer_code`: the code is deterministic per
+    (wave, contact) and uniquely indexed, so a killed drop re-runs until clean. It
+    replaced `unique (contact_id, wave_id)` as the idempotency key when contacts became
+    business-grain — merged history makes that pair genuinely ambiguous (two wave-1
+    pieces can legitimately land on one merged contact), while the mailer code stays
+    one-per-piece and is also what the vendor and the response feed key on. Each piece's
+    row and its piece.submitted event are written atomically."""
     with transaction() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -123,7 +127,7 @@ def execute_wave(wave_id: UUID, print_api: PrintApi) -> ExecutionReport:
             if status not in ("approved", "executing"):
                 raise ValidationError("not_executable", f"wave is {status}, not approved")
 
-            audience = resolve_audience(cur, audience_rule)
+            audience = resolve_audience(cur, audience_rule).ids
 
             if approved_count:
                 drift = abs(len(audience) - approved_count) / approved_count
@@ -160,14 +164,13 @@ def execute_wave(wave_id: UUID, print_api: PrintApi) -> ExecutionReport:
             with conn.cursor() as cur:
                 cur.execute(
                     "insert into pieces (contact_id, wave_id, variant_id, mailer_code) "
-                    "values (%s, %s, %s, %s) on conflict (contact_id, wave_id) do nothing",
+                    "values (%s, %s, %s, %s) on conflict (mailer_code) do nothing",
                     (contact_id, wave_id, variant_id, mailer_code),
                 )
                 if cur.rowcount == 1:
                     created += 1
                 cur.execute(
-                    "select id, status from pieces where contact_id = %s and wave_id = %s",
-                    (contact_id, wave_id),
+                    "select id, status from pieces where mailer_code = %s", (mailer_code,)
                 )
                 piece_row = cur.fetchone()
                 assert piece_row is not None

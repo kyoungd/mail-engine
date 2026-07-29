@@ -11,9 +11,10 @@ up: ## Start Postgres and wait until healthy
 down: ## Stop Postgres (keeps data volume)
 	docker compose down
 
-migrate: ## Apply migrations as the owner role
+migrate: ## Apply migrations as the owner role, then the grain swap (ground rule 4)
 	@set -a && . ./.env && set +a && \
-		uv run yoyo apply --batch --database "$$OWNER_DATABASE_URL" db/migrations
+		uv run yoyo apply --batch --database "$$OWNER_DATABASE_URL" db/migrations && \
+		uv run python -m jobs.migrate_grain --ensure-swapped
 
 run: ## Start the web window (sources .env)
 	@set -a && . ./.env && set +a && \

@@ -21,7 +21,7 @@ from db.readonly import readonly_connection
 from db.session import transaction
 from domain.enums import ContactStage
 from domain.errors import ValidationError
-from domain.types import AudiencePreview, SampleContact, VariantProof
+from domain.types import AudiencePreview, ResolvedAudience, SampleContact, VariantProof
 from seams.print_api import PrintApi
 
 # Grammar of the audience rule. Unknown keys are rejected, not ignored.
@@ -37,6 +37,11 @@ _AUDIENCE_KEYS = {
 }
 # A contact who received a piece but has not responded sits in one of these stages.
 _NON_RESPONSE_STAGES = ["prospect", "in_sequence"]
+# One table per adapter (FR-1). Readers union over them; identity is per-source.
+_INTAKE_TABLES = ("intake_cslb_ca", "intake_fbn_ca")
+# The one verdict that excludes (§5's verified vendor facts): the deliverable_*_unit
+# variants are deliverable-family and stay mailable.
+_UNDELIVERABLE = "undeliverable"
 # Placeholder per-piece cost until the print seam supplies a real estimate (Phase 3).
 _ESTIMATED_PIECE_COST_CENTS = 73
 
@@ -68,8 +73,23 @@ def _audience_where(rule: dict[str, Any]) -> tuple[sql.Composed, list[Any]]:
         clauses.append(sql.SQL("c.segment = any(%s)"))
         params.append(list(rule["segment"]))
     if "trade" in rule:
-        clauses.append(sql.SQL("c.trade = any(%s)"))
-        params.append(list(rule["trade"]))
+        # Trade lives on the intake rows now, as an ARRAY: a C20|C36 licence is both an
+        # hvac and a plumber business, so it must match either audience — which a
+        # single-valued contacts.trade could not express. Unioned per intake table
+        # because identity is per-source and a contact may have rows in more than one.
+        clauses.append(
+            sql.SQL("({})").format(
+                sql.SQL(" or ").join(
+                    sql.SQL(
+                        "exists (select 1 from {t} i "
+                        "where i.contact_id = c.id and i.trades && %s)"
+                    ).format(t=sql.Identifier(table))
+                    for table in _INTAKE_TABLES
+                )
+            )
+        )
+        for _ in _INTAKE_TABLES:
+            params.append(list(rule["trade"]))
     if "source" in rule:
         clauses.append(sql.SQL("c.source = any(%s)"))
         params.append(list(rule["source"]))
@@ -129,11 +149,37 @@ def _creative_checksums(cur, variant_split: dict[str, Any]) -> dict[str, str]:
     }
 
 
-def resolve_audience(cur, rule: dict[str, Any]) -> list[UUID]:
-    """Resolve the rule to a deterministic, ordered list of contact ids. Shared by
-    preview and execution so the two can never diverge over unchanged state. A `limit`
-    takes a deterministic pseudo-random sample (hash order, not insertion order), so
-    a capped wave is an unbiased slice AND stable between preview and drop."""
+def _primary_rows(cur, ids: list[UUID]) -> dict[UUID, tuple[str | None, str | None]]:
+    """Each contact's PRIMARY intake row's (deliverability, delivery_point) — the address
+    actually mailed. Non-primary rows never exclude and never dedupe anything: they are
+    other licence records for the same business, not other mailings."""
+    if not ids:
+        return {}
+    query = sql.SQL(" union all ").join(
+        sql.SQL(
+            "select contact_id, deliverability, delivery_point from {t} "
+            "where is_primary and contact_id = any(%s)"
+        ).format(t=sql.Identifier(table))
+        for table in _INTAKE_TABLES
+    )
+    cur.execute(query, [ids for _ in _INTAKE_TABLES])
+    return {cid: (verdict, dp) for cid, verdict, dp in cur.fetchall()}
+
+
+def resolve_audience(cur, rule: dict[str, Any]) -> ResolvedAudience:
+    """Resolve the rule to a deterministic, ordered list of contact ids, then apply the
+    two address trims. Shared by preview, approval and execution so the three can never
+    diverge over unchanged state. A `limit` takes a deterministic pseudo-random sample
+    (hash order, not insertion order), so a capped wave is an unbiased slice AND stable
+    between preview and drop.
+
+    **Exclusion runs BEFORE dedupe, and the order is load-bearing** (§6): snapshot
+    semantics let two primary rows verified at different times share a delivery point
+    with different verdicts, so excluding first is what stops an undeliverable contact
+    from winning the keeper pick and silently taking a deliverable duplicate down with
+    it. Deliverable mail is never lost to an undeliverable twin.
+
+    Both trims are counted and returned, never silently applied."""
     where, params = _audience_where(rule)
     if "limit" in rule:
         cur.execute(
@@ -147,12 +193,47 @@ def resolve_audience(cur, rule: dict[str, Any]) -> list[UUID]:
             sql.SQL("select c.id from contacts c where {where} order by c.id").format(where=where),
             params,
         )
-    audience = [r[0] for r in cur.fetchall()]
+    candidates = [r[0] for r in cur.fetchall()]
+    primary = _primary_rows(cur, candidates)
+
+    # 1. Undeliverable exclusion. An unverified row has no verdict yet, which is not the
+    #    same fact as "undeliverable" — it is not excluded. Neither is a no-delivery-point
+    #    verdict: that contact stays mailable at its raw picked address.
+    kept = [cid for cid in candidates if (primary.get(cid, (None, None))[0]) != _UNDELIVERABLE]
+    excluded_undeliverable = len(candidates) - len(kept)
+
+    # 2. Delivery-point dedupe over what survived. A contact whose primary row is
+    #    unverified or carries no delivery point does not dedupe — there is no homegrown
+    #    normalization fallback, because a wrong merge here silently drops real mail.
+    cur.execute(
+        "select id from contacts where id = any(%s) and phone_e164 is not null", (kept,)
+    )
+    has_phone = {r[0] for r in cur.fetchall()} if kept else set()
+    by_point: dict[str, list[UUID]] = {}
+    for cid in kept:
+        point = primary.get(cid, (None, None))[1]
+        if point:
+            by_point.setdefault(point, []).append(cid)
+    dropped: set[UUID] = set()
+    for sharing in by_point.values():
+        if len(sharing) < 2:
+            continue
+        # Keeper, deterministic: a phone-bearing contact first, then the lowest id.
+        keeper = min(sharing, key=lambda cid: (cid not in has_phone, str(cid)))
+        dropped.update(cid for cid in sharing if cid != keeper)
+    audience = [cid for cid in kept if cid not in dropped]
+
     # Seeds ride every wave (FR-4), independent of the rule and of any `limit`: the
-    # limit caps the purchased list, not the founder's own sample pieces.
+    # limit caps the purchased list, not the founder's own sample pieces. They are exempt
+    # from both trims too — they carry no intake rows, and a founder sample is not
+    # competing for a mailbox with the list.
     cur.execute("select id from contacts where is_seed order by id")
     audience.extend(r[0] for r in cur.fetchall())
-    return audience
+    return ResolvedAudience(
+        ids=audience,
+        excluded_undeliverable=excluded_undeliverable,
+        deduped_delivery_point=len(dropped),
+    )
 
 
 def create_variant(name: str, hypothesis: str, creative: dict[str, Any]) -> UUID:
@@ -296,7 +377,8 @@ def preview_audience(wave_id: UUID) -> AudiencePreview:
             audience_rule, variant_split = row
             # Resolve through the SAME path approval and execution use — never a
             # parallel query, or preview could diverge from what fires (e.g. `limit`).
-            audience = resolve_audience(cur, audience_rule)
+            resolved = resolve_audience(cur, audience_rule)
+            audience = resolved.ids
             checksums = _creative_checksums(cur, variant_split)
             rows = []
             if audience:
@@ -338,6 +420,8 @@ def preview_audience(wave_id: UUID) -> AudiencePreview:
         estimated_cost_cents=len(rows) * _ESTIMATED_PIECE_COST_CENTS,
         sample=sample,
         state_hash=_state_hash([str(r[0]) for r in rows], variant_split, checksums),
+        excluded_undeliverable=resolved.excluded_undeliverable,
+        deduped_delivery_point=resolved.deduped_delivery_point,
     )
 
 
@@ -375,7 +459,7 @@ def approve_wave(wave_id: UUID, approved_by: str, state_hash: str | None = None)
             if scheduled_for is None or scheduled_for <= datetime.now(UTC).date():
                 raise ValidationError("not_future", "scheduled_for must be a future date")
 
-            audience = resolve_audience(cur, audience_rule)
+            audience = resolve_audience(cur, audience_rule).ids
             if not audience:
                 raise ValidationError("empty_audience", "audience resolves to zero contacts")
 

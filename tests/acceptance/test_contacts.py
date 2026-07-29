@@ -13,6 +13,7 @@ from domain.errors import ValidationError
 from service.contacts import load_list, record_outcome, set_next_action, suppress
 from service.execution import recompute_state
 from service.ingestion import ingest_event
+from tests.factories import new_contact
 
 FIELDS = [
     "list_key", "business_name", "trade", "phone", "addr_state",
@@ -32,7 +33,7 @@ def _write_csv(path, rows) -> str:
 def _seed_contact(conn) -> UUID:
     contact_id = uuid4()
     with conn.cursor() as cur:
-        cur.execute("insert into contacts (id, trade) values (%s, 'plumber')", (contact_id,))
+        new_contact(cur, id=contact_id)
     conn.commit()
     return contact_id
 
@@ -63,7 +64,10 @@ def test_load_list_counts_normalizes_and_segments(clean_db, tmp_path, readonly_u
 
     with psycopg.connect(readonly_url) as conn:
         with conn.cursor() as cur:
-            cur.execute("select phone_e164, segment from contacts where list_key = 'cslb-L1'")
+            cur.execute(
+                "select c.phone_e164, c.segment from contacts c "
+                "join intake_cslb_ca i on i.contact_id = c.id where i.list_key = 'cslb-L1'"
+            )
             row = cur.fetchone()
             assert row is not None
             phone, segment = row
@@ -84,14 +88,16 @@ def test_load_list_trade_less_row_with_segment_is_valid(clean_db, tmp_path, read
     with psycopg.connect(readonly_url) as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "select trade, segment, source from contacts where list_key = 'fbn-ca-2026000001'"
+                "select i.trade, c.segment, c.source from contacts c "
+                "join intake_fbn_ca i on i.contact_id = c.id "
+                "where i.list_key = 'fbn-ca-2026000001'"
             )
             assert cur.fetchone() == (None, "fbn-ca-2026", "fbn-ca-2026")
 
 
 def test_load_list_dedupes_against_existing_rows(clean_db, tmp_path, owner_conn):
     with owner_conn.cursor() as cur:
-        cur.execute("insert into contacts (list_key, trade) values ('cslb-L9', 'plumber')")
+        new_contact(cur, list_key="cslb-L9")
     owner_conn.commit()
     path = _write_csv(tmp_path / "l.csv", [{"list_key": "cslb-L9", "trade": "plumber"}])
     report = load_list(path)
@@ -131,7 +137,7 @@ def test_opt_out_halts_mail_immediately_without_a_recompute(clean_db, owner_conn
     suppress(contact_id, "opt_out")
     # No recompute has run — the audience resolver must already exclude them.
     with owner_conn.cursor() as cur:
-        remaining = resolve_audience(cur, {"trade": ["plumber"]})
+        remaining = resolve_audience(cur, {"trade": ["plumber"]}).ids
     assert contact_id not in remaining
 
     with psycopg.connect(readonly_url) as conn:

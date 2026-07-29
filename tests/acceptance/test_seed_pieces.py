@@ -14,6 +14,7 @@ from seams.fakes import FakePrintApi
 from service.execution import execute_wave
 from service.queries import get_pipeline, get_wave_dashboard
 from service.waves import approve_wave, create_variant, draft_wave, preview_audience
+from tests.factories import new_contact
 
 
 def _future():
@@ -24,10 +25,7 @@ def _seed_prospects(conn, n) -> list[UUID]:
     ids = []
     with conn.cursor() as cur:
         for _ in range(n):
-            cur.execute("insert into contacts (trade) values ('plumber') returning id")
-            row = cur.fetchone()
-            assert row is not None
-            ids.append(row[0])
+            ids.append(new_contact(cur))
     conn.commit()
     return ids
 
@@ -36,11 +34,19 @@ def _make_seed_contact(conn, name, stage="prospect") -> UUID:
     cid = uuid4()
     key = "seed-" + name.lower().replace(" ", "-")
     with conn.cursor() as cur:
-        cur.execute(
-            "insert into contacts (id, list_key, business_name, is_seed, segment, "
-            "stage_snapshot, addr_line1, addr_city, addr_state, addr_zip) values "
-            "(%s, %s, %s, true, 'seed', %s, '200 N Spring St', 'Los Angeles', 'CA', '90012')",
-            (cid, key, name, stage),
+        new_contact(
+            cur,
+            intake=False,  # seeds carry no intake rows (FR-4)
+            id=cid,
+            seed_key=key,
+            business_name=name,
+            is_seed=True,
+            segment="seed",
+            stage_snapshot=stage,
+            addr_line1="200 N Spring St",
+            addr_city="Los Angeles",
+            addr_state="CA",
+            addr_zip="90012",
         )
     conn.commit()
     return cid

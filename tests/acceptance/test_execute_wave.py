@@ -12,6 +12,7 @@ from domain.errors import ValidationError
 from seams.fakes import FakePrintApi
 from service.execution import execute_wave
 from service.waves import approve_wave, create_variant, draft_wave
+from tests.factories import new_contact
 
 
 def _future():
@@ -22,10 +23,7 @@ def _seed_prospects(conn, n) -> list[UUID]:
     ids = []
     with conn.cursor() as cur:
         for _ in range(n):
-            cur.execute("insert into contacts (trade) values ('plumber') returning id")
-            row = cur.fetchone()
-            assert row is not None
-            ids.append(row[0])
+            ids.append(new_contact(cur))
     conn.commit()
     return ids
 
@@ -135,7 +133,7 @@ def test_execute_within_tolerance_proceeds(clean_db, owner_conn):
     wave_id = _approved_wave(owner_conn, 10)
     with owner_conn.cursor() as cur:
         cur.execute("update contacts set do_not_mail = true where id in "
-                    "(select id from contacts where trade = 'plumber' order by id limit 1)")
+                    "(select id from contacts where is_seed = false order by id limit 1)")
     owner_conn.commit()  # -10%, exactly at tolerance, not beyond
 
     report = execute_wave(wave_id, FakePrintApi())

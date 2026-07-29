@@ -143,8 +143,14 @@ def test_contact_merge_map_shape(owner_conn):
     assert set(cols) == {"old_contact_id", "new_contact_id", "merged_at"}
 
 
-def test_pre_swap_columns_untouched(owner_conn):
-    """The phase's actual claim: ADDITIVE only. Nothing the old code paths read has
-    been dropped — the swap that removes these is Phase 2's boundary, not this one."""
+def test_swap_dropped_the_pre_swap_columns(owner_conn):
+    """Phase 2 crossed the boundary this test used to pin the near side of.
+
+    In Phase 1 it asserted the opposite — that `list_key`/`trade`/`license_class` were
+    still present — because that phase's claim was "additive only, the swap is Phase 2's
+    boundary, not this one". Phase 2 IS that boundary, so the assertion inverts by
+    design rather than by loosening: the columns are gone, `migrate_grain`'s in-script
+    swap having dropped them, and every reader now goes through the intake rows."""
     cols = set(_columns(owner_conn, "contacts"))
-    assert {"list_key", "trade", "license_class"} <= cols
+    assert not ({"list_key", "trade", "license_class"} & cols)
+    assert "seed_key" in cols

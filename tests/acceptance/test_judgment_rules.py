@@ -18,6 +18,7 @@ from judgment.rules.orphan_events import RULE as orphan_events
 from judgment.rules.quiet_reengage import RULE as quiet_reengage
 from judgment.rules.returned_mail import RULE as returned_mail
 from judgment.rules.wave_anomaly import RULE as wave_anomaly
+from tests.factories import new_contact
 
 AS_OF = date(2026, 7, 1)
 
@@ -36,10 +37,7 @@ def _evaluate(readonly_url, rule, as_of=AS_OF, params=DEFAULT_PARAMS):
 def _contact(conn, stage="prospect", owner="young") -> UUID:
     contact_id = uuid4()
     with conn.cursor() as cur:
-        cur.execute(
-            "insert into contacts (id, trade, stage_snapshot, owner) values (%s, 'plumber', %s, %s)",
-            (contact_id, stage, owner),
-        )
+        new_contact(cur, id=contact_id, stage_snapshot=stage, owner=owner)
     conn.commit()
     return contact_id
 

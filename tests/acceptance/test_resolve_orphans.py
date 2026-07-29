@@ -9,6 +9,7 @@ import psycopg
 from psycopg.types.json import Json
 
 from service.ingestion import ingest_event, resolve_orphans
+from tests.factories import new_contact
 
 AT = datetime(2026, 1, 5, 12, tzinfo=UTC)
 
@@ -16,10 +17,7 @@ AT = datetime(2026, 1, 5, 12, tzinfo=UTC)
 def _seed_contact(conn, phone: str | None = None) -> UUID:
     contact_id = uuid4()
     with conn.cursor() as cur:
-        cur.execute(
-            "insert into contacts (id, trade, phone_e164) values (%s, 'plumber', %s)",
-            (contact_id, phone),
-        )
+        new_contact(cur, id=contact_id, phone_e164=phone)
     conn.commit()
     return contact_id
 
