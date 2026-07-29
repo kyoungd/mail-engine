@@ -13,6 +13,9 @@ it says that too.
 logic with no writer). They are the same failure shape at opposite ends of the system — a
 complete pipeline missing its last inch, with tests that supply the missing piece themselves.
 
+**Time-sensitive: TD-11** — it prices the Lob AV purchase that Phase 4/5 depends on, and the
+recorded estimate may be ~60% low. Cheap to settle (one look at the checkout screen).
+
 ---
 
 ## TD-1 — Phone response has no transport
@@ -218,3 +221,45 @@ The real live Lob key had been hardcoded in `test_environment_guard.py` in both 
 uncommitted and never pushed — GitHub push protection blocked it. Scrubbed in git and removed
 from prod by the 2026-07-18 reconciliation. Rotating the live key remains sensible
 defense-in-depth; it belongs only in `.env`.
+
+---
+
+## TD-11 — The AV backfill estimate may omit the plan base fee
+
+**Status:** open, blocks nothing today, but it prices a decision that is coming. Opened
+2026-07-29 while sanity-checking the per-lookup rate quoted in `verify_addresses` work.
+
+The design's §5 backfill math is `$450 + 52k × $0.009 ≈ **$920** one-time` for ~102k
+addresses — one Growth month, then drop the plan. **The per-lookup rates in §5 are
+correct**: re-checked against lob.com/pricing on 2026-07-29 and every tier matched the
+Phase 0 record (2026-07-27) to the cent — Developer `$0.05/additional` with no base,
+Startup `1,000 for $25/mo` then `$0.025`, Growth `50,000 for $450/mo` then `$0.009`.
+
+What §5 does **not** account for is that the same page advertises a plan **base** price
+alongside those figures: Startup *"Starting at $260/month"*, Growth *"Starting at
+$550/month"*. The page does not say whether the `$450/mo` address-verification line is
+**inclusive of** that base or an **add-on to** it. On the additive reading the backfill is
+`$550 + $450 + $468 ≈ **$1,468**` — roughly 60% over the recorded figure.
+
+**Two things to settle at the checkout screen, before paying:**
+
+1. Is the `$450/mo` AV allowance inclusive of the Growth base, or additional to it? That is
+   the ~$920-vs-~$1,468 question.
+2. Does buying AV require sitting on Growth at all? `decisions.md` (2026-07-11) keeps the
+   **print** plan on Developer, and it is not obvious you can hold two tiers at once. If AV
+   forces the whole account onto Growth, the print side inherits that plan for the month.
+
+**Why this is here and not a design amendment.** §5 is operator-approved and ground rule 1
+makes it decided; a possibly-understated cost is an escalation, not a patch. §5 already
+names this exact residual — *"confirm in the dashboard at purchase (plan names/rates can
+drift)"* — and the interesting part is which half drifted: the **rates did not**, the
+**plan structure** is what needs a human at checkout. Public pricing pages cannot resolve
+it; an authenticated dashboard can.
+
+**Cheap mitigation already available.** The rate that matters for a *probe* is Developer's
+`$0.05` with no base fee, so a bounded `verify_addresses --limit N` costs `N × $0.05` and
+nothing else — ~$2.50 for 50 real addresses. That buys the real deliverable/undeliverable
+mix for the CSLB list before committing to any plan, and is the sane first spend.
+
+**Fallback if the terms moved materially** (unchanged from §5): scope the backfill to
+mailed audiences only. The schema does not change either way.

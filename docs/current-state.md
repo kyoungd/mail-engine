@@ -167,7 +167,11 @@ Still open before it: the **Lob AV plan purchase** (~$920 for the ~102k backfill
 - **Q6 counsel hour** and **Q10** close-visibility — queued behind the grain work.
 - **Live Lob key rotation (TD-9)** — still advised, still pending.
 - **Lob AV plan purchase** — needed before Phase 4's live verification and the Phase 5
-  backfill; dashboard-confirm prices then (~$920 one-time for the ~102k backfill).
+  backfill. The recorded ~$920 may be ~60% low: the per-lookup rates re-checked correct on
+  2026-07-29, but the plan BASE fee (Growth "starting at $550/month") is not in that math
+  and the page doesn't say whether the $450 AV allowance is inclusive of it. **TD-11** has
+  the two questions to settle at checkout. A bounded `--limit N` probe costs `N × $0.05`
+  with no base fee and needs no plan at all.
 - **`partner-lead-assignment.md` rev 6 + its impl plan are APPROVED** (`21ca9c5`), still
   sequenced after this migration; revision 7 (twin-row stratum deletion) follows it, and
   migrations `0009`/`0010` follow `0008`.
