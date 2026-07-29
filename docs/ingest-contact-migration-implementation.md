@@ -200,6 +200,34 @@ the largest phase; its coherence is the point. If it must split across
 sessions, split WITHIN the phase (verbs first, audience/execution second)
 without wiring the swap or claiming the boundary until all of it is green.*
 
+**⚠️ There is no green intermediate. Plan the sitting accordingly** (found while
+starting the phase, 2026-07-29). The split above yields **red WIP commits, not
+verified checkpoints**, because the dependency is circular:
+
+- the **phone-uniqueness test needs the swap wired** — the partial unique index on
+  `contacts.phone_e164` is created by `migrate_grain`'s in-script DDL, not by
+  migration `0008` (ground rule 4: "wiring it later makes Phase 2's phone-uniqueness
+  test unwritable");
+- the **swap cannot be wired until `execution.py` is converted** — same rule: the old
+  `execute_wave`'s `on conflict (contact_id, wave_id)` "errors outright on a swapped
+  schema".
+
+No ordering puts a green suite in the middle. That is the boundary being real rather
+than bureaucratic — but it means the usual per-checkpoint commit does not apply here,
+and the phase wants one sitting with enough room to finish. Do not start it expecting
+to stop halfway safely.
+
+**⚠️ Wiring the swap wipes and shrinks the dev DB — expected, not a fault.** The
+re-run guard will halt on the populated `mailengine_dev` remnant ("pre-swap with data
+→ loud halt"), which is the guard working. Dev remedy is ground rule 6's:
+drop/recreate `mailengine_dev` → `make migrate` (empty pre-swap → swap auto-applies) →
+re-ingest through the **new** `load_list`. That re-ingest is also the first real
+exercise of the resolve-then-insert path, so it is worth doing attentively rather than
+mechanically. Expect **≈100,444 contacts, not 102,431** — the phone merge collapses
+3,772 rows into ~1,785 survivors (102,431 − 1,987). Treat that as a checkable
+expectation, not a target: the §8 report is the authority, and a materially different
+number means the pick rule is not behaving as designed.
+
 **Frozen tests first** (design §10 tests 1–6, 8, 10, plus the verb contracts
 and resolution rules — e.g. FBN per-filing — the design pins outside §10's
 numbering):
