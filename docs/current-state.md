@@ -1,10 +1,11 @@
-# Current state — 2026-07-29: grain Batches A, B and C SHIPPED; Phase 4 (🔴 prod merge) is next
+# Current state — 2026-07-29: grain Batches A, B and C SHIPPED; Phase 4 (🔴 production release + data migration) is next
 
 Batches A, B and C are committed and green — **all three coding batches of the grain
 plan are done**. The swap boundary is crossed (every fresh environment is post-swap,
 `contacts` is business-grain and phone-unique), and `verify_addresses` exists behind the
-seam fixed in Batch A. What remains is **Phase 4: the 🔴 prod merge**, which is an
-operator ceremony rather than a coding batch — gated on reading the dry-run report.
+seam fixed in Batch A. What remains is **Phase 4: the 🔴 production release + data
+migration**, an operator ceremony rather than a coding batch — gated on reading the dry-run
+report. (It was called "the prod merge" until 2026-07-29; nothing is merged — see below.)
 
 Batch A is pushed; **Batches B and C are committed but not pushed** at the time of
 writing — check `git status -sb` before assuming.
@@ -121,12 +122,26 @@ the SAME delivery point, collapsing the entire list to one contact under §6's d
 Bounded `--limit` runs are fine and reversible; an unbounded one is not. The first real
 sweep belongs to a live key.
 
-## Next: Phase 4 — the 🔴 prod merge
+## Next: Phase 4 — the 🔴 production release + data migration
 
-Not a coding batch: an operator ceremony. Pull the release → apply `0008` →
-`migrate_grain` dry run → **read the report** → `--execute`. Stop-the-world; no ingests
-and no wave verbs between `0008` and `--execute`. Gated on the operator reading the
-dry-run report, per design §7 and §10 test 9.
+Not a coding batch: an operator ceremony. **Nothing is merged** — mail-engine has one
+branch (`main`) and two checkouts, so "prod merge" (the name until 2026-07-29) described a
+git operation this repo does not perform.
+
+**How production works here:** `marketing/mail-engine/` on `mailengine_dev` is where work
+happens; `marketing/mail-engine-production/` on `mailengine_prod` is production. Same
+Postgres instance, same branch, different checkout. Shipping = update the production
+checkout, then run migrations against its database.
+
+**The five steps** (design §7): release the code → apply `0008` → `migrate_grain` dry run →
+**operator reads the report** (the only 🔴 gate) → `migrate_grain --execute`.
+Stop-the-world between `0008` and `--execute`: no ingests, no wave verbs.
+
+**Production state, measured 2026-07-29:** `contacts` **102,432** (102,431 list + 1 seed),
+`pieces` **0**, `events` **0**, pre-swap, `0008` not applied. The production checkout is
+**29 commits behind** `main` (it lacks all three grain batches). No mail has ever gone out
+of production, so the event history the guard protects is empty and the preflight's
+no-active-wave halt cannot fire. Expect **102,432 → ~100,445**.
 
 Still open before it: the **Lob AV plan purchase** (~$920 for the ~102k backfill) and the
 **live key rotation (TD-9)**, both listed below.

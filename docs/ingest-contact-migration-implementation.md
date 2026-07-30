@@ -13,7 +13,7 @@ marked. Phases 1–3 are 🟡 — the frozen acceptance tests are the approval g
 phases, plus phase-local scaffolding tests such as migration idempotence and
 seam conformance). **Since 2026-07-28 that gate is taken per BATCH, not per
 phase — ground rule 6 defines the three batches (A: Phase 1 · B: Phase 2 ·
-C: Phase 3) and how a batch runs.** Phase 4 — the prod merge itself — is 🔴 and
+C: Phase 3) and how a batch runs.** Phase 4 — the production release + data migration — is 🔴 and
 gated on the dry-run report per the design.*
 
 *Revision 2 (2026-07-27, after a fresh-context review of this plan verified
@@ -97,7 +97,7 @@ verdict-class definition, plus two wording nits.*
    | **B** | 2 | **The swap boundary** — spine verbs + audience + execution re-key + `migrate_grain` wiring, all crossing together per ground rule 4 |
    | **C** | 3 | `verify_addresses` implemented against the Protocol already fixed in A — it pins nothing new, which is why it is not its own cut |
 
-   Phase 4 is **not** a coding batch: it is the 🔴 prod merge, gated on the
+   Phase 4 is **not** a coding batch: it is the 🔴 production release + data migration, gated on the
    operator reading the dry-run report.
 
    **The gate is per batch, not per phase.** Show the frozen acceptance tests
@@ -349,7 +349,39 @@ three `deliverable_*_unit` variants. They are treated as **deliverable-family an
 therefore inherit**, consistent with §6 keeping them mailable. Pinned by
 `test_the_deliverable_unit_variants_still_inherit`.
 
-## Phase 4 — The prod merge (🔴 — dry-run report → operator reads → `--execute`)
+## Phase 4 — The production release + data migration (🔴 — dry-run report → operator reads → `--execute`)
+
+*Renamed 2026-07-29. It was "the prod merge", which is borrowed vocabulary from the
+nvermisscall repo's `young` → `production` branch model. **mail-engine has no such model**:
+one branch (`main`), two checkouts (`marketing/mail-engine/` on `mailengine_dev`,
+`marketing/mail-engine-production/` on `mailengine_prod`), and shipping means updating the
+production checkout and running migrations against its database. Nothing is merged. The
+word mattered because it made a data migration sound like a git operation, and the risk
+profile of the two is nothing alike.*
+
+**What the phase actually is, in order (design §7's pinned cutover):**
+
+1. **Release** — update the production checkout to the release commit.
+2. **Apply migration `0008`** to `mailengine_prod` (additive; nothing dropped).
+3. **`migrate_grain`** with no flags — dry run: steps 1–6 inside the transaction, full
+   report printed, then rolled back. Not a simulation; the same code path `--execute`
+   commits.
+4. **The operator reads the report.** This is the 🔴 gate, and the only one in the phase.
+5. **`migrate_grain --execute`** — commits the data merge and the in-script schema swap.
+
+Stop-the-world applies **only between steps 2 and 5**: no ingests, no wave verbs. Old code
+must not run after step 5 (it inserts `contacts.list_key`, which the swap drops); new code
+must not run before it (phone-attach against 1,785 duplicated phones would attach to an
+arbitrary row).
+
+**Measured production state, 2026-07-29** — recorded because it sets the actual risk, which
+is lower than 🔴 suggests: `contacts` **102,432** (102,431 list + 1 seed), `pieces` **0**,
+`events` **0**, `contacts.list_key` still present (pre-swap), intake tables absent (`0008`
+not applied). **No mail has ever gone out of production and no campaign has run**, so the
+append-only event history the guard exists to protect is currently empty, and the
+preflight's no-active-wave halt cannot fire because there are no waves. What is being
+migrated is a loaded contact list. Expect **102,432 → ~100,445** (the seed sits outside the
+merge; dev reached 100,444 list contacts from the same source three independent ways).
 
 **Frozen test first** (design §10 test 9, on a fixture DB). **Fixture
 mechanism, pinned:** the test builds its own scratch database — apply

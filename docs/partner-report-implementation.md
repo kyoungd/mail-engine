@@ -11,7 +11,8 @@ sequenced here).*
 ## Honest total, up front
 
 **R1 is contributed *during* revision 7** (it is a column list, not code). Everything
-else — R2 onward — starts only after **grain Phase 4** (🔴 prod merge), revision 7, and
+else — R2 onward — starts only after **grain Phase 4** (🔴 production release + data
+migration), revision 7, and
 **partner Phases 1–4** land, because the report reads tables and rides transport those
 build. (An earlier draft said "nothing in this plan starts until … revision 7 … lands",
 which contradicted R1 by construction.)
