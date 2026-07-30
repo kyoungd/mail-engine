@@ -13,8 +13,9 @@ it says that too.
 logic with no writer). They are the same failure shape at opposite ends of the system — a
 complete pipeline missing its last inch, with tests that supply the missing piece themselves.
 
-**Time-sensitive: TD-11** — it prices the Lob AV purchase that Phase 4/5 depends on, and the
-recorded estimate may be ~60% low. Cheap to settle (one look at the checkout screen).
+**TD-11 is no longer time-sensitive** (decided 2026-07-30, `decisions.md`): verification
+runs pay-as-you-go over what is about to be mailed; the full-list backfill — the thing
+TD-11 prices — is deferred indefinitely. Its checkout questions reopen only with it.
 
 ---
 
@@ -226,8 +227,11 @@ defense-in-depth; it belongs only in `.env`.
 
 ## TD-11 — The AV backfill estimate may omit the plan base fee
 
-**Status:** open, blocks nothing today, but it prices a decision that is coming. Opened
-2026-07-29 while sanity-checking the per-lookup rate quoted in `verify_addresses` work.
+**Status:** open, **demoted from time-sensitive 2026-07-30** — the AV posture is now
+pay-as-you-go verify-what-you-mail (`decisions.md` 2026-07-30), so the full-list backfill
+this item prices is deferred indefinitely; the two checkout questions below reopen with
+it. Opened 2026-07-29 while sanity-checking the per-lookup rate quoted in
+`verify_addresses` work.
 
 (The backfill is design §7 step 9 — an ordinary job run after the migration, not a
 numbered phase; the grain plan stops at Phase 4.) The design's §5 backfill math is `$450 + 52k × $0.009 ≈ **$920** one-time` for ~102k

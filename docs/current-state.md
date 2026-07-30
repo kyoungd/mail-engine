@@ -4,9 +4,11 @@ All four phases are done. Batches A–C shipped the code; **Phase 4 executed aga
 `mailengine_prod` on 2026-07-29** and committed. Production is now business-grain and
 phone-unique: **100,445 contacts** (100,444 list + 1 seed), down from 102,432.
 
-What remains of this feature is one ordinary job run, not a phase: the `verify_addresses`
-backfill (design §7 step 9), which is **gated on the live Lob key and the plan purchase —
-see TD-11**. After that, the grain work is finished and the queue moves to
+The full-list `verify_addresses` backfill (design §7 step 9) is **deferred indefinitely**
+(decided 2026-07-30, `decisions.md`): verification now runs **pay-as-you-go over what is
+about to be mailed** (Lob Developer, $0.05/lookup, no plan — ~$50 for a 1K wave), gated
+only on the live Lob key. TD-11's plan questions reopen only if a full-list pass ever
+becomes worth doing. The grain work is otherwise finished; the queue moves to
 `partner-lead-assignment.md` revision 7.
 
 ## Where we are
@@ -181,10 +183,13 @@ the nvermisscall history records losing this file once to a `reset --hard`.
 
 ## Next: the address backfill, then revision 7
 
-1. **`verify_addresses` backfill** over 102,431 intake rows (design §7 step 9) — an ordinary
-   job, **not** a phase. Blocked on the live Lob key and the AV plan decision (**TD-11**:
-   the recorded ~$920 may be ~60% low). **Do not run it with the test key** — every row
-   comes back canned `undeliverable`, which would empty every audience.
+1. **Pre-wave verification, pay-as-you-go** (decided 2026-07-30, `decisions.md`) — the
+   full-list backfill is deferred indefinitely; instead, verify the audience of each wave
+   before it drops (Lob Developer $0.05/lookup, no plan). Needs the **live Lob key** plus
+   one small piece of work: an **audience-scoped mode on `verify_addresses`** (verify the
+   contacts a wave rule resolves, not `--limit N` over arbitrary rows). **Do not run any
+   sweep with the test key** — every row comes back canned `undeliverable`, permanently
+   (verdicts are never re-asked), which would empty every audience.
 2. **Revision 7** of `partner-lead-assignment.md` — twin-row stratum deletion (the grain
    merge just made it possible), plus the four columns the partner report needs
    (`partner_code`, `last_export_at`, `sales_rep_id`, `last_report_at`), the registration
@@ -243,13 +248,12 @@ the nvermisscall history records losing this file once to a `reset --hard`.
   earnings wait on Q10. Not a performance report — the spine cannot see effort.
 - **Q6 counsel hour** — queued behind the grain work.
 - **Live Lob key rotation (TD-9)** — still advised, still pending.
-- **Lob AV plan purchase** — needed before Phase 4's live verification and the
-  post-migration backfill (design §7 step 9 — an ordinary job run, NOT a numbered phase;
-  the grain plan stops at Phase 4). The recorded ~$920 may be ~60% low: the per-lookup rates re-checked correct on
-  2026-07-29, but the plan BASE fee (Growth "starting at $550/month") is not in that math
-  and the page doesn't say whether the $450 AV allowance is inclusive of it. **TD-11** has
-  the two questions to settle at checkout. A bounded `--limit N` probe costs `N × $0.05`
-  with no base fee and needs no plan at all.
+- **Lob AV plan purchase — RESOLVED as "don't buy" (2026-07-30, `decisions.md`):**
+  pay-as-you-go verify-what-you-mail (Developer $0.05/lookup, no plan, no base fee).
+  **TD-11** demoted from time-sensitive; its checkout questions reopen only if a
+  full-list backfill ever becomes worth doing (multi-state scale). Vendor stays Lob —
+  USPS-direct is batch-unusable since 2026 (60 req/hr + licensing), Google's caching
+  terms conflict with §5 snapshot semantics, Smarty saves less than a swap costs today.
 - **`partner-lead-assignment.md` rev 6 + its impl plan are APPROVED** (`21ca9c5`), still
   sequenced after this migration; revision 7 (twin-row stratum deletion) follows it, and
   migrations `0009`/`0010` follow `0008`.

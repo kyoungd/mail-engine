@@ -688,3 +688,38 @@ than the one accepted. 🔴 credential work, tracked in
 close already reaches the spine via PostHog under a different source, so
 `(source, external_id)` will not dedupe the same close read from Medusa). Now entirely
 marketing-side.
+
+## Address verification: pay-as-you-go, verify-what-you-mail; no AV plan (decided 2026-07-30)
+
+First waves are sub-1K by intent — the operator wants confidence before scale. At that
+volume the §5 plan math is the wrong shape: Lob Developer pay-as-you-go is **$0.05/lookup
+with no plan and no base fee**, so verifying a 1K-wave audience costs ~$50 against the
+$920–$1,468 (TD-11) of a full-list Growth-month backfill.
+
+**Decision: no AV plan purchase. The 102k full-list backfill is deferred indefinitely.
+Verification runs pay-as-you-go over what is about to be mailed** — the fallback §5 itself
+named ("scope the backfill to mailed audiences only; the schema doesn't change either
+way"), promoted to the standing posture. Nothing in the schema or the §5/§6 semantics
+changes: stamps are still once-per-row forever, unverified rows are still never excluded.
+
+**Vendor stays Lob**, surveyed 2026-07-30:
+
+- **USPS-direct closed this month**: 60 requests/hour since the Jan 2026 platform change,
+  and a signed license agreement + tier fees required as of 2026-07-12. Batch-unusable.
+- **Google Address Validation** (~$0.017/lookup) is cheaper per lookup, but its
+  caching/retention terms conflict with §5's snapshot-forever semantics — the license,
+  not just the enum, is the misfit. At current volume the delta is ~$33/wave.
+- **Smarty** (reportedly ~$0.60–$4/1k) is the cheapest at scale, but a swap re-pins the
+  `deliverability` enum + `delivery_point_barcode` semantics that §5/§6 readers depend on
+  verbatim — a mapping layer plus a design amendment to save less than it costs today.
+
+**Enabling work (small, unblocked):** an audience-scoped mode on `verify_addresses` —
+verify exactly the contacts a wave rule resolves, instead of `--limit N` over arbitrary
+unverified rows. Until it exists, a bounded pre-wave sweep cannot be targeted at the wave.
+
+**Consequence for TD-11:** still open, no longer time-sensitive — its base-fee question
+only matters if a full-list backfill ever becomes worth doing as one shot.
+
+**Revisit trigger:** the list outgrowing per-wave verification (multi-state scale, or a
+full-list dedupe/exclusion pass becoming operationally necessary). That reopens both
+TD-11's checkout questions and the Smarty comparison together.
