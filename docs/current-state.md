@@ -1,14 +1,13 @@
-# Current state — 2026-07-29: grain Batches A, B and C SHIPPED; Phase 4 (🔴 production release + data migration) is next
+# Current state — 2026-07-29: **the grain migration is COMPLETE and LIVE IN PRODUCTION**
 
-Batches A, B and C are committed and green — **all three coding batches of the grain
-plan are done**. The swap boundary is crossed (every fresh environment is post-swap,
-`contacts` is business-grain and phone-unique), and `verify_addresses` exists behind the
-seam fixed in Batch A. What remains is **Phase 4: the 🔴 production release + data
-migration**, an operator ceremony rather than a coding batch — gated on reading the dry-run
-report. (It was called "the prod merge" until 2026-07-29; nothing is merged — see below.)
+All four phases are done. Batches A–C shipped the code; **Phase 4 executed against
+`mailengine_prod` on 2026-07-29** and committed. Production is now business-grain and
+phone-unique: **100,445 contacts** (100,444 list + 1 seed), down from 102,432.
 
-Batch A is pushed; **Batches B and C are committed but not pushed** at the time of
-writing — check `git status -sb` before assuming.
+What remains of this feature is one ordinary job run, not a phase: the `verify_addresses`
+backfill (design §7 step 9), which is **gated on the live Lob key and the plan purchase —
+see TD-11**. After that, the grain work is finished and the queue moves to
+`partner-lead-assignment.md` revision 7.
 
 ## Where we are
 
@@ -122,29 +121,75 @@ the SAME delivery point, collapsing the entire list to one contact under §6's d
 Bounded `--limit` runs are fine and reversible; an unbounded one is not. The first real
 sweep belongs to a live key.
 
-## Next: Phase 4 — the 🔴 production release + data migration
+### Phase 4 — production release + data migration, DONE 2026-07-29
 
-Not a coding batch: an operator ceremony. **Nothing is merged** — mail-engine has one
-branch (`main`) and two checkouts, so "prod merge" (the name until 2026-07-29) described a
-git operation this repo does not perform.
+Not a coding batch: an operator ceremony, executed in this order. **Nothing was merged** —
+mail-engine has one branch (`main`) and two checkouts, so "prod merge" (the name until
+2026-07-29) described a git operation this repo does not perform.
 
 **How production works here:** `marketing/mail-engine/` on `mailengine_dev` is where work
 happens; `marketing/mail-engine-production/` on `mailengine_prod` is production. Same
-Postgres instance, same branch, different checkout. Shipping = update the production
-checkout, then run migrations against its database.
+Postgres instance, same branch, different checkout.
 
-**The five steps** (design §7): release the code → apply `0008` → `migrate_grain` dry run →
-**operator reads the report** (the only 🔴 gate) → `migrate_grain --execute`.
-Stop-the-world between `0008` and `--execute`: no ingests, no wave verbs.
+**What was run:**
 
-**Production state, measured 2026-07-29:** `contacts` **102,432** (102,431 list + 1 seed),
-`pieces` **0**, `events` **0**, pre-swap, `0008` not applied. The production checkout is
-**29 commits behind** `main` (it lacks all three grain batches). No mail has ever gone out
-of production, so the event history the guard protects is empty and the preflight's
-no-active-wave halt cannot fire. Expect **102,432 → ~100,445**.
+1. `pg_dump` of `mailengine_prod` → 27 MB (kept in the session scratchpad; **not durable —
+   re-take one before any future migration**).
+2. Migration `0008` applied. Additive; contacts unchanged at 102,432.
+3. **Dry run** — full report over all rows, then rolled back. Verified untouched afterwards.
+4. Operator read the report and approved.
+5. Release: production checkout `c99033d` → `3b989c3` (29 commits, all three grain batches).
+   `.env` is untracked and survived.
+6. `migrate_grain --execute` — committed.
+7. `recompute_state()` — 100,445 contacts updated (step 7).
 
-Still open before it: the **Lob AV plan purchase** (~$920 for the ~102k backfill) and the
-**live key rotation (TD-9)**, both listed below.
+**Result, verified against the database:**
+
+```
+contacts        102,432 -> 100,445   (-1,987)
+intake rows               102,431    (84,072 CSLB + 18,359 FBN)
+merge audit                 1,987    one row per merged loser
+pieces / events                 0    unchanged (production has never mailed)
+swap            list_key/trade/license_class dropped;
+                contacts_phone_unique created;
+                old pieces (contact_id, wave_id) constraint gone
+integrity       0 duplicate phones · 0 orphaned intake FKs ·
+                exactly one primary per NON-SEED contact · seed intact
+                (seed_key set, no intake row — correct) ·
+                stage_computed_at stamped on all 100,445
+```
+
+Execute figures matched the dry run exactly. **1,785 groups / 3,772 rows is now the fifth
+independent arrival at the same numbers** — design prediction from the CSV, dev dry run,
+dev fresh ingest through the new `load_list`, prod dry run, prod execute.
+
+⚠️ **The seed legitimately has zero primary intake rows.** A naive "exactly one primary per
+contact" check returns 1 violation in production and 0 in dev — the difference is that dev
+has no seed row. The invariant applies to list contacts; seeds carry `seed_key` and no
+intake row by design (§7 step 2). Exclude `is_seed` before believing that check.
+
+**Gap found during the ceremony:** step 7 has **no runner**. `migrate_grain` prints
+*"Next: recompute_state()"* and nothing performs it — no CLI, no route. It was run via a
+one-off script. A required step should not depend on an operator reading a message; a small
+`jobs/recompute_cli.py` would close it.
+
+**The production checkout's `docs/current-state.md`** was locally rewritten to describe
+production and never committed. It was preserved three ways before the release (git stash
+in that checkout, `marketing/mail-engine-production-current-state.md`, and a scratchpad
+copy); the checkout now carries the dev version. Restore or re-author it there as needed —
+the nvermisscall history records losing this file once to a `reset --hard`.
+
+## Next: the address backfill, then revision 7
+
+1. **`verify_addresses` backfill** over 102,431 intake rows (design §7 step 9) — an ordinary
+   job, **not** a phase. Blocked on the live Lob key and the AV plan decision (**TD-11**:
+   the recorded ~$920 may be ~60% low). **Do not run it with the test key** — every row
+   comes back canned `undeliverable`, which would empty every audience.
+2. **Revision 7** of `partner-lead-assignment.md` — twin-row stratum deletion (the grain
+   merge just made it possible), plus the four columns the partner report needs
+   (`partner_code`, `last_export_at`, `sales_rep_id`, `last_report_at`), the registration
+   runbook, and the close feed's phase home.
+3. Then partner Phases 1–4, with the partner report (RA/RB) riding along.
 
 ## Environment (local dev)
 
@@ -177,14 +222,15 @@ Still open before it: the **Lob AV plan purchase** (~$920 for the ~102k backfill
 
 ## Open / undecided (carryover)
 
-- **Activation table has NO writer** (TD-2) — unchanged; the grain preflight asserts it
-  stays untouched, and halts if any activation row belongs to a merging contact.
+- **Activation table has NO writer** (TD-2) — unchanged. The grain preflight checked it and
+  **passed**: production had 0 activation rows, so none belonged to a merging contact.
 - **Q10 close-visibility is the main-app ↔ marketing interface**, and it is the one
   direction that still needs building. **A contract now exists:**
-  `nmc-close-feed-contract.md` (proposed 2026-07-29) — a pull feed the main app exposes
-  and mail-engine consumes as a `ResponseFeed`, so neither side waits on the other's
-  blocker. One binding open question remains inside it (§7, double-counting against the
-  PostHog inflow). Partner identity does NOT: partners are created
+  `nmc-close-feed-contract.md` (**RATIFIED** 2026-07-29) — **mail-engine reads the Medusa
+  DB read-only** and consumes closes as a `ResponseFeed`; the main app writes no code, owing
+  only a `select`-only role (**which does not exist yet**) and a promise not to rename the
+  columns. Accepted cost is **TD-12**. One binding open question remains inside it (§7,
+  double-counting against the PostHog inflow). Partner identity does NOT: partners are created
   manually in both systems (decided 2026-07-29, `decisions.md`), so no provisioning or
   sync is needed. But the spine still cannot see a partner-driven close, and until it can,
   a closed customer expires back into the assignable pool and partner #2 cold-calls a
