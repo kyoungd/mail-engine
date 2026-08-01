@@ -264,7 +264,10 @@ the nvermisscall history records losing this file once to a `reset --hard`.
   `migrate_grain --ensure-swapped`. `make run` → **http://127.0.0.1:8001**; no dotenv
   loader — make targets source `.env`. Running a module directly needs
   `set -a; . ./.env; set +a` (and `PYTHONPATH=.`).
-- ⚠️ **`make test` AND `make e2e` TRUNCATE `mailengine_dev`.** Re-ingest (~50s):
+- ⚠️ **`make test` AND `make e2e` TRUNCATE `mailengine_dev`.** But `clean_db`
+  truncates at test START, so the LAST test's fixtures survive the suite — **truncate
+  again before re-ingesting** (2026-08-01: a straight re-ingest landed at 100,448,
+  four leftover fixture contacts over the canonical 100,444). Re-ingest (~50s):
   `load_list('../ingestion-app-1/cslb-all.csv', source='cslb-ca')` then
   `load_list('../ingestion-app-1/fbn-ca-2026.csv', source='fbn-ca-2026')` → **100,444
   contacts**, not 102,431. Run the suite FIRST and re-ingest after, not the reverse.
