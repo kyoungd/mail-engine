@@ -1,16 +1,22 @@
 # Feature Overview — Partner Lead Assignment
 
-*Mail Engine. Revision 6, 2026-07-26 (fourth independent review incorporated).
+*Mail Engine. Revision 7, 2026-08-01 (twin-row stratum deletion — the fold revision 6's
+own header scheduled, executed under the project plan
+`../../../docs/active/to-do-partner-report-project-implementation.md` A1-0).
 Status: **APPROVED** — operator approval given at the end of the revision-6 session,
 recorded 2026-07-28 (it was not written down at the time). Per revision 3's note,
-decisions taken by review recommendation are ratified with this approval.*
+decisions taken by review recommendation are ratified with this approval. Provenance
+of revision 7's changes, stated explicitly: the twin-row DELETIONS were pre-scheduled
+by the approved revision 6's own header; the R1 column/`feed_watermarks` ADDITIONS to
+migration `0009` are directed by the operator-reviewed project plan (its A0–A1
+sequence) — neither rides in silently under the 2026-07-28 stamp.*
 
-*⚠️ Approved ≠ build now. The build stays sequenced **after** `ingest-contact-migration.md`:
-the grain merge (3,772 rows → ~1,785 phone-unique survivors) deletes the twin-row problem
-revisions 4–6 engineered around, and **revision 7 (twin-row stratum deletion)** folds that
-out once the migration lands. Migration numbering already reflects it — grain takes `0008`,
-this feature takes `0009`/`0010`. What approval unlocks today is Phase 0, which is entirely
-non-code and carries real lead time (§10, and the implementation plan's Phase 0).*
+*⚠️ The grain prerequisite has LANDED. `ingest-contact-migration.md`'s merge is applied
+(dev-verified 2026-08-01: migration `0008` + `migrate_grain.py`; **100,444** contacts,
+**zero** shared phones, and the storage guarantee is `contacts_phone_unique` — a partial
+unique index on `phone_e164` where phone is non-null and `is_seed = false`). Migration
+numbering holds: grain took `0008`, this feature takes `0009`/`0010`. The build is
+unblocked; Phase 0's non-code lead times (SAN, counsel) still apply.*
 *Companions: `PRD.md` (FR-6 attribution, FR-7 derived state, FR-8 suppression),
 `../../../docs/partnership-program.md` (Steps 11–14, Ground Rules),
 `direct-mail-ai-data.md` (contact table), `decisions.md`, `technical-debt.md`,
@@ -87,6 +93,30 @@ the `partners` CLI couldn't create partner #2 (upsert). Plus FR-11 joins the PRD
 amendment list and the explicit-count override is pinned to bypass cap as well as
 floor — expiry, not the cap, carries the anti-hoarding load (§5, S-3).*
 
+*Revision 7 (2026-08-01) deletes the twin-row stratum — the fold revisions 4–6
+scheduled for themselves. The grain merge made `phone_e164` unique across non-seed
+contacts (dev-verified: zero shared phones), so one row IS one phone and the machinery
+that defended against twins is **unconstructible — its fixtures cannot even be
+inserted**. Deleted: S-1's shared-phone exclusivity gate and its `shared phone held
+elsewhere` shortfall cause; the twin-row-set locking discipline (plain candidate-row
+locking remains); S-6/S-9's write fan-out to rows sharing a phone (writes land on the
+one row and the gates read it); S-8's `contact_by_phone` assigned-row tie-break (the
+lookup now returns one row or none); S-10's phone-twin won gate. What SURVIVES,
+deliberately: the **suppression tombstone** — it defends against
+CCPA-delete-then-re-ingest resurrection, which phone-uniqueness does not touch — the
+**exclusivity index on assigned rows** (one line of DDL, now belt-and-suspenders under
+the grain index), and the *rationale* that voice facts attach to the number and the
+human behind it — now satisfied by construction rather than by fan-out. One honest
+carve-out: the grain index exempts seed rows (`is_seed = false`), so a seed could in
+principle share a phone with a real row — today seeds are 0 on dev and hold no real
+phones, they are excluded from the assignable pool by their own gate, and if seeds
+ever gain real phones `contact_by_phone` needs a seed filter; recorded here so that
+author finds it. Counts refreshed throughout (102,431 → **100,444**; callable 83,975 →
+**81,988**). Also folded in per the partner-report plan (its R1): four columns on
+`partners` — `sales_rep_id`, `partner_code`, `last_report_at`, `last_export_at` — and
+the `feed_watermarks` table ride migration `0009` (§7), and the partner registration
+runbook is carried in the implementation plan's Phase 1.*
+
 ---
 
 ## 1. Problem
@@ -110,14 +140,14 @@ That stopgap fails in five specific ways once more than one partner exists:
 4. **The nudge routing it was built for is dead.** `contacts.owner` exists and
    `judgment/digest.py` routes owner-addressed nudges (`Recipient.DEAL_OWNER` rules)
    to it, but nothing writes it.
-5. **Nothing scrubs a Do Not Call registry.** 83,975 phone numbers pulled from a state
+5. **Nothing scrubs a Do Not Call registry.** 81,988 phone numbers pulled from a state
    licensing database, dialed cold by a commission-only contractor, with no scrub step
    anywhere in the design and no internal do-not-call list. §6.
 
 **The dead-writer finding (verified 2026-07-25).** Migration
 `0004.add-contact-owner.sql` added `contacts.owner text not null default 'young'`.
 `judgment/digest.py:69-71` reads it to decide which founder receives a nudge. No verb
-in `service/` sets it. Every one of the 102,431 contacts is `owner='young'` and always
+in `service/` sets it. Every one of the 100,444 contacts is `owner='young'` and always
 will be, so the partner branch of nudge routing has never executed. The test suite is
 green. **This is the same shape as the activation-writer hole** recorded in
 `decisions.md` and `technical-debt.md` TD-2: a column read by live logic, one value
@@ -186,8 +216,8 @@ texting. That fixes the throughput ceiling.
 
 Step 11's own number agrees: 25 leads/week × 26 weeks ≈ 650.
 
-A 10,000-contact / 6-month assignment is therefore **10–15× what one partner can
-touch.** Measured against the database (prod, read-only, 2026-07-25):
+A 10,000-contact / 6-month assignment is therefore **many times what one partner can
+touch — 5–8× the full-time figure, 11–17× the realistic part-timer.** Measured against the database (prod, read-only, 2026-07-25):
 
 | Source | Contacts | With phone |
 |---|---:|---:|
@@ -195,8 +225,13 @@ touch.** Measured against the database (prod, read-only, 2026-07-25):
 | `fbn-ca-2026` | 18,359 | **0** |
 | **Total** | **102,431** | **83,975** |
 
-FBN records carry no phone numbers at all, so the *callable* universe is 83,975.
-A 10,000 grant locks **11.9% of every callable contact NeverMissCall owns** behind one
+*(Pre-grain figures, kept as the measurement of record. Post-grain — the merge folded
+3,772 twin rows into 1,785 phone-unique survivors — the totals are **100,444**
+contacts / **81,988** callable, dev-verified 2026-08-01. The sizing argument is
+unchanged.)*
+
+FBN records carry no phone numbers at all, so the *callable* universe is 81,988.
+A 10,000 grant locks **~12% of every callable contact NeverMissCall owns** behind one
 unproven commission rep for half a year.
 
 That is the classic failure mode of oversized territory grants: **hoarding**. The rep
@@ -324,7 +359,8 @@ the same staleness nudge (S-9), but worth a calendar entry rather than a discove
 ### The number that decides the design
 
 Area-code distribution over the canonical CSLB list (83,975 phones, measured
-2026-07-26):
+2026-07-26 — pre-grain; the merge trimmed the universe to 81,988 without moving any
+percentage materially, and Phase 0's recorded script re-derives the set regardless):
 
 | Scope | Area codes | Contacts covered | Annual fee |
 |---|---:|---:|---:|
@@ -336,11 +372,12 @@ Area-code distribution over the canonical CSLB list (83,975 phones, measured
 
 **334 distinct area codes**, not California's ~38 — licensees list out-of-state and
 mobile numbers from everywhere. Scrubbing the whole database is a $22,626/year decision.
-Scrubbing only the subscribed area codes is a $0–$400 one, and it falls directly out
+Scrubbing only the subscribed area codes is a $0–$410 one, and it falls directly out
 of the batch model: **the subscription — not the assignment — bounds the scrub.**
 (Precision, revision 5: the scrub covers every contact in subscribed codes, assigned
 or not, because the 31-day freshness gate demands a warm assignable pool — roughly
-16–18k contacts on a 21-day cycle, ~870 checks/day, on the order of **300k
+15.8–17.7k contacts on a 21-day cycle (re-measured on dev, revision 7 — 15,825 on
+the 747 set, 17,744 on the 661 set), ~750–850 checks/day, on the order of **300k
 `contact.dnc_checked` events/year**. That dwarfs every other event type, so the
 recompute and timeline readers exclude the type — see the implementation plan.)
 
@@ -464,7 +501,18 @@ below assume, stated once so implementation does not resolve them ad hoc:
   without deleting its history), **nudge channel and address** (`channel` +
   `channel_address` — S-7's recipient → channel map is a column here, not a config
   file), base address, radius, and stated weekly hours (§5). The house account is a
-  row like any other.
+  row like any other. **`status = inactive` gates assignment (pinned revision 7,
+  review finding):** `assign_batch` errors loudly on an inactive partner — Step 12's
+  "remove lead access" means exactly that — while `reclaim` and the expiry job still
+  operate on an inactive partner's holdings (you reclaim FROM the retired, never
+  assign TO them). **Four report/feed columns ride the same migration (revision 7,
+  from the partner-report plan's R1):** `sales_rep_id bigint null` (the main-site
+  roster back-reference; null for the house row), `partner_code text null unique`
+  (the close feed's correlation key — the operator stamps it at partner creation),
+  `last_report_at timestamptz null` (the report watermark; null = heartbeat fires on
+  the first nightly), `last_export_at timestamptz null` (stamped by `export_batch`,
+  S-2's "your last export" source). **`feed_watermarks` also lands in `0009`** (per-feed
+  watermark row; the close feed's `since` bound reads it — the contract's §2/§8).
 - **Expiry lives on the batch, in exactly one place.** `assignment_batches` — S-1's
   idempotency anchor — carries `partner_id`, the client key, requested and delivered
   counts, `expires_at`, actor, and created-at. A contact points at its batch
@@ -475,7 +523,7 @@ below assume, stated once so implementation does not resolve them ad hoc:
   must reconcile the batch date with the stamped events or S-8's `owner_at` and the
   expiry job will disagree. Revision 5, stated so that verb's author finds it.)
 - **"Assigned" means the batch pointer is set.** Every contact has an owner — all
-  102,431 rows say the house account — so ownership alone cannot define assignment.
+  100,444 rows say the house account — so ownership alone cannot define assignment.
   Unassigned = owned by the house row with a null batch pointer. Assignment sets both;
   expiry, reclaim, suppression removal and won-termination clear the pointer and
   return the owner to the house row, through `set_owner` like everything else.
@@ -517,31 +565,24 @@ coffee, without opening a SQL client.*
 - Contacts with `phone_e164 is null` are never assigned (excludes all 18,359 FBN rows).
 - Contacts already assigned to anyone — including the same partner — are never
   double-assigned (the data invariant above).
-- **Assignment exclusivity is enforced per phone, not only per contact row.** The
-  contact table is not phone-unique: measured against the canonical CSLB list
-  (2026-07-26), **1,785 phone numbers are shared across 3,772 contacts** (one number
-  appears on 12 rows — multi-license contractors). A contact is therefore not
-  assignable while *any other contact sharing its `phone_e164`* holds an assignment,
-  and a single batch never selects the same phone twice — otherwise two partners in
-  overlapping radii can be handed the same human through different rows, which is §1's
-  problem #1 wearing a disguise. Shortfall cause: `shared phone held elsewhere`.
-  (Revision 3, verification pass.)
-- Contacts suppressed on the voice channel are never assigned — **tested per phone,
-  not per row** (S-6's "voice facts are phone facts"): a contact is barred if *any*
-  row sharing its `phone_e164` carries `do_not_call`.
+- **Assignment exclusivity per phone is now given by storage** (revision 7): the grain
+  merge made `phone_e164` unique across non-seed contacts (`contacts_phone_unique`),
+  so one row is one phone and the revision-4–6 shared-phone gate — with its
+  `shared phone held elsewhere` shortfall cause — is deleted as unconstructible.
+  Two partners can no longer be handed the same human through different rows, by
+  construction rather than by gate.
+- Contacts suppressed on the voice channel are never assigned: the row's own
+  `do_not_call` bars it (one row per phone — S-6).
 - Contacts with `dnc_registry` set are never assigned (§6) — the scrub writes the
-  flag to every row sharing the phone (S-9), so this gate is phone-complete by
-  construction.
+  flag on the row (S-9).
 - Contacts in an unsubscribed area code are never assigned, and the shortfall says so
   rather than silently narrowing the pool (§6).
 - Contacts whose `dnc_checked_at` is older than 31 days are not assignable. Assignment
   does not scrub them — that is S-9's job — it simply passes over them, so the verb makes
   no network call and stays transactional.
-- Contacts already converted are never assigned (S-10) — **also tested per phone**: a
-  contact whose phone twin has reached `won` is a customer's number under another row
-  id, and won-termination clearing the won row's batch pointer must not release its
-  twins back into the pool (the §12 worst case re-entering through the exclusivity
-  gate's own "holds an assignment" condition).
+- Contacts already converted are never assigned (S-10): the row's own `won` stage
+  bars it permanently. (The revision-4 phone-twin variant of this gate is deleted —
+  a customer's number no longer exists under a second row id.)
 - **Contacts in a live response thread are never assigned.** The assignable pool is
   stage `prospect`, `in_sequence`, or `lost`; `responded` and `in_conversation` are
   excluded — a contractor who hit the card's coded URL yesterday and is
@@ -565,24 +606,24 @@ coffee, without opening a SQL client.*
   receipt). The batch row stores the **request verbatim** (rule or id-list, count —
   as a hash for the mismatch check and as data for the receipt); a retry with
   the same key returns the original batch rather than selecting a fresh one.
-- **Exclusivity is enforced by storage, not by SELECT-gates (revision 5; scoped
-  honestly revision 6).** Gates are filters; two concurrent calls can both pass one.
-  A partial unique index — one assigned row per `phone_e164` — makes
-  *double-assignment* unconstructible at the storage layer. It does **not** close
-  the suppress-vs-assign race by itself: `suppress()` touches the named row while
-  `assign_batch` locks a different candidate row on the same phone, and both can
-  commit around each other's gate-reads. The closing mechanism is that **both verbs
-  lock the full twin-row set** — every row sharing each affected `phone_e164`,
-  `select … for update` in canonical id order — before evaluating gates. The race
-  is a named test fixture, and a concurrent index collision aborts the verb loudly
-  (retry-able) rather than degrading into partial assignment.
+- **Exclusivity is enforced by storage, not by SELECT-gates (revision 5; simplified
+  revision 7).** Gates are filters; two concurrent calls can both pass one. The grain
+  index (`contacts_phone_unique`) already gives one row per phone in the assignable
+  domain; the feature's own partial unique index — one *assigned* row per
+  `phone_e164` — is retained as one line of belt-and-suspenders DDL. The
+  suppress-vs-assign race collapses to a single-row story: `suppress()` and
+  `assign_batch` now touch the SAME row, so **both verbs `select … for update` the
+  candidate rows (in id order) before evaluating gates** — ordinary row locking
+  serializes them; the twin-row-set locking discipline of revision 6 is deleted with
+  the twins. The race remains a named test fixture, and a concurrent index collision
+  aborts the verb loudly (retry-able) rather than degrading into partial assignment.
 - Assignment writes an append-only event (`contact.assigned`) per contact, carrying
   partner, expiry, actor, **and the batch id** — the link that survives the pointer
   being cleared at release, without which neither the retry receipt nor S-8's
   batch-aware queries can be reconstructed. **Every** owner change emits — see the
   code invariant.
 - Requesting more contacts than the pool holds assigns what exists and reports the
-  shortfall, broken down by cause (no phone, suppressed, unsubscribed area code,
+  shortfall, broken down by cause (no phone, suppressed, converted, unsubscribed area code,
   already assigned, mid-funnel, stale DNC check). It does not silently under-deliver.
 - **Assignment does not alter wave audiences.** `resolve_audience` is unchanged, and an
   assigned contact keeps receiving drops 2 and 3 (decided 2026-07-25, §11 Q1). This is a
@@ -682,14 +723,14 @@ the channels are not interchangeable — and the current code collapses them.
 
 A single contact-level "suppressed" verdict cannot answer the question that matters —
 *suppressed from what?* Today
-`suppress()` (`service/contacts.py:148`) appends `contact.opt_out` **for every reason**,
+`suppress()` (`service/contacts.py:340`) appends `contact.opt_out` **for every reason**,
 putting the actual reason in a payload nobody reads; `is_suppressed()`
 (`derivation/rules.py:64`) then returns true on the event type alone, on
 `flags.do_not_mail`, or on two returned pieces; and `_audience_where` excludes that stage
 from every wave unconditionally.
 
 So adding `"do_not_call"` to the accepted-reasons tuple — the shortest path to shipping
-S-6, three characters — would drop the contact out of **all future mail**. A contractor
+S-6, one tiny tuple edit — would drop the contact out of **all future mail**. A contractor
 who tells John to stop calling stops receiving postcards, with no error, no failing test,
 and no symptom beyond a wave denominator quietly shrinking. The same collapse runs the
 other way once assignment ships: a contact suppressed for mail, or whose postcard bounced
@@ -715,22 +756,20 @@ one does, the flag is permanent in practice, and a bare `contact.suppression_cle
 against it is rejected like the other non-clearable columns — the clear path is an
 address change, not an eraser.
 
-**Voice facts are phone facts (revision 4).** The list is not phone-unique (1,785
-shared numbers, S-1), and the do-not-call request, the registry listing, and the
-customer relationship all attach to the *number and the human behind it*, not to a
-CSLB row. Row-scoped enforcement honors "lose my number" on one row of twelve and
-hands the same human to partner #2 through a twin. Therefore:
+**Voice facts are phone facts — now true by construction (revision 4; simplified
+revision 7).** The do-not-call request, the registry listing, and the customer
+relationship all attach to the *number and the human behind it*, not to a CSLB row.
+Revisions 4–6 honored that with write fan-out and phone-scoped gates because the list
+was not phone-unique; the grain merge made it so (one non-seed row per phone), and the
+fan-out machinery is deleted. What remains:
 
-- `do_not_call` is *written* on the row the human named (one authored fact, one
-  event), but every gate that reads it — assignment, export — tests **any row sharing
-  the phone**. Setting it removes every assigned row sharing the phone from its
-  assignment, and each removal emits.
-- `dnc_registry` is *written to every row sharing the phone* — the registry lists
-  numbers, so fan-out at write is the accurate representation, and it keeps the gate
-  a simple column test (S-9).
-- The won/converted gate tests the phone (S-1): termination clears batch pointers,
-  and pointers are what the exclusivity gate reads, so without phone-scoping here the
-  twins of a new customer become assignable the moment the sale closes.
+- `do_not_call` is written on the row the human named (one authored fact, one event) —
+  and that row is the phone. Setting it removes the row from its assignment if it
+  holds one, and the removal emits.
+- `dnc_registry` is written on the row — the registry lists numbers, and the row IS
+  the number. The gate stays a simple column test (S-9).
+- The won/converted gate reads the row's own stage (S-1) — a customer's number no
+  longer has twins to leak back into the pool.
 - **CCPA deletion does not delete the suppression obligation — on any channel.**
   FR-8's hard-delete removes the row — and with it row-scoped suppressions, which a
   later CSLB re-ingest would resurrect as a clean, contactable contact (`list_key`
@@ -848,8 +887,12 @@ Every rule already declares `Recipient.YOUNG` or `Recipient.DEAL_OWNER`
 (`judgment/protocol.py`), and two inactivity rules are misclassified for a world with
 partners: `quiet_reengage` and `lost_aging` are `DEAL_OWNER` today and must flip to
 `YOUNG`. `hot_response` and `demo_no_show` stay `DEAL_OWNER` — both fire on observed
-events. The flip is a no-op while every contact is house-owned, which is exactly why it
-must land before S-1 makes it not one.
+events. The flip is a no-op while every contact is house-owned. *(Ordering amended
+2026-08-01, operator decision: the flip now lands at the project plan's Stage C1,
+AFTER S-1 goes live — safe only because Phase 4 ships the sender-None recording
+guard, under which no partner-recipient nudge is recorded while the sender is
+unreal, so the un-flipped classification cannot misroute a recorded nudge. The flip
+lands with the real sender; the guard is removed in the same change.)*
 
 ---
 
@@ -859,22 +902,19 @@ demo. The readout must not quietly hand mail the credit.*
 
 - FR-6 attribution precedence is **unchanged** (mailer code → thread → exact phone).
   This story adds reporting segmentation, not a new matching rule.
-- **But the exact-phone step must break ties toward the assigned row.** The contact
-  table is not phone-unique (1,785 shared numbers — S-1), and today's
-  `contact_by_phone` is a bare `fetchone()` with no `order by` (verified,
-  `service/ingestion.py:152`): on a shared number it attributes to an arbitrary row.
-  Harmless-ish while every row is house-owned; once partners exist it silently decides
-  which owner a response credits and **where the `hot_response` nudge routes — a
-  commission mechanism (§8), not a report line.** The lookup prefers a
-  currently-assigned row on ties and tie-breaks deterministically otherwise. Not a
-  precedence change — a tie-break *within* the phone step.
+- **The exact-phone step is deterministic by construction (revision 7).** The
+  revision-4 tie-break requirement is deleted: `contact_by_phone`
+  (`service/ingestion.py:152`) now resolves to exactly one non-seed row or none —
+  the grain index guarantees it — so a bare lookup no longer attributes to an
+  arbitrary row, and no `order by` machinery is needed. (Seed carve-out: if seeds
+  ever gain real phones, this lookup needs a seed filter — revision-7 header note.)
 - The wave readout reports partner-owned and mail-only responses as separate lines,
   each with its own response rate and cost-per-response.
 - **Owner-at-response-time is derived from the assignment event stream**
   (`contact.assigned` / `contact.assignment_expired` / `contact.reclaimed`) — never
   read from `contacts.owner`.
 - **Genesis rule:** absent any assignment event for a contact, the derived owner is
-  `young`. 102,431 contacts have no assignment events and every historical response
+  `young`. 100,444 contacts have no assignment events and every historical response
   predates the first one, so this clause is what makes the derivation total. Without it
   stated, the first implementation either fails on the empty stream or quietly falls
   back to `contacts.owner` — the exact thing this story forbids.
@@ -923,16 +963,15 @@ within the last 31 days — without anyone having remembered to do it.*
   pool stale rather than the live batches.
 - Each scrub emits `contact.dnc_checked` with the registry version, making "were we
   compliant on the day of that call?" answerable from history rather than asserted.
-- A registry hit sets `dnc_registry` on **every row sharing the phone** (S-6: voice
-  facts are phone facts), removes each assigned one from its assignment, and is
-  clearable by a later scrub (S-6's channel table) — it is a scrub result, not a
-  request.
+- A registry hit sets `dnc_registry` on the row (one row per phone — S-6), removes it
+  from its assignment if it holds one, and is clearable by a later scrub (S-6's
+  channel table) — it is a scrub result, not a request.
 - **The clearing has a writer too** (revision 4 — this was the dead-writer shape,
   found in the very feature that keeps finding it): a scrub of a contact whose number
-  is *absent* from the current registry version clears `dnc_registry` on every row
-  sharing the phone and emits `contact.suppression_cleared`, idempotency-keyed on
-  contact + registry version like the check event. Without this, "clearable by a
-  later scrub" was a claim with no code path.
+  is *absent* from the current registry version clears `dnc_registry` on the row and
+  emits `contact.suppression_cleared`, idempotency-keyed on contact + registry
+  version like the check event. Without this, "clearable by a later scrub" was a
+  claim with no code path.
 - **Staleness is visible, not silent.** Because assignment and export both filter on the
   31-day window, a job that stops running drains the assignable pool instead of quietly
   serving stale numbers. A judgment rule nudges when the newest registry version ages
@@ -997,9 +1036,9 @@ afterthought. Two honest options, decision open (§11 Q10):
    phone-matched and attributes no piece. Whenever a signup-counting consumer *is*
    built (TD-3's fix, the activation writer), it must deduplicate per contact —
    recorded here so its author inherits the rule. And the correlation
-   resolves its phone match through the **tie-broken `contact_by_phone`** (S-8) — a
-   bare lookup on a shared number lands the signup on an unassigned twin, `won`
-   derives on the wrong row, and the assigned row expires back into the pool anyway.
+   resolves its phone match through `contact_by_phone`, which since the grain merge
+   returns exactly one non-seed row or none (S-8, revision 7) — the
+   wrong-twin failure mode revision 4 guarded here is unconstructible.
 2. **A founder close-stamp** — relax "never declared manually" for this one case: a UI
    action recording the close as a sourced human event. Consistent with the hand-stamped
    posture already chosen for phone response and leaning for activation
@@ -1114,7 +1153,9 @@ It also makes S-7 economically load-bearing rather than a convenience. The `hot_
 nudge routed to John is what lets him phone a contact who has just raised a hand and get
 his code onto the deal before the self-serve path closes it. Routing that nudge to Young
 instead does not merely misfile a notification; it moves the commission. Note that this
-mitigation is **inoperative until TD-10 is fixed** — no nudge reaches anyone today.
+mitigation is **inoperative until TD-10 is fixed** — no nudge reaches anyone today
+(and under the sender-None recording guard, a partner's `hot_response` is held and
+re-fires nightly rather than burned — delayed until Stage C1, not lost).
 
 **The consequence is deliberate and worth stating:** the system is blind to partner
 activity for the entire pre-sale period. That blindness is affordable for reporting —
@@ -1184,8 +1225,15 @@ approximately correct. One manual act, once, and no migration code.
    exists, S-7 is unobservable and the nudge channel is fiction. Ask John his channel
    first — knowing the cost asymmetry: email rides existing SMTP credentials; no
    arbitrary-send NMC SMS API exists today, so "SMS" is new integration work
-   (implementation plan, Phase 0).
-4. **`assign_batch` / export / refill / expiry / reclaim** (S-1 … S-5, S-10). The
+   (implementation plan, Phase 0). *(Sequencing amended 2026-08-01, operator
+   decision: the sender is DEFERRED to the project plan's Stage C1 — the report
+   composer and the sender ship together so neither reproduces TD-10 with a partner
+   as the victim. Step 4 may therefore land first, made safe by its sender-None
+   recording guard: with no real sender, `digest.run` records nothing for non-house
+   recipients, so partner nudges are held and re-fire nightly rather than burned.
+   This inverts this list's original 3-before-4 order deliberately.)*
+4. **`assign_batch` / export / refill / expiry / reclaim** (S-1 … S-5, S-10) — plus
+   the sender-None recording guard above. The
    feature proper.
 5. **Owner-at-response-time derivation and readout segmentation** (S-8). Last because
    it reads the event stream the earlier steps produce, and its acceptance test needs
@@ -1271,11 +1319,11 @@ approximately correct. One manual act, once, and no migration code.
   to build disposition capture.
 - **A channel suppression silently stopping the mail programme** → the sharpest
   engineering risk here, because the wrong implementation is the *cheapest* one: adding `do_not_call`
-  to the accepted reasons in `suppress()` is three characters and would remove the
+  to the accepted reasons in `suppress()` is one tiny tuple edit and would remove the
   contact from every future wave. The failure is invisible — no error, no failing test,
   just a shrinking denominator, and rates look normal because numerator and population
   shrink together. **The severe case is `dnc_registry`:** a single `dnc_refresh` run
-  could set it on a large fraction of 83,975 contacts in one night, so a registry with no
+  could set it on a large fraction of 81,988 contacts in one night, so a registry with no
   authority over postal mail would gut the mail programme overnight. Mitigated
   structurally by the per-channel column model in S-6 — only `opt_out` reaches
   `SUPPRESSED`, and each channel gates on its own column. Needs a test per row of that
@@ -1315,8 +1363,14 @@ approximately correct. One manual act, once, and no migration code.
   phone blindness), plus the Friday hand-stamp mitigation, are stated in S-1
   (revision 5).
 - **A nudge channel that does not exist** → S-7 depends on TD-10 being fixed. Shipping
-  assignment without a sender produces correct routing to nobody, which reads as working
-  in every test and in the database.
+  assignment without a sender would produce correct routing to nobody, which reads as
+  working in every test and in the database — for a partner-owned contact that means a
+  recorded `nudge.sent` that permanently silences `hot_response`. Mitigated (decision
+  2026-08-01) by the **sender-None recording guard** shipped with `assign_batch`:
+  while no real sender exists, partner-recipient hits are neither composed nor
+  recorded — they re-fire nightly until Stage C1 wires the sender. The residual is
+  honest and bounded: partner nudges are DELAYED until C1, not lost; house nudges
+  keep burning as today (the known TD-10 cost).
 - **Program conflation** → describing this as an "affiliate" feature would import the
   wrong terms document. The word is **Sales Partner**, always compound (§4).
 - **Dead-writer class** → `owner`, `activation`, and the sender seam are all read or

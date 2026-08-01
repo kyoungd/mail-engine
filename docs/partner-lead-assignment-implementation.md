@@ -1,10 +1,11 @@
 # Partner Lead Assignment — Implementation Plan
 
-*Execution brief for `partner-lead-assignment.md` (revision 6). Read that document
-first; this one sequences it. Where this plan and the design conflict, escalate — do
-not resolve silently. Companions: `direct-mail-ai-data.md` (schema),
+*Execution brief for `partner-lead-assignment.md` (**revision 7**, 2026-08-01). Read
+that document first; this one sequences it. Where this plan and the design conflict,
+escalate — do not resolve silently. Companions: `direct-mail-ai-data.md` (schema),
 `direct-mail-ai-code-layout.md` (dependency rule), `technical-debt.md` (TD-2, TD-10),
-`decisions.md`.*
+`decisions.md`, `partner-report-implementation.md` (whose R1 columns ride this plan's
+migration `0009` — see Phase 1).*
 
 *Status: **APPROVED alongside the design doc** — operator approval given at the end of
 the revision-6 session, recorded 2026-07-28. Phase 2 is 🔴 (compliance + the suppression
@@ -12,15 +13,25 @@ invariant) and **still requires its own explicit approval before code**, per
 `CLAUDE.md` § MOST IMPORTANT RULE — this approval does not carry it. The other phases
 are 🟡: the frozen acceptance tests are the approval gate — show them, get the nod,
 green them. **Since 2026-07-28 that gate is taken per BATCH, not per phase — ground
-rule 5 defines the three batches (A: Phase 1 · B: Phase 2, which stays alone because
-it is 🔴 · C: Phases 3–5) and how a batch runs.***
+rule 5 defines the batches (A: Phase 1 · B: Phase 2, which stays alone because
+it is 🔴 · C: Phase 4 for the Stage-A build — Phase 3 deferred to the project plan's
+Stage C1, Phase 5 unscheduled; see the table's revision-7 note) and how a batch
+runs.***
 
-*⚠️ Phases 1–5 stay sequenced **after** `ingest-contact-migration.md` (grain takes
-migration `0008`; this plan takes `0009`/`0010`), and design revision 7 — twin-row
-stratum deletion — lands first, which will simplify the phases that currently carry
-twin-row locking. **Phase 0 is unblocked now** and is the whole point of recording the
-approval: it is all non-code, and the SAN registration and counsel hour have lead times
-that do not overlap with the grain build unless started.*
+*⚠️ Both sequencing prerequisites are SATISFIED (2026-08-01): the grain migration is
+applied (dev-verified — migration `0008` + `migrate_grain.py`; 100,444 contacts, zero
+shared phones, `contacts_phone_unique` partial index), and design revision 7 — twin-row
+stratum deletion — is written; this plan is updated to match it (the twin-row fixtures,
+locking, and acceptance criteria are deleted below; migration `0009` additionally
+carries the partner-report R1 columns and `feed_watermarks`). Phases 1–5 are
+build-ready subject to their gates; Phase 0's non-code lead times (SAN, counsel) still
+apply. Per the project plan
+(`../../../docs/active/to-do-partner-report-project-implementation.md`), Stage A
+executes Phases 1, 2, and 4 — **Phase 3 (Sender) is deferred to Stage C1**, made safe
+by the **sender-None recording guard** (operator decision 2026-08-01, built in Phase
+4: with no real sender, `digest.run` records nothing for non-house recipients —
+partner nudges re-fire nightly until C1 delivers them instead of being burned).
+Until C1, nudges stay on `FakeSender`/none, which is today's state.*
 
 ---
 
@@ -47,9 +58,16 @@ that do not overlap with the grain build unless started.*
 
    | Batch | Phases | What is fixed at the cut |
    |---|---|---|
-   | **A** | 1 | `set_owner` as the single emitting writer, the three ownership event types, the `partners` table, migration `0009` |
+   | **A** | 1 | `set_owner` as the single emitting writer, the three ownership event types, the `partners` table (incl. the R1 report/feed columns), `feed_watermarks`, migration `0009` |
    | **B** | 2 | 🔴 The suppression contract — `suppress()` signature changes, `clear_suppression` appears, `do_not_call` / `dnc_registry` columns, migration `0010`, three more event types |
-   | **C** | 3, 4, 5 | Sender seam → the feature proper → owner-at-response-time. All consume contracts already fixed in A and B; none pins anything new, which is why they are one batch |
+   | **C** | 4 *(3 deferred, 5 unscheduled — see note)* | The feature proper. Consumes contracts already fixed in A and B; pins nothing new |
+
+   *(Revision 7 / project-plan amendment: **Phase 3 is deferred to the project plan's
+   Stage C1** — building a Sender before the report composer exists reproduces TD-10
+   with a partner as the victim; until C1, nudges stay on `FakeSender`/none, today's
+   state. **Phase 5 is not scheduled by the project plan** — it belongs to the wave
+   readout, not the report; run it as its own batch when the readout segmentation is
+   wanted. Batch C therefore = Phase 4 alone for the Stage-A build.)*
 
    **Batch B stays its own batch whatever the sizing.** It is 🔴 for compliance
    plus the suppression invariant and requires explicit approval before code —
@@ -101,7 +119,12 @@ Everything code depends on but cannot produce.
   SAN runs **12 months and must be renewed** — renewal opens **30 days before
   expiry** (email notice; there is no September window — calendar it from the
   purchase date); an expired SAN stops `dnc_refresh` and drains the pool
-  exactly like a dead job (design §6).
+  exactly like a dead job (design §6). ⚠️ **The registry's operational facts are
+  external claims recorded 2026-07-26, unverifiable from this repo** — the fee
+  schedule ($82/area code, $22,626 cap), the renewal mechanics, and the design §6
+  statute figures; **re-verify against donotcall.gov and the primary sources at
+  registration time** (the verify-external-facts rule). The Q6 counsel hour covers
+  the B2B exemption and seller-of-record only — it does NOT cover these.
 - **Area-code set re-derived with a recorded script** before subscribing: the design's
   Chatsworth free-five is disputed by an independent re-measurement (661 likely
   belongs, not 747 — design §6, revision 4). Deliverable: a re-runnable script
@@ -135,9 +158,10 @@ Everything code depends on but cannot produce.
   S-10's consumer-side dedupe design; without a superseding entry the executor hits a
   flat design-vs-decision-log contradiction under ground rule 1. (Same entry's
   "fixed 7-day lookback" is also stale — the code and this plan say 30 days.)
-- **`current-state.md`** is stale (calls the design "revision 2", states the disputed
-  Chatsworth set as settled) — rewrite at end of session as usual, listed here so the
-  hand-off doc doesn't re-teach superseded facts.
+- **`current-state.md`** — rewrite at end of each working session as usual (the
+  specific staleness this bullet once named was fixed in the 2026-07-29 rewrite;
+  the standing rule is what remains — the hand-off doc must not re-teach
+  superseded facts).
 
 **Accept when:** each input above is recorded (decisions.md once the design doc is
 approved), the SAN application is in flight, and the agreement draft exists. Nothing
@@ -146,18 +170,30 @@ here blocks Phases 1–2 except John's channel (Phase 3) and Q10 (part of Phase 
 ## Phase 1 — Custody foundation 🟡
 
 **Migration 0009** *(renumbered 2026-07-27: `0008` is owned by the ingest/contact
-grain migration, which is sequenced before all partner phases — see
-`ingest-contact-migration-implementation.md`)*: `partners` (id, name, status active|inactive, channel,
-channel_address, base address fields, radius_miles, weekly_hours, created_at);
+grain migration, which is now APPLIED — see the header; revision 7 folds the
+partner-report R1 items in here because `0009` is unwritten and columns are free
+until it ships)*: `partners` (id, name, status active|inactive, channel,
+channel_address, base address fields, radius_miles, weekly_hours, created_at, **and
+the four R1 report/feed columns**: `sales_rep_id bigint null` — the main-site roster
+back-reference, null for the house row; `partner_code text null unique` — the close
+feed's correlation key, operator-stamped at partner creation; `last_report_at
+timestamptz null` — the report watermark, null = heartbeat fires on the first
+nightly; `last_export_at timestamptz null` — stamped by Phase 4's `export_batch`);
 seed rows for the house account (Young) and John (channel fields may stay null until
 Phase 0 answers; Phase 3's sender fails loudly on a null channel rather than
 guessing — but the **house row's channel is seeded now**: email,
 `young@nevermisscall.com`, so Phase 3's "a real nudge reaches Young" has an address);
-`contacts.owner` → `owner_id uuid
+**`feed_watermarks`** (per-feed watermark row — `feed_name text pk`, `watermark
+timestamptz not null`, `updated_at`; created here, first written by the close feed's
+sync per `partner-report-implementation.md` R3 — the table ships with no writer until
+then, named honestly rather than hidden, and its reader applies
+`since = min(stored_watermark, now − 45d)` so an unwritten row is not a correctness
+hazard); `contacts.owner` → `owner_id uuid
 not null **default '<HOUSE_PARTNER_ID>'** references partners(id)` with 0004's
 `'young'` backfilled to the house row's id — **the default is load-bearing (revision
 5)**: `load_list` and `ensure_seed_contacts` INSERT without any owner column
-(`service/contacts.py:69-92`, `:117-126`) and the required post-`make test`
+(defs at `service/contacts.py:82` and `:260`; contact INSERTs at `:228-231` and
+`:271-273` — cites refreshed revision 7) and the required post-`make test`
 re-ingest would otherwise fail on the first not-null violation; intake inserts are
 intentionally untouched. `assignment_batches` (id, partner_id, idempotency_key
 unique, requested_count,
@@ -166,15 +202,29 @@ rule or id-list as data, for the retry receipt and the key-mismatch check);
 `contacts.assignment_batch_id uuid
 null references assignment_batches(id)`; and the **exclusivity index**: `create
 unique index ... on contacts (phone_e164) where assignment_batch_id is not null` —
-one assigned row per phone, enforced by storage (design S-1 revision 5; SELECT-gates
-alone do not survive concurrency). Update `judgment/digest.py`'s recipient
+one assigned row per phone. (Revision 7: the grain index already implies this in the
+assignable domain — one non-seed row per phone — so this index is retained as one
+line of belt-and-suspenders DDL, no longer the load-bearing twin guard revision 5
+built it as.) Update `judgment/digest.py`'s recipient
 resolution for the id type. A small **`partners` CLI** — **upsert by name** (`add`
 is `set` on a name that doesn't exist yet — revision 6: a mutate-only CLI cannot
 create partner #2, the same insert-path hole as TD-2's activation table) — covering
-channel / hours / radius / status, `--help` per house rule. The table needs a writer
+channel / hours / radius / status **and the R1 columns** (`--sales-rep-id`,
+`--partner-code`), `--help` per house rule. The table needs a writer
 beyond its migration
 seed: the Phase 0 answers land through it, S-3's batch resizing actuates through
 `weekly_hours`, and Step 12's "remove lead access" flips `status` (revision 5).
+
+**The partner registration runbook (carried per revision 7 / the project plan's
+A1-b).** Registering a real partner is two systems, in order: (1) main site — the
+partner exists as a roster row in Medusa `nmc_sales_rep` (the Sales Partner Toolkit
+owns creation; their demo number and cell live there); (2) mail-engine —
+`partners` CLI upsert with `--sales-rep-id <roster id>` and `--partner-code <code>`
+plus channel/address/hours/radius. The roster id is environment-specific — the
+operator identity `young@nevermisscall.com` is **rep id 3 on prod** but **id 1 on
+the local dev DB**; never hardcode one into a fixture without saying which. The
+runbook is exercised once with the OPERATOR as the partner (prod rep 3, demo number
+818-418-0546) — that row doubles as Stage C3's live-check recipient.
 
 **Code:** the three ownership event types in the taxonomy; the single internal
 `set_owner(contact_id, new_owner_id, reason, actor)` in `service/` — writes the
@@ -183,8 +233,8 @@ verb yet; nothing else may touch `owner_id`. **Event-type mapping, pinned:**
 assignment emits `contact.assigned`; the nightly expiry step alone emits
 `contact.assignment_expired`; every other return to the house — reclaim, voice
 suppression, `dnc_registry` hit, won-termination — emits `contact.reclaimed` with the
-reason in the payload. S-8's derivation closes a custody interval on any of the
-three. `judgment/digest.py:_resolve_recipient` currently reads `contacts.owner` with
+reason in the payload. S-8's derivation opens a custody interval on `contact.assigned` and closes one on
+either end event (`contact.assignment_expired` / `contact.reclaimed`). `judgment/digest.py:_resolve_recipient` currently reads `contacts.owner` with
 an `or "young"` fallback — update it for the id column; the fallback dies with the
 not-null FK. **The house row's identity is pinned, not discovered:** a fixed,
 migration-seeded uuid recorded as `HOUSE_PARTNER_ID` in `config/params.py` — it is
@@ -213,8 +263,8 @@ The compliance floor, and the one phase that changes existing behavior. Present 
 approved acceptance tests AND this phase's plan before writing implementation.
 
 **Frozen-test authorization (resolve the collision up front):** existing acceptance
-tests pin v2 suppression — `tests/acceptance/test_recompute.py:86` asserts
-`stage == "suppressed"` for the old reach, `test_contacts.py:102-120` asserts
+tests pin v2 suppression — `tests/acceptance/test_recompute.py:81` asserts
+`stage == "suppressed"` for the old reach, `test_contacts.py:108-127` asserts
 `suppress` derives `suppressed` — and ground rule 3 makes modifying them an
 escalation. This phase's 🔴 approval **is** that escalation, resolved in advance: the
 design re-specifies the behavior, so the approval explicitly covers rewriting the
@@ -231,25 +281,27 @@ itself unbuilt, noted honestly — columns `phone_e164` *and* `list_key` (either
 nullable), `channel`, `reason`, `created_at`). **Its writer is `suppress()`**: every
 permanent suppression inserts its tombstone in the same transaction as flag + event
 (write-at-suppress-time, not delete-time — if the named row is later deleted, the
-tombstone is the only protection its phone twins inherit). Consulted by the
+tombstone is the only thing a future re-ingest of the same phone or list row runs
+into; revision 7 retext — the twins it also protected no longer exist). Consulted by the
 assignment and export gates (by phone) and by **`load_list` at intake** (by
 `list_key` and phone), which re-applies suppression columns to re-ingested rows;
 `load_list` also now emits `contact.suppressed {channel: mail, source: intake}` per
 `do_not_mail` CSV row (design S-6 writer discipline, revision 5).
 
-**Voice facts are phone facts (design S-6, revision 4):** `do_not_call` is written on
-the named row but every gate reads *any row sharing the phone*; setting it removes
-every assigned row sharing the phone (each removal emits); `dnc_registry` fans out at
-write to all rows sharing the phone. Twin fixtures are part of this phase's matrix:
-suppress one of two rows sharing a phone ⇒ both unassignable, both out of exports,
-the assigned twin's assignment ended.
+**Voice facts are phone facts — by construction since the grain merge (design S-6,
+revision 7):** `do_not_call` and `dnc_registry` are written on the named row, and the
+row IS the phone (one non-seed row per phone, `contacts_phone_unique`). The
+revision-4 fan-out writes, phone-scoped gate reads, and twin fixtures are DELETED —
+the fixtures cannot even be inserted under the grain index. Gates read the row's own
+columns; setting a voice-blocking flag on an assigned row ends that row's assignment
+(the removal emits).
 
 **Derivation change (RULESET_VERSION → 3):** `is_suppressed` narrows to `opt_out`
 only. Returned-pieces ≥ 2 stops feeding the stage and instead derives
 `address_undeliverable`. **The historical-event trap (verified in code):** today's
 `suppress()` has emitted `contact.opt_out` for *both* reasons since day one —
 `do_not_mail` requests included — with the real reason only in the payload
-(`service/contacts.py:148`). Keying v3 on the event type alone would keep every
+(`service/contacts.py:340`). Keying v3 on the event type alone would keep every
 historical do-not-mail request fully `SUPPRESSED`, silently defeating the split for
 exactly the contacts it exists to fix. `Event.payload` is already available to the
 pure rules, so v3 must read `payload.reason` on `contact.opt_out`: reason
@@ -275,8 +327,8 @@ the stage clause that contact keeps receiving mail despite an opt-out on file.
 Columns are the gate; the stage is the belt-and-suspenders (design S-6). Also in
 this phase: **restrict `record_note` to `note.*` types** — opt-outs go through
 `suppress()`, which writes flags and event atomically. That restriction ripples to
-the two note web routes that accept caller-supplied types (`web/api.py:225-227` and
-`:426-428`), not only the suppress routes. Acceptance: a contact with an
+the two note web routes that accept caller-supplied types (`web/api.py:240-242` and
+`:462-464`), not only the suppress routes. Acceptance: a contact with an
 opt-out *event only* (fixture bypassing `suppress()`) is excluded from every wave
 audience. `c.do_not_mail = false` and `c.is_seed = false` stay.
 
@@ -300,7 +352,7 @@ the all-channel case emitting `contact.opt_out` (and setting `do_not_mail` +
 **Atomicity is a composition constraint, not a slogan (revision 6):** today's
 `suppress()` is *two* transactions — `ingest_event` commits its own
 (`ingestion.py:110`), then the flag update opens another. The rewrite composes
-flag + event + tombstone + twin-set `set_owner` removals **on one caller-owned
+flag + event + tombstone + the row's `set_owner` removal **on one caller-owned
 cursor** via `append_event` (`ingestion.py:48`), and `set_owner` must accept that
 cursor — otherwise the "same transaction" language stays aspirational and untestable.
 A **`clear_suppression(contact_id, channel)`** verb is the single public write path
@@ -315,7 +367,7 @@ public assignment verbs land in Phase 4. `contact.suppression_cleared` accepted
 **only** for `dnc_registry` (and, later, `address_undeliverable` via an address
 correction that does not exist yet) — rejected at the write for the permanent
 columns. **Call sites ripple:** `suppress()` is called from two web routes —
-`web/api.py:242` (JSON) and `web/api.py:445` (UI form) — both update for the new
+`web/api.py:256-258` (JSON) and `web/api.py:480-482` (UI form) — both update for the new
 signature, and the UI form's reason field becomes channel + reason.
 
 **Seam + job:** `seams/dnc_registry.py` Protocol (fetch per-area-code registry file +
@@ -333,16 +385,14 @@ registry version — **idempotency mechanism, pinned:** `external_id =
 "dnc:<contact_id>:<registry_version>"` under source `system`; `ingest_event` already
 accepts `external_id` (verified), and the events table's `unique (source,
 external_id)` is what makes "same version twice ⇒ no duplicate events" true rather
-than hoped. A hit sets `dnc_registry` **on every row sharing the phone** — stamping
-each twin's `dnc_checked_at` and emitting per-row events (staleness accounting is
-per row; revision 5) — and calls
-`set_owner` (house, reason=`dnc_registry`) for each assigned one. **The clear path
-has a writer** (design S-9, revision 4): a scrub finding a previously-hit number
-*absent* from the current version clears `dnc_registry` on every row sharing the
-phone and emits `contact.suppression_cleared` **per row**, keyed contact + version
-like the check
+than hoped. A hit sets `dnc_registry` on the row — stamping
+`dnc_checked_at` and emitting the event — and calls
+`set_owner` (house, reason=`dnc_registry`) if it holds an assignment. **The clear
+path has a writer** (design S-9, revision 4): a scrub finding a previously-hit number
+*absent* from the current version clears `dnc_registry` on the row and emits
+`contact.suppression_cleared`, keyed contact + version like the check
 event — matrix test for the job path, not only the event-write path. **Volume is a
-design fact, not a surprise (revision 5):** subscribed-code scope is ~16–18k
+design fact, not a surprise (revision 5; band re-measured revision 7):** subscribed-code scope is ~15.8–17.7k
 contacts on a 21-day cycle ≈ **300k `contact.dnc_checked` events/year** — more than
 every other type combined — so `recompute_state`'s rehydration and
 `get_contact_timeline` **exclude the type** (it is compliance audit trail, not
@@ -353,7 +403,8 @@ high priority.
 
 **Accept when:** one test per row of S-6's table — five columns × (set, gate,
 clear-allowed-or-rejected) — plus: a `do_not_call` suppression does **not** remove
-the contact from a wave audience (the three-character-fix regression, asserted
+the contact from a wave audience (the accepted-reasons regression — S-6's
+cheapest-wrong-edit, asserted
 directly); a historical-style `contact.opt_out` with `payload.reason = 'do_not_mail'`
 derives mail-only, not `SUPPRESSED` (the historical-event trap above, as a fixture);
 a `do_not_call` suppression on an assigned contact ends the assignment with an event
@@ -407,7 +458,12 @@ partners — **`quiet_reengage` and `lost_aging` flip from `DEAL_OWNER` to `YOUN
 (S-7: inactivity inferred from spine-absence must not nag a partner about contacts
 the spine can't see him working). `hot_response` and `demo_no_show` stay
 `DEAL_OWNER` — both fire on observed events. Today the flip is a no-op (every contact
-is house-owned), which is exactly why it must land before Phase 4 makes it not one.
+is house-owned). *(Ordering, amended with the C1 deferral — operator decision
+2026-08-01: this phase now lands AFTER Phase 4, which is safe only because Phase 4
+ships the sender-None recording guard — no partner-recipient nudge is recorded while
+the sender is unreal, so the un-flipped classification cannot misroute a recorded
+nudge. Within C1, land the flip with or before the sender wiring, and remove the
+guard in the same change.)*
 Budget is confirmed per-recipient in code (`counts[founder]`, `digest.py:101`) — the
 test asserts the behavior anyway.
 
@@ -437,44 +493,66 @@ it is a receipt for what was assigned, not a live view — reconstructable becau
 `contact.assigned` events carry the **batch id** and the batch row stores the request
 verbatim (Phase 1's schema; release paths clear the pointer, so the pointer alone
 cannot answer "what was in this batch"). Batch creation and contact moves are **one
-transaction**. Locking, scoped honestly (revision 6): the Phase 1 index stops
-double-assignment, but the phone-scoped voice/won gates are still SELECT-reads, so
-**both `assign_batch` and `suppress()` lock the full twin-row set** — every row
-sharing each affected `phone_e164`, `select … for update` in canonical id order —
-before evaluating gates; that ordering discipline is what closes the
-suppress-vs-assign race rather than the index alone. A concurrent index collision
+transaction**. Locking, simplified with the twins (revision 7): the gates are
+SELECT-reads and two concurrent verbs can still pass one, but suppress-vs-assign is
+now a single-row story — `suppress()` and `assign_batch` touch the SAME row — so
+**both verbs `select … for update` their candidate rows in id order** before
+evaluating gates; ordinary row locking serializes them (the revision-6 twin-row-set
+discipline is deleted with the twins). A concurrent index collision
 (two verbs racing past each other anyway) **aborts the verb loudly and is retried
 with the same key** — never caught-and-degraded into partial assignment; the
 graceful per-cause shortfall describes sequential outcomes only. The
 `audience_rule` allowed keys are `segment`, `trade`, `source`, and the geographic
 keys (`city`, `zip_prefix`) — **not** `stage` (the pool gates own stage), **not**
 `limit` (`count` owns it), **not** `not_responded_to_wave` (defer until a real need);
-unknown or excluded keys are rejected. A null
+unknown or excluded keys are rejected. **An inactive partner is rejected loudly**
+(design §7, pinned revision 7 — Step 12's "remove lead access"; `reclaim` and expiry
+still operate on inactive partners' holdings). A null
 `weekly_hours` with no explicit `count` errors loudly. Explicit counts bypass floor
 **and cap** (design §5 revision 6 — expiry carries anti-hoarding, not the cap). Every S-1
 gate (phone, unassigned, stage ∈ {prospect, in_sequence, lost}; not voice-suppressed,
-`dnc_registry` clear, and not won — all three **tested per phone across twin rows**
-plus the deletion tombstone, design S-6 revision 4; subscribed area code;
-`dnc_checked_at` ≤ 31 days;
-**phone-exclusive** — no other contact sharing the `phone_e164` holds an assignment,
-and one batch never selects the same phone twice; the table is not phone-unique,
-1,785 shared numbers across 3,772 CSLB contacts, design S-1), batch row written
+`dnc_registry` clear, and not won — each read from the row's own columns (one
+non-seed row per phone since the grain merge — revision 7) plus the deletion
+tombstone consulted by phone, design S-6; subscribed area code;
+`dnc_checked_at` ≤ 31 days), batch row written
 before contacts move, per-contact `contact.assigned` via `set_owner`, shortfall
 report by cause; `is_seed = false` is an explicit pool gate (seeds are excluded only
 incidentally by the phone gate today — say it, don't rely on it), and the export
 renders null `contact_name`/`business_name` with the same `"Business Owner"`
-fallback `execute_wave` uses (`service/execution.py:184`).
+fallback `execute_wave` uses (`service/execution.py:187`).
 **Idempotency-key mismatch is rejected:** a reused key with a
 different partner, count, or id-list errors loudly — it is a retry contract, not a
 lookup API. `export_batch(partner_id)` — CSV, fresh every
 pull, expiry + generation timestamp columns, excludes stale-DNC rows as shortfall
-(S-2 revision 3). Nightly **expiry step** (join through batches past `expires_at` ⇒
+(S-2 revision 3), **and stamps `partners.last_export_at`** (revision 7, from the
+report plan's R1 — the report's "your last export was generated DATE" line has no
+other readable source; one line in a verb this phase already builds). Nightly **expiry step** (join through batches past `expires_at` ⇒
 `set_owner` house, `contact.assignment_expired`) and **won-termination step** (stage
 `won` with a batch pointer ⇒ `set_owner` house, permanent exclusion). **Ordering in
 `run_nightly` is load-bearing:** both steps slot **after `recompute_state`** (won
 derives from fresh state) and **before `digest.run`** (nudges must route on
 post-return ownership) — the documented sync → orphans → recompute → digest order
-gains its two steps in that gap. `reclaim(partner_id, reason, actor)`. The **Q10
+gains its two steps in that gap.
+
+**The sender-None recording guard — DECIDED (operator, 2026-08-01; closes the
+revision-7 review's blocker).** The hazard, verified in code: `digest.run` with
+`sender=None` — today's production nightly — **still records** `nudge.sent` and arms
+cooldowns (`digest.py:100-108`); only delivery is skipped. With Phase 3 deferred to
+the project plan's Stage C1 while this phase assigns real contacts, a partner-owned
+contact's `hot_response` — the commission mechanism (design §8) — would be
+recorded-to-nobody and permanently silenced (its predicate is "no `nudge.sent`
+ever"). **The guard, a Phase 4 build item:** when no real sender is configured,
+`digest.run` **skips partner-recipient hits entirely — before composing, before
+recording** (no `nudge.sent` row, no cooldown, no AI-brief spend); the hit simply
+re-fires each nightly until C1 delivers it. House-recipient hits record exactly as
+today (that burn is the known TD-10 cost, unchanged). The guard is **removed at C1**
+in the same change that wires the real sender and lands the S-7 flip. Frozen
+acceptance (part of this phase's gate): with `sender=None`, a partner-recipient hit
+writes ZERO `nudge.sent` rows and stamps no `next_action_at`, while a house hit
+records as today; with a sender present, behavior is byte-identical to the
+pre-guard path. Rejected alternative (recorded): accept the burn until C1 and
+disclose it in the partner agreement — rejected because the first real lead batch
+is exactly Stage A's unlock. `reclaim(partner_id, reason, actor)`. The **Q10
 close-visibility inflow** per Phase 0's decision — if Medusa correlation: a new seam
 (the Medusa DB is an external system here) over a read-only `MEDUSA_DATABASE_URL`
 connection, matching **all** closes by phone (not only partner-coded ones — design
@@ -496,8 +574,8 @@ check is unimplementable there. Instead: both events may exist; everything that
 deduplicates per contact; `won` derivation is already idempotent; and wave
 attribution prefers the PostHog event, which alone carries the mailer-code → piece →
 wave linkage. The correlation resolves its phone match through
-the **tie-broken `contact_by_phone`** (assigned row preferred — a bare lookup lands
-the signup on an unassigned twin and the assigned row expires back into the pool).
+`contact_by_phone`, which since the grain merge returns exactly one non-seed row or
+none (revision 7 — the wrong-twin failure is unconstructible; no tie-break needed).
 **Nightly placement, pinned (corrected revision 6): after `resolve_orphans`, before
 `recompute_state`.** Revision 5 pinned it before `resolve_orphans` — which defeats
 the guard by construction: PostHog signups are contact-less until orphan resolution,
@@ -514,13 +592,12 @@ instead: the sourced human event (`source='human'`) and its UI action, under the
 same guard. Two databases, correlate in app code,
 never a join. CLI wrappers get `--help` per house rule.
 
-**Attribution tie-break (design S-8):** `contact_by_phone`
-(`service/ingestion.py:152`) is a bare `fetchone()` with no `order by` — on the 1,785
-shared numbers it attributes to an arbitrary row, which after this phase silently
-picks the owner a response credits and where `hot_response` routes. Change it to
-prefer a currently-assigned row on ties, deterministic tie-break otherwise
-(`order by (assignment_batch_id is not null) desc, id`). Not a precedence change;
-FR-6's chain is untouched.
+**Attribution tie-break — DELETED (design S-8, revision 7):** `contact_by_phone`
+(`service/ingestion.py:152`) stays a bare `fetchone()` — since the grain merge the
+query can match at most one non-seed row, so the revision-4 assigned-row-preference
+`order by` is machinery for a state that cannot exist. FR-6's chain is untouched.
+(Carve-out, from the design's revision-7 note: if seed rows ever gain real phones,
+this lookup needs a seed filter — not built now.)
 
 **Cutover, same day S-1 goes live:** Young issues John's first real batch with the
 explicit id-list form pinning the surviving sheet rows; rows failing any gate fall
@@ -529,21 +606,22 @@ migration code.
 
 **Accept when:** idempotent retry returns the original batch (same key ⇒ same
 contacts, no new events); a mid-conversation contact is never assigned (fixture:
-responded + engaged ⇒ excluded, cause `mid-funnel`); double-assignment is
-unconstructible — **including by phone** (fixture: two contacts sharing a
-`phone_e164`, assign to two partners ⇒ the second is excluded with cause
-`shared phone held elsewhere`); a reused idempotency key with different parameters
+responded + engaged ⇒ excluded, cause `mid_funnel`); double-assignment is
+unconstructible (fixture: assign the same contact toward two partners concurrently ⇒
+exactly one batch holds it, the loser reports `already_assigned`); a reused
+idempotency key with different parameters
 is rejected; the **suppress-vs-assign race** is a fixture (a `do_not_call` landing
 between gate-check and commit ⇒ the storage layer, not luck, decides — no
-voice-suppressed contact ever holds an assignment); expiry returns and re-assignability is immediate; a won contact
-never re-enters the pool even after its batch would have expired — **nor do its phone
-twins** (fixture: two rows one phone, one reaches `won` and its assignment
-terminates ⇒ the twin is still excluded, cause `converted`); **the Q10
+voice-suppressed contact ever holds an assignment); expiry returns and
+re-assignability is immediate; a won contact
+never re-enters the pool even after its batch would have expired; **the Q10
 acceptance**: a close arriving with no mailer code ends the assignment before expiry
-would have; export shortfall names causes; a phone response on a shared number
-attributes to the assigned row, not an arbitrary twin (fixture: two rows, one phone,
-one assigned); the single-writer derivation test from
-Phase 1 still passes with all new paths exercised.
+would have; export shortfall names causes; `export_batch` stamps
+`partners.last_export_at` (the R1 column — the report's "your last export" line has
+no other source); the single-writer derivation test from
+Phase 1 still passes with all new paths exercised. *(The revision-4–6 twin fixtures —
+shared-phone double-assign, won-twin exclusion, shared-number attribution — are
+DELETED: the grain index makes their setup rows uninsertable.)*
 
 ## Phase 5 — Owner-at-response-time and the readout 🟡
 
@@ -572,9 +650,11 @@ sequence (Hypothesis); segmentation totals reconcile to the unsegmented readout.
   `dnc_version_alert_days` 24, `HOUSE_PARTNER_ID`) live in
   `config/params.py`, not in prose or verb bodies.
 - **Shortfall-cause vocabulary is a pinned enum**, not ad-hoc strings — the full set:
-  `no_phone`, `already_assigned`, `shared_phone_held_elsewhere`, `mid_funnel`,
+  `no_phone`, `already_assigned`, `mid_funnel`,
   `voice_suppressed`, `dnc_registry_hit`, `deletion_tombstone`,
-  `unsubscribed_area_code`, `stale_dnc_check`, `converted`. Assignment and export report from this one set;
+  `unsubscribed_area_code`, `stale_dnc_check`, `converted`
+  (`shared_phone_held_elsewhere` deleted — revision 7, unconstructible since the
+  grain merge). Assignment and export report from this one set;
   the acceptance tests name causes from it, so it must exist before they are written.
 - **Dead-writer audit (TD-2) closes here:** Phases 1 and 3 revive two of the three
   known members (`owner`, sender). Before calling the feature done, run the explicit

@@ -49,7 +49,7 @@ Three sections that ship at different times:
 |---|---|---|
 | **1. Your list** (holdings) | mail-engine spine | with partner Phases 1–4 (`partners`, `assignment_batches`, `contacts.owner_id`) |
 | **2. Your closes** (earnings) | Medusa (customer-spine query, contract §2) via the close feed | after Q10 / `nmc-close-feed-contract.md` is built |
-| **3. Your demos** (revision 2026-07-31) | Service DB via booking-system's partner-keyed HTTP feed | after the demos feed (support doc Deliverable 4) is built |
+| **3. Your demo line** (revision 2026-07-31; retitled 2026-08-01 — covers all contact with the partner number, not only demo requests) | Service DB via booking-system's partner-keyed HTTP feed | after the demos feed (support doc Deliverable 4) is built |
 
 Until a section's feed exists, the email simply has no such section. No placeholder,
 no "coming soon" — a section appears when its data is real.
@@ -109,11 +109,18 @@ see a balance, it should arrive from there, not be reconstructed here.
 
 Same honesty rule as section 1: no line appears unless its data is real.
 
-## Section 3 — Your demos (added by revision, 2026-07-31)
+## Section 3 — Your demo line (added by revision 2026-07-31; retitled 2026-08-01)
+
+*(Retitle, operator-approved 2026-08-01: the feed covers ALL prospect contact with
+the partner's demo-forwarding number — calls the rep personally answers and texts
+relayed to the rep, not only demo requests; `textsForwarded` is one of its five
+aggregates. "Your demos" undersold the data and would read oddly next to a texts
+count. The underlying route name `/api/partner-demo-calls` is shipped-prod legacy
+from the toolkit and stays.)*
 
 | Line | Source |
 |---|---|
-| Your demos since your last report: N calls (M unique prospects, K from blocked numbers), T texts forwarded to you — *same "since last report" convention as Section 2 (final-review fix 2026-07-31: a calendar week would diverge from the report's own span on event-triggered sends, double- or never-reporting contacts)* | booking-system's demo-contact feed (below), window `[last_report_at, compose time)` |
+| On your demo line since your last report: N calls (M unique prospects, K from blocked numbers), T texts forwarded to you — *same "since last report" convention as Section 2 (final-review fix 2026-07-31: a calendar week would diverge from the report's own span on event-triggered sends, double- or never-reporting contacts)* | booking-system's demo-contact feed (below), window `[last_report_at, compose time)` |
 
 The Sales Partner Toolkit gave every active partner a demo-forwarding number whose
 calls and texts hit NMC's own webhook and land in `scheduling.partner_demo_contacts`
