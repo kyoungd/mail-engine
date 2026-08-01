@@ -46,12 +46,21 @@ batched per ground rule 5) is the active build:
 - **Phase 0 operational items still open:** SAN registration (start now — lead time
   unknown), Q6 counsel hour, area-code re-derivation script, paper prongs, the PRD/
   partnership-program amendments.
-- **Parked, wants ⚠️ attention:** the AV gate (`LOB_AV_API_KEY`) — approved-in-principle
-  test shown 2026-08-01, then paused for the partner work. Until it lands, `LOB_API_KEY`
-  ARMS the nightly `verify_addresses` sweep in BOTH .envs: dev would sweep with the test
-  key (permanent canned `undeliverable` on every row — catastrophic), prod with the live
-  key (~$5.1k uncapped). No cron exists, so the hazard is one manual `nightly_cli` run
-  away. Land the gate before anyone runs a nightly by hand.
+- **The AV gate is LANDED (2026-08-01)** — verification is armed ONLY by the dedicated
+  `LOB_AV_API_KEY` (unset everywhere, so the gate shipped closed); the print key never
+  arms it. The armed-nightly hazard is closed. Turning AV on later = set the var to the
+  LIVE key (never test — canned `undeliverable`, permanent) + build the audience-scoped
+  verify mode (still the one missing enabler for verify-what-you-mail).
+- **A0 + A2 are DONE (2026-08-01) — Stage A of the project plan is COMPLETE.**
+  `medusa_nmc_ro` exists on prod Medusa (SELECT on exactly customer /
+  nmc_sales_attribution / nmc_partner_code; credential in root PRD § Production
+  connection strings, committed `f6c04ff`) and mirrors locally. `db/medusa.py` is the
+  third-connection helper (`MEDUSA_READONLY_URL`; unset = feed off, no throw); the
+  close feed + nightly CLI read through it, and `tests/guard.py` refuses to run the
+  suite in a folder holding a remote Medusa credential. **The referral/sales tables
+  ARE live on prod Medusa** (verified during A0 — 25 customers, 3 attributions), so
+  Stage B1 turn-on is now purely: set `MEDUSA_READONLY_URL` in `.env` after the
+  B-GATE §7 look.
 - ⚠️ **Post-kill ingest slowness recurred 2026-08-01**: a re-ingest after a killed run
   took **12m9s** despite truncate + `vacuum analyze` — truncate is NOT a sufficient
   remedy; only drop/recreate restores ~48s (blocked that day by pgAdmin's superuser
