@@ -1,4 +1,47 @@
-# Current state — 2026-07-29: **the grain migration is COMPLETE and LIVE IN PRODUCTION**
+# Current state — 2026-08-01: partner build mid-flight — Phases 1+2 done in dev, Batch C (Phase 4) next
+
+**Partner lead assignment** (`partner-lead-assignment.md` rev 7 + implementation plan,
+batched per ground rule 5) is the active build:
+
+- **Batch A — Phase 1 DONE** (`dd88a4b`): migration `0009` (partners incl. R1 report
+  columns, assignment_batches, feed_watermarks, `owner_id`), `set_owner` single emitting
+  writer, `current_owner` derivation, partners CLI with the registration runbook.
+- **Batch B — Phase 2 DONE, 🔴-approved 2026-08-01** (committed on top of `a027210`):
+  the suppression split + DNC scrub. Migration `0010` (`do_not_call`, `dnc_registry`,
+  `dnc_checked_at`, `address_undeliverable`, `dnc_subscriptions`,
+  `suppression_tombstones`); per-channel `suppress(contact_id, channel, reason)` +
+  `clear_suppression` (dnc_registry only); derivation **v3** (`is_suppressed` = opt_out
+  reading `payload.reason`; returned≥2 → `address_undeliverable`, written by recompute);
+  `_audience_where` gains the undeliverable clause and keeps the stage backstop;
+  `record_note` restricted to `note.*`; tombstone consult in `load_list`;
+  `seams/dnc_registry` + `FakeDncRegistry`; `jobs/dnc_refresh` (21-day cycle,
+  version-keyed idempotency, delisting clears), `jobs/subscribe_area_codes`,
+  `jobs/suppression_report` (the before/after deliverable — **run it against PROD and
+  review before the first post-deploy nightly**; all-zeros on fresh dev, as expected);
+  `dnc_version_alert` judgment rule. **422 offline tests**, ruff + pyright clean.
+  ⚠️ The real FTC registry client is deliberately unwritten — the portal file format is
+  unverifiable until the SAN exists (Phase 0); `--fake` unblocks dev, the nightly scrub
+  stays unconfigured (`nightly_cli` passes `dnc_registry=None`).
+- **Batch C — Phase 4 next** (assignment verbs + jobs; Phase 3 deferred to Stage C1,
+  Phase 5 unscheduled). Gate: show the batch's frozen tests, one nod, run free.
+  Q10 gates only the close-visibility inflow inside it.
+- **Phase 0 operational items still open:** SAN registration (start now — lead time
+  unknown), Q6 counsel hour, area-code re-derivation script, paper prongs, the PRD/
+  partnership-program amendments.
+- **Parked, wants ⚠️ attention:** the AV gate (`LOB_AV_API_KEY`) — approved-in-principle
+  test shown 2026-08-01, then paused for the partner work. Until it lands, `LOB_API_KEY`
+  ARMS the nightly `verify_addresses` sweep in BOTH .envs: dev would sweep with the test
+  key (permanent canned `undeliverable` on every row — catastrophic), prod with the live
+  key (~$5.1k uncapped). No cron exists, so the hazard is one manual `nightly_cli` run
+  away. Land the gate before anyone runs a nightly by hand.
+- ⚠️ **Post-kill ingest slowness recurred 2026-08-01**: a re-ingest after a killed run
+  took **12m9s** despite truncate + `vacuum analyze` — truncate is NOT a sufficient
+  remedy; only drop/recreate restores ~48s (blocked that day by pgAdmin's superuser
+  sessions holding the DB). Counts were still exact (100,444 / 102,431).
+
+---
+
+# Previous state — 2026-07-29: **the grain migration is COMPLETE and LIVE IN PRODUCTION**
 
 All four phases are done. Batches A–C shipped the code; **Phase 4 executed against
 `mailengine_prod` on 2026-07-29** and committed. Production is now business-grain and
