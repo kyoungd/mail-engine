@@ -5,10 +5,12 @@ sends nothing. The real NMC sender is deferred; a fake stands in."""
 from datetime import UTC, datetime
 from uuid import uuid4
 
+from config.params import HOUSE_PARTNER_ID
 from judgment import digest
 from seams.fakes import FakeSender
 from tests.factories import new_contact
 
+HOUSE = str(HOUSE_PARTNER_ID)
 AS_OF = datetime.now(UTC).date()
 
 
@@ -30,17 +32,17 @@ def test_digest_sends_one_message_per_founder(clean_db, owner_conn):
 
     result = digest.run(AS_OF, sender=sender)
 
-    assert len(sender.sent) == 1  # both nudges route to 'young' -> one digest
+    assert len(sender.sent) == 1  # both nudges route to the house partner -> one digest
     founder, message = sender.sent[0]
-    assert founder == "young"
+    assert founder == HOUSE
     assert "Today's nudges (2)" in message
-    assert len(result.sent["young"]) == 2
+    assert len(result.sent[HOUSE]) == 2
 
 
 def test_no_sender_delivers_nothing(clean_db, owner_conn):
     _stalled(owner_conn)
     result = digest.run(AS_OF)  # no sender injected
-    assert len(result.sent["young"]) == 1  # still computed and recorded, just not sent
+    assert len(result.sent[HOUSE]) == 1  # still computed and recorded, just not sent
 
 
 def test_a_zero_hit_night_sends_no_message(clean_db, owner_conn):

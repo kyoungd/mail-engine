@@ -17,10 +17,18 @@ def record_nudge(
     brief: str,
     as_of: date,
     recipient: str,
+    recipient_name: str,
 ) -> int:
     """Emit the nudge.sent event (rule + facts in payload) and, for a contact-level
-    nudge, write next_action_at/next_action_note — atomically."""
-    payload = {"rule": rule_name, "brief": brief, "recipient": recipient}
+    nudge, write next_action_at/next_action_note — atomically. `recipient` is the
+    partner id (Phase 1); the readable name rides alongside so historical payloads
+    stay greppable."""
+    payload = {
+        "rule": rule_name,
+        "brief": brief,
+        "recipient": recipient,
+        "recipient_name": recipient_name,
+    }
     if wave_id is not None:
         payload["wave_id"] = str(wave_id)
     with transaction() as conn:

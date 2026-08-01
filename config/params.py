@@ -4,6 +4,14 @@ tests can move a threshold without touching a rule. The runtime-tunable config t
 today."""
 
 from dataclasses import dataclass
+from uuid import UUID
+
+# The house account's partner row (partner-lead-assignment.md §7, S-11): a fixed,
+# migration-seeded uuid — what every return-to-house set_owner call targets, what
+# S-8's genesis rule resolves to, and what _resolve_recipient's YOUNG branch returns.
+# Must equal the id seeded by db/migrations/0009.partner-custody.sql. Nobody invents
+# this value; everybody imports it.
+HOUSE_PARTNER_ID = UUID("00000000-0000-4000-8000-000000000001")
 
 
 @dataclass(frozen=True)

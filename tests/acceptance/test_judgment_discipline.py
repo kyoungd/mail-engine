@@ -9,10 +9,12 @@ from uuid import UUID, uuid4
 import psycopg
 from psycopg.types.json import Json
 
+from config.params import HOUSE_PARTNER_ID
 from judgment import digest
 from service.nudges import expire_stale_actions
 from tests.factories import new_contact
 
+HOUSE = str(HOUSE_PARTNER_ID)
 AS_OF = datetime.now(UTC).date()
 
 
@@ -20,10 +22,10 @@ def _at(days_from_now: int) -> datetime:
     return datetime.combine(AS_OF + timedelta(days=days_from_now), datetime.min.time(), tzinfo=UTC)
 
 
-def _contact(conn, stage="prospect", owner="young") -> UUID:
+def _contact(conn, stage="prospect") -> UUID:
     contact_id = uuid4()
     with conn.cursor() as cur:
-        new_contact(cur, id=contact_id, stage_snapshot=stage, owner=owner)
+        new_contact(cur, id=contact_id, stage_snapshot=stage)
     conn.commit()
     return contact_id
 
@@ -45,7 +47,7 @@ def test_budget_caps_at_five_and_defers_the_rest(clean_db, owner_conn):
 
     result = digest.run(AS_OF)
 
-    assert len(result.sent.get("young", [])) == 5
+    assert len(result.sent.get(HOUSE, [])) == 5
     assert len(result.deferred) == 6
 
 
@@ -57,7 +59,7 @@ def test_overflow_is_deferred_in_priority_order(clean_db, owner_conn):
 
     result = digest.run(AS_OF)
 
-    sent = result.sent["young"]
+    sent = result.sent[HOUSE]
     assert len(sent) == 5
     assert sum(1 for n in sent if n.rule == "hot_response") == 3  # priority 1 all sent
     assert {n.rule for n in result.deferred} == {"activation_stalled"}
@@ -67,13 +69,13 @@ def test_cooldown_suppresses_repeat_then_reevaluates_fresh(clean_db, owner_conn)
     _stalled(owner_conn)
 
     first = digest.run(AS_OF)
-    assert len(first.sent["young"]) == 1
+    assert len(first.sent[HOUSE]) == 1
 
     within = digest.run(AS_OF + timedelta(days=1))  # inside 3-day cooldown
-    assert within.sent.get("young", []) == []
+    assert within.sent.get(HOUSE, []) == []
 
     after = digest.run(AS_OF + timedelta(days=4))  # cooldown passed — fires fresh
-    assert len(after.sent["young"]) == 1
+    assert len(after.sent[HOUSE]) == 1
 
 
 def test_new_inbound_breaks_cooldown(clean_db, owner_conn):
@@ -89,7 +91,7 @@ def test_new_inbound_breaks_cooldown(clean_db, owner_conn):
     owner_conn.commit()
 
     reengaged = digest.run(AS_OF + timedelta(days=1))  # inside cooldown, but inbound broke it
-    assert len(reengaged.sent["young"]) == 1
+    assert len(reengaged.sent[HOUSE]) == 1
 
 
 def test_human_next_action_is_never_overwritten(clean_db, owner_conn, readonly_url):
@@ -104,7 +106,7 @@ def test_human_next_action_is_never_overwritten(clean_db, owner_conn, readonly_u
 
     result = digest.run(AS_OF)
 
-    assert all(n.contact_id != contact_id for n in result.sent.get("young", []))
+    assert all(n.contact_id != contact_id for n in result.sent.get(HOUSE, []))
     with psycopg.connect(readonly_url) as conn:
         with conn.cursor() as cur:
             cur.execute("select next_action_note from contacts where id = %s", (contact_id,))
@@ -152,7 +154,7 @@ class _WorkingAi:
 def test_composer_falls_back_to_template_on_model_failure(clean_db, owner_conn):
     _stalled(owner_conn)
     result = digest.run(AS_OF, ai_client=_FailingAi())
-    sent = result.sent["young"]
+    sent = result.sent[HOUSE]
     assert len(sent) == 1
     assert sent[0].brief.startswith("[activation_stalled]")
 
@@ -160,7 +162,7 @@ def test_composer_falls_back_to_template_on_model_failure(clean_db, owner_conn):
 def test_composer_uses_the_model_when_it_works(clean_db, owner_conn):
     _stalled(owner_conn)
     result = digest.run(AS_OF, ai_client=_WorkingAi())
-    assert result.sent["young"][0].brief == "Call them today — signed up 20 days ago, never activated."
+    assert result.sent[HOUSE][0].brief == "Call them today — signed up 20 days ago, never activated."
 
 
 def test_a_zero_hit_night_sends_nothing(clean_db, owner_conn):

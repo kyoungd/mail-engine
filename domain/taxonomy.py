@@ -23,6 +23,9 @@ EVENT_TYPES: frozenset[str] = frozenset(
         "note.general",
         "contact.opt_out",
         "contact.lost",
+        "contact.assigned",
+        "contact.assignment_expired",
+        "contact.reclaimed",
         "nudge.sent",
     }
 )

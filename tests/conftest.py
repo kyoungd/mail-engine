@@ -106,8 +106,12 @@ def clean_db(owner_url: str, applied_migrations):
         with conn.cursor() as cur:
             cur.execute(
                 "truncate activation, events, pieces, waves, variants, contacts, "
-                "intake_cslb_ca, intake_fbn_ca, contact_merge_map "
+                "intake_cslb_ca, intake_fbn_ca, contact_merge_map, "
+                "assignment_batches, feed_watermarks "
                 "restart identity cascade"
             )
+            # partners is deliberately NOT truncated: the migration-seeded house and
+            # John rows are load-bearing (owner_id default, recipient resolution).
+            # Tests that create extra partners delete them in-test.
         conn.commit()
     yield

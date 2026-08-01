@@ -34,10 +34,10 @@ def _evaluate(readonly_url, rule, as_of=AS_OF, params=DEFAULT_PARAMS):
             return rule.evaluate(cur, params, as_of)
 
 
-def _contact(conn, stage="prospect", owner="young") -> UUID:
+def _contact(conn, stage="prospect") -> UUID:
     contact_id = uuid4()
     with conn.cursor() as cur:
-        new_contact(cur, id=contact_id, stage_snapshot=stage, owner=owner)
+        new_contact(cur, id=contact_id, stage_snapshot=stage)
     conn.commit()
     return contact_id
 

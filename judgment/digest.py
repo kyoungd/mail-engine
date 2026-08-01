@@ -8,7 +8,7 @@ nudge.sent facts.
 from collections import defaultdict
 from datetime import date, timedelta
 
-from config.params import DEFAULT_PARAMS, Params
+from config.params import DEFAULT_PARAMS, HOUSE_PARTNER_ID, Params
 from db.readonly import readonly_connection
 from derivation.rules import INBOUND_TYPES
 from judgment.composer import compose_brief, template_brief
@@ -63,12 +63,22 @@ def _in_cooldown(cur, rule: Rule, hit: Hit, params: Params, as_of: date) -> bool
     return last is not None and last.date() > cutoff
 
 
-def _resolve_recipient(cur, rule: Rule, hit: Hit) -> str:
+def _resolve_recipient(cur, rule: Rule, hit: Hit) -> tuple[str, str]:
+    """Recipient as (partner id, human-readable name). The YOUNG branch returns the
+    migration-seeded house row (HOUSE_PARTNER_ID); the old `or "young"` fallback died
+    with the owner_id NOT NULL FK — an unresolvable owner is now impossible, and a
+    missing house row is a migration defect worth failing loudly on."""
     if rule.recipient == Recipient.YOUNG or hit.contact_id is None:
-        return "young"
-    cur.execute("select owner from contacts where id = %s", (hit.contact_id,))
-    owner = _scalar(cur)
-    return owner or "young"
+        cur.execute("select id, name from partners where id = %s", (HOUSE_PARTNER_ID,))
+    else:
+        cur.execute(
+            "select p.id, p.name from contacts c "
+            "join partners p on p.id = c.owner_id where c.id = %s",
+            (hit.contact_id,),
+        )
+    row = cur.fetchone()
+    assert row is not None  # house row is migration-seeded; owner_id is a NOT NULL FK
+    return str(row[0]), row[1]
 
 
 def _format_digest(nudges: list[ComposedNudge]) -> str:
@@ -79,7 +89,7 @@ def _format_digest(nudges: list[ComposedNudge]) -> str:
 def run(as_of: date, params: Params = DEFAULT_PARAMS, ai_client=None, sender=None) -> JudgmentResult:
     expire_stale_actions(as_of, params.expire_days)
 
-    prepared: list[tuple[Rule, Hit, str, list]] = []
+    prepared: list[tuple[Rule, Hit, str, str, list]] = []
     with readonly_connection() as conn:
         with conn.cursor() as cur:
             for rule in all_rules():
@@ -88,19 +98,22 @@ def run(as_of: date, params: Params = DEFAULT_PARAMS, ai_client=None, sender=Non
                         continue  # respect a human-set, unexpired next_action
                     if _in_cooldown(cur, rule, hit, params, as_of):
                         continue
-                    founder = _resolve_recipient(cur, rule, hit)
+                    founder, founder_name = _resolve_recipient(cur, rule, hit)
                     timeline = get_contact_timeline(hit.contact_id) if hit.contact_id else []
-                    prepared.append((rule, hit, founder, timeline))
+                    prepared.append((rule, hit, founder, founder_name, timeline))
 
     prepared.sort(key=lambda item: item[0].priority)
     sent: dict[str, list[ComposedNudge]] = defaultdict(list)
     deferred: list[ComposedNudge] = []
     counts: dict[str, int] = defaultdict(int)
 
-    for rule, hit, founder, timeline in prepared:
+    for rule, hit, founder, founder_name, timeline in prepared:
         if counts[founder] < params.nudge_budget:
             brief = compose_brief(hit, timeline, rule, ai_client)
-            record_nudge(hit.contact_id, hit.wave_id, rule.name, brief, as_of, founder)
+            record_nudge(
+                hit.contact_id, hit.wave_id, rule.name, brief, as_of,
+                founder, founder_name,
+            )
             sent[founder].append(
                 ComposedNudge(rule=rule.name, recipient=founder, contact_id=hit.contact_id,
                               wave_id=hit.wave_id, brief=brief, priority=rule.priority)
