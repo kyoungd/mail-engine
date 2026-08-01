@@ -161,7 +161,8 @@ def main(argv: list[str] | None = None) -> int:
             "  uv run python -m jobs.verify_addresses --limit 100  # a costed slice first\n"
             "  uv run python -m jobs.verify_addresses --fake       # no vendor calls, no spend\n\n"
             "Runs nightly as well; the sweep is a no-op when nothing is unverified.\n"
-            "Requires OWNER_DATABASE_URL and (unless --fake) LOB_API_KEY — make targets\n"
+            "Requires OWNER_DATABASE_URL and (unless --fake) LOB_AV_API_KEY — the\n"
+            "dedicated AV key; the print key never arms verification. Make targets\n"
             "source .env; this module does not."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,

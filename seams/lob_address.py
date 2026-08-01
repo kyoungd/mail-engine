@@ -51,9 +51,15 @@ class LobAddressVerifier:
 
     @classmethod
     def from_env(cls) -> "LobAddressVerifier":
-        key = os.environ.get("LOB_API_KEY", "")
+        # The AV gate (2026-08-01): verification has its OWN key var, never the
+        # print key — arming a sweep is a deliberate act, not a side effect of
+        # being wired for drops.
+        key = os.environ.get("LOB_AV_API_KEY", "")
         if not key:
-            raise ValueError("LOB_API_KEY is not set")
+            raise ValueError(
+                "LOB_AV_API_KEY is not set (address verification is deliberately "
+                "gated on its own key — LOB_API_KEY, the print key, never arms it)"
+            )
         return cls(key)
 
     def _post(self, payload: dict[str, str]) -> dict[str, Any]:

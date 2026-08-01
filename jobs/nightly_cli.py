@@ -60,11 +60,15 @@ def _build_feeds() -> tuple[list, list[str]]:
 def _build_verifier():
     """The address verifier, or None when unconfigured.
 
-    Deliberately NOT a hard failure the way zero feeds is: a nightly with no verifier
-    still does its job, and unverified rows are never excluded from an audience — they
-    are merely not yet deduplicable (§6). Missing the key delays standardization; it
-    does not corrupt anything."""
-    key = os.environ.get("LOB_API_KEY")
+    Armed ONLY by the dedicated LOB_AV_API_KEY (the AV gate, 2026-08-01) — never by
+    LOB_API_KEY, the print key, which is set in every .env for drops and would
+    otherwise arm a full sweep nobody asked for (canned `undeliverable` on every
+    row under a test key; uncapped spend under a live one). Deliberately NOT a hard
+    failure the way zero feeds is: a nightly with no verifier still does its job,
+    and unverified rows are never excluded from an audience — they are merely not
+    yet deduplicable (§6). Missing the key delays standardization; it does not
+    corrupt anything."""
+    key = os.environ.get("LOB_AV_API_KEY")
     if not key:
         return None
     from seams.lob_address import LobAddressVerifier
