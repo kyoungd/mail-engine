@@ -18,6 +18,28 @@ HOUSE_PARTNER_ID = UUID("00000000-0000-4000-8000-000000000001")
 # 31-day safe-harbor window with margin for missed runs.
 DNC_RECHECK_DAYS = 21
 
+# The assignment gate's freshness bound (§6): a contact whose check is older than
+# the federal safe-harbor window is unassignable until the scrub catches up.
+DNC_FRESHNESS_DAYS = 31
+
+# Batch sizing (§5): ~1.5 contacts worked per dial-hour × 8 weeks of capacity,
+# rounded to the nearest 50. Floor and cap apply to DERIVED batches only — an
+# explicit founder count (the Step 11 trial batch) bypasses both. Expiry — not a
+# holdings ceiling — carries the anti-hoarding load (S-3), one global constant.
+BATCH_HOURS_MULTIPLIER = 12
+BATCH_FLOOR = 100
+BATCH_CAP = 500
+BATCH_ROUND = 50
+ASSIGNMENT_EXPIRY_DAYS = 90
+
+
+def derived_batch_size(weekly_hours: int) -> int:
+    """§5's table: batch ≈ 12 × weekly hours, rounded to the nearest 50,
+    floor 100, cap 500."""
+    raw = BATCH_HOURS_MULTIPLIER * weekly_hours
+    rounded = round(raw / BATCH_ROUND) * BATCH_ROUND
+    return max(BATCH_FLOOR, min(BATCH_CAP, rounded))
+
 
 @dataclass(frozen=True)
 class Params:

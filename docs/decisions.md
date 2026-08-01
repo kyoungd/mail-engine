@@ -723,3 +723,24 @@ only matters if a full-list backfill ever becomes worth doing as one shot.
 **Revisit trigger:** the list outgrowing per-wave verification (multi-state scale, or a
 full-list dedupe/exclusion pass becoming operationally necessary). That reopens both
 TD-11's checkout questions and the Smarty comparison together.
+
+## The NMC close feed MAY emit signup.completed — S-10's consumer-side dedupe supersedes the 2026-07-12 note (recorded 2026-08-01)
+
+The 2026-07-12 PostHog feed-mapping entry pinned *"the future NMC feed must NOT
+also emit `signup.completed`"* (repeated verbatim in `seams/posthog.py`'s
+docstring). The partner-lead-assignment design's S-10 refined this into a
+consumer-side rule, and Phase 4 built that refinement: the Q10 close correlation
+DOES ingest `signup.completed` under `source='nmc'`, guarded per contact — it
+ingests only when the contact has no existing `signup.completed` from any source.
+
+Why the guard moved to the consumer: PostHog events are ingested contact-less
+(attribution happens downstream in `resolve_orphans`), so a mapping-time "has the
+other source already told us?" check is unimplementable at the PostHog end. Both
+events may therefore exist for one close under the reverse ordering (correlation
+first, funnel replay later), **and that is correct**: `won` derivation is
+idempotent, the won-termination step fires once, wave attribution prefers the
+PostHog event (which alone carries the mailer-code → piece → wave linkage), and
+anything that COUNTS signups deduplicates per contact.
+
+Also stale in the 2026-07-12 entry: its "fixed 7-day lookback" — the code and the
+implementation plan say 30 days.

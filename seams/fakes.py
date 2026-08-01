@@ -158,3 +158,19 @@ class FakeDncRegistry:
     def numbers(self, area_code: str) -> frozenset[str]:
         self.calls.append(area_code)
         return self._numbers.get(area_code, frozenset())
+
+
+class FakeCloseFeed:
+    """Programmable `CloseFeed` (nmc-close-feed-contract.md). Yields the closes it
+    was given, filtered by the watermark the consumer passes — re-serving on
+    overlap exactly as the real feed does (§4: re-serving is expected and safe)."""
+
+    def __init__(self, closes: list) -> None:
+        self._closes = closes
+        self.pulls: list[datetime] = []
+
+    def closes(self, since: datetime):
+        self.pulls.append(since)
+        for close in sorted(self._closes, key=lambda c: (c.recorded_at, c.id)):
+            if close.recorded_at > since:
+                yield close

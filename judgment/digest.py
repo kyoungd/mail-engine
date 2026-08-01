@@ -108,6 +108,14 @@ def run(as_of: date, params: Params = DEFAULT_PARAMS, ai_client=None, sender=Non
     counts: dict[str, int] = defaultdict(int)
 
     for rule, hit, founder, founder_name, timeline in prepared:
+        if sender is None and founder != str(HOUSE_PARTNER_ID):
+            # The sender-None recording guard (Phase 4, operator-decided 2026-08-01;
+            # REMOVED at Stage C1 with the real sender + S-7 flip): with no delivery
+            # path, recording a partner nudge would burn it forever — hot_response's
+            # predicate is "no nudge.sent ever" — so partner hits are skipped BEFORE
+            # composing and recording; they re-fire each nightly until C1 delivers
+            # them. House hits record as today (the known TD-10 burn, unchanged).
+            continue
         if counts[founder] < params.nudge_budget:
             brief = compose_brief(hit, timeline, rule, ai_client)
             record_nudge(

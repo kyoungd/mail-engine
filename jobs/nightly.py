@@ -6,14 +6,17 @@ judgment job (nudges out) is wired in here in Phase 4.
 
 from datetime import UTC, date, datetime
 
+from jobs.close_correlation import correlate_closes
 from jobs.dnc_refresh import dnc_refresh
 from jobs.sync import sync
 from jobs.verify_addresses import verify_addresses
 from judgment import digest
 from seams.address_verifier import AddressVerifier
 from seams.dnc_registry import DncRegistry
+from seams.nmc_closes import CloseFeed
 from seams.response_feed import ResponseFeed
 from seams.sender import Sender
+from service.assignment import run_expiry_step, run_won_termination_step
 from service.execution import recompute_state
 from service.ingestion import resolve_orphans
 
@@ -25,6 +28,7 @@ def run_nightly(
     sender: Sender | None = None,
     verifier: AddressVerifier | None = None,
     dnc_registry: DncRegistry | None = None,
+    close_feed: CloseFeed | None = None,
 ) -> None:
     for feed in feeds:
         sync(feed, since)  # a feed failure raises here — before recompute
@@ -43,5 +47,16 @@ def run_nightly(
         # is what fails closed for assignment.
         dnc_refresh(dnc_registry)
     resolve_orphans()
+    if close_feed is not None:
+        # Q10 placement, pinned (revision 6): AFTER resolve_orphans — PostHog signups
+        # are contact-less until resolution, so the double-count guard would see
+        # nothing on exactly the both-inlets night it exists for — and BEFORE
+        # recompute, so `won` derives the same night and the termination step acts.
+        correlate_closes(close_feed)
     recompute_state()
+    # S-4/S-1 nightly steps — the ordering is load-bearing: after recompute (won
+    # derives from fresh state), before digest (nudges route on post-return
+    # ownership).
+    run_expiry_step()
+    run_won_termination_step()
     digest.run(as_of or datetime.now(UTC).date(), sender=sender)  # nudges out, after fresh state
