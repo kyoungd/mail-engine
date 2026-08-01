@@ -1,4 +1,4 @@
-# Current state — 2026-08-01: partner build mid-flight — Phases 1+2 done in dev, Batch C (Phase 4) next
+# Current state — 2026-08-01: partner build CODE-COMPLETE in dev — Stage A (Phases 1, 2, 4) all landed
 
 **Partner lead assignment** (`partner-lead-assignment.md` rev 7 + implementation plan,
 batched per ground rule 5) is the active build:
@@ -22,9 +22,27 @@ batched per ground rule 5) is the active build:
   ⚠️ The real FTC registry client is deliberately unwritten — the portal file format is
   unverifiable until the SAN exists (Phase 0); `--fake` unblocks dev, the nightly scrub
   stays unconfigured (`nightly_cli` passes `dnc_registry=None`).
-- **Batch C — Phase 4 next** (assignment verbs + jobs; Phase 3 deferred to Stage C1,
-  Phase 5 unscheduled). Gate: show the batch's frozen tests, one nod, run free.
-  Q10 gates only the close-visibility inflow inside it.
+- **Batch C — Phase 4 DONE, nodded + built 2026-08-01** (assignment verbs + jobs;
+  Phase 3 deferred to Stage C1, Phase 5 unscheduled): `service/assignment.py`
+  (assign_batch with §5 derived counts / explicit override / id-list cutover form,
+  idempotent retry receipts, every S-1 gate as a named shortfall cause, for-update
+  locking against `suppress()`; export_batch stamping `last_export_at`; reclaim;
+  expiry + won-termination nightly steps slotted after recompute / before digest),
+  the **sender-None recording guard** in `digest.run` (partner hits skipped
+  entirely until Stage C1 — remove it there), and the **Q10 close correlation**
+  (`seams/nmc_closes.py` per the ratified contract §2, `jobs/close_correlation.py`
+  with the 45-day watermark rule + consumer-side double-count guard, nightly slot
+  after resolve_orphans / before recompute; real feed gated on the select-only
+  Medusa role — `nightly_cli` activates it only when `MEDUSA_DATABASE_URL` is set).
+  `jobs/assignment_cli.py` is the operator front door and the cutover tool.
+  **444 offline tests**, ruff + pyright clean. **Not deployed to the production
+  checkout** — migrations 0009+0010 and the first `suppression_report` review are
+  the deploy-day steps.
+- **The cutover runbook (the day John's first real batch is issued):** roster row on
+  the main site → `partners_cli set` with `--sales-rep-id`/`--partner-code` →
+  `subscribe_area_codes add <codes>` → a `dnc_refresh` pass (real registry — needs
+  the SAN) → `assignment_cli assign John --key john-cutover --ids-file <surviving
+  sheet rows>` → `assignment_cli export John`. Sheet void from that date.
 - **Phase 0 operational items still open:** SAN registration (start now — lead time
   unknown), Q6 counsel hour, area-code re-derivation script, paper prongs, the PRD/
   partnership-program amendments.
