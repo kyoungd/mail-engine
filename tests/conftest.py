@@ -37,7 +37,9 @@ _load_dotenv(PROJECT_ROOT / ".env")
 def pytest_configure(config: pytest.Config) -> None:
     """Halt the whole session — not skip, not warn — if this is not a test environment."""
     problem = unsafe_test_environment(
-        os.environ.get("OWNER_DATABASE_URL", ""), os.environ.get("LOB_API_KEY", "")
+        os.environ.get("OWNER_DATABASE_URL", ""),
+        os.environ.get("LOB_API_KEY", ""),
+        os.environ.get("MEDUSA_READONLY_URL", ""),
     )
     if problem:
         pytest.exit(

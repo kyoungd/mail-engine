@@ -14,7 +14,6 @@ would be invisible to an attribution-table feed. `raw_code` classification again
 against mail-engine's own piece codes happens in the consumer (no grant needed).
 """
 
-import os
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime
@@ -73,9 +72,14 @@ class NmcCloseFeed:
 
     @classmethod
     def from_env(cls) -> "NmcCloseFeed":
-        url = os.environ.get("MEDUSA_DATABASE_URL", "")
+        from db.medusa import medusa_readonly_url
+
+        url = medusa_readonly_url()
         if not url:
-            raise ValueError("MEDUSA_DATABASE_URL is not set")
+            raise ValueError(
+                "MEDUSA_READONLY_URL is not set (the read-only Medusa credential; "
+                "never the owner's MEDUSA_DATABASE_URL)"
+            )
         return cls(url)
 
     def closes(self, since: datetime) -> Iterator[Close]:

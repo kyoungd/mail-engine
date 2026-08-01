@@ -62,3 +62,25 @@ def test_missing_lob_key_is_safe_when_the_database_is_a_test_database():
 def test_url_with_query_params_and_trailing_slash_still_parses():
     assert unsafe_test_environment(DEV + "?sslmode=disable", TEST_KEY) is None
     assert unsafe_test_environment(PROD + "?sslmode=disable", TEST_KEY) is not None
+
+
+# --- the Medusa credential rule (A2): the suite never holds a real one ------------
+
+LOCAL_MEDUSA = "postgresql://medusa_nmc_ro:pw@localhost:5432/medusa_nmc"
+REMOTE_MEDUSA = (
+    "postgresql://medusa_nmc_ro:pw@dpg-x.oregon-postgres.render.com/medusajs_nmc"
+)
+
+
+def test_no_medusa_credential_is_fine():
+    assert unsafe_test_environment(DEV, TEST_KEY, "") is None
+
+
+def test_local_medusa_mirror_is_fine():
+    assert unsafe_test_environment(DEV, TEST_KEY, LOCAL_MEDUSA) is None
+
+
+def test_remote_medusa_credential_refuses():
+    problem = unsafe_test_environment(DEV, TEST_KEY, REMOTE_MEDUSA)
+    assert problem is not None
+    assert "Medusa" in problem or "MEDUSA" in problem

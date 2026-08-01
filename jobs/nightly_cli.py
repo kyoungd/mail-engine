@@ -133,10 +133,13 @@ def main(argv: list[str] | None = None) -> int:
 
     # DNC registry: no real FTC client exists yet (needs the SAN — Phase 0), so the
     # nightly scrub stays unconfigured; dev scrubs run via `jobs.dnc_refresh --fake`.
-    # Close feed: gated on the select-only Medusa role (🔴 credential, not created
-    # yet) — until MEDUSA_DATABASE_URL carries it, the correlation is skipped.
+    # Close feed: gated on MEDUSA_READONLY_URL (the medusa_nmc_ro credential, PRD
+    # § Production connection strings) — deliberately unset until Stage B1 turns
+    # the correlation on.
+    from db.medusa import medusa_readonly_url
+
     close_feed = None
-    if os.environ.get("MEDUSA_DATABASE_URL"):
+    if medusa_readonly_url():
         from seams.nmc_closes import NmcCloseFeed
 
         close_feed = NmcCloseFeed.from_env()
