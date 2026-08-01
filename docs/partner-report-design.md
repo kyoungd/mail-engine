@@ -4,15 +4,26 @@
 came first, a fresh-context review then found two blockers and two lines that could never
 honestly render, and the corrected document is what stands ratified. Operator steer,
 binding: "we don't need anything fancy at this time" — build the plain version, resist
-additions. Implements the 2026-07-29
+additions.*
+
+*Revision 2026-07-31 (operator-approved project restart, after the Sales Partner
+Toolkit shipped): (1) a THIRD section, "Your demos," is added — the toolkit's
+demo-contact log made partner demo activity system-observable, which the ratified
+activity-exclusion could not have foreseen; the exclusion of DIALS stands unchanged
+(the sheet is still invisible). (2) The close feed's §2 was rewritten against the
+verified schema (`nmc-close-feed-contract.md`, same date) — customer-table spine,
+three-table grant. (3) Project staging decided: FOUNDATION (partner Phases 1–4 +
+read-only role + corrected contract — needed for the first active partner regardless
+of this report) → FEEDS (close feed + demos feed) → REPORT (sender + composer + this
+design). The report composer remains the LAST brick, deliberately. Implements the 2026-07-29
 decisions (`decisions.md`): partners are informed by a periodic emailed report, not a
 portal; the first half is HOLDINGS, not activity. **Split 2026-07-29 (operator): this
 doc is the MARKETING half — composer, sender, content, cadence. The core site's half
-(close-feed endpoint, trial-to-paid observability, roster) lives in
+(close-feed read-only role, trial-to-paid observability, roster, demos feed) lives in
 `../../../docs/active/to-do-partner-report-support.md`.** Companions:
 `partner-lead-assignment.md` (S-2 export, S-6 staleness, §8 performance),
 `nmc-close-feed-contract.md` (the earnings data's inflow),
-`../../../docs/partnership-program.md` (bonus and co-op structure).*
+`../../../docs/partnership-program.md` (bonus and co-op structure), `../../../docs/active/to-do-partner-report-project-implementation.md` (the staged build plan, 2026-07-31).*
 
 ## What this is
 
@@ -32,15 +43,16 @@ The house id is a **planned** pinned constant (`HOUSE_PARTNER_ID`, seeded by par
 Phase 1 — it is not in `config/params.py` today; an earlier draft of this paragraph
 asserted it was). Once it exists this is a filter, not a heuristic.
 
-Two sections that ship at different times:
+Three sections that ship at different times:
 
 | Section | Data lives in | Available |
 |---|---|---|
 | **1. Your list** (holdings) | mail-engine spine | with partner Phases 1–4 (`partners`, `assignment_batches`, `contacts.owner_id`) |
-| **2. Your closes** (earnings) | Medusa (`nmc_sales_attribution`) via the close feed | after Q10 / `nmc-close-feed-contract.md` is built |
+| **2. Your closes** (earnings) | Medusa (customer-spine query, contract §2) via the close feed | after Q10 / `nmc-close-feed-contract.md` is built |
+| **3. Your demos** (revision 2026-07-31) | Service DB via booking-system's partner-keyed HTTP feed | after the demos feed (support doc Deliverable 4) is built |
 
-Until the close feed exists, the email simply has no section 2. No placeholder, no
-"coming soon" — a section appears when its data is real.
+Until a section's feed exists, the email simply has no such section. No placeholder,
+no "coming soon" — a section appears when its data is real.
 
 ## Section 1 — Your list
 
@@ -50,7 +62,6 @@ All fields are spine queries; sources named so the composer is mechanical.
 |---|---|
 | **Headline: earliest expiry across all live batches** — *N days left* | min(`expires_at`) over the partner's unexpired batches (O2, 2026-07-29: a partner routinely holds two or three, and latest-batch-only would hide the clock that matters) |
 | One line per live batch: assigned N contacts on DATE, expires DATE | `assignment_batches` (0009) |
-
 | Contacts currently yours: N | `contacts` where `owner_id = partner` and not suppressed/reclaimed/expired |
 | Removed since last report: N opted out, N reclaimed, N expired | ownership events + suppression flags since last report date |
 | Your last export was generated DATE (N days ago) | `partners.last_export_at`, stamped by `export_batch` — **new column, see R1** (review 2026-07-29: S-2 puts the timestamp in a *column of the emitted CSV*, which persists nothing, so this line had no readable source) |
@@ -72,8 +83,15 @@ Nothing in section 1 is a performance judgment.
 
 | Line | Source |
 |---|---|
-| Closes credited since the last report: N (names of businesses) — *"since last report", never a calendar week; event-triggered sends make the two diverge* | ingested `signup.completed` events carrying this partner's `partner_code`, correlated to spine contacts |
+| Closes credited since the last report: N (names of businesses) — *"since last report", never a calendar week; event-triggered sends make the two diverge* | ingested `signup.completed` events credited to this partner — by `partner_code` match **OR** `sold_by` = the partner's `sales_rep_id` (revision 2026-07-31; rep-entered closes often carry no typed code) — correlated to spine contacts |
 | Total closes to date: N | same, cumulative |
+
+**Orphaned-but-credited closes (revision 2026-07-31):** a coded close whose phone is
+null or unmatched sits orphaned in the spine (contract §3), possibly for days —
+business names come from the correlated contact, so an orphaned close has none. Rule:
+it is **counted** in N immediately (crediting keys on the code/`sold_by`, not the
+correlation) and listed as *"new close — details pending"* until correlation lands.
+Never dropped, never guessed.
 
 **Two lines cut in review (2026-07-29, operator-approved): bonus vesting and co-op
 balance.** Both were main-side *ledger* facts — "vested" (the two-halves three-month gate),
@@ -90,6 +108,42 @@ Money questions belong to whoever owns the money — the main site — and if a 
 see a balance, it should arrive from there, not be reconstructed here.
 
 Same honesty rule as section 1: no line appears unless its data is real.
+
+## Section 3 — Your demos (added by revision, 2026-07-31)
+
+| Line | Source |
+|---|---|
+| Your demos since your last report: N calls (M unique prospects, K from blocked numbers), T texts forwarded to you — *same "since last report" convention as Section 2 (final-review fix 2026-07-31: a calendar week would diverge from the report's own span on event-triggered sends, double- or never-reporting contacts)* | booking-system's demo-contact feed (below), window `[last_report_at, compose time)` |
+
+The Sales Partner Toolkit gave every active partner a demo-forwarding number whose
+calls and texts hit NMC's own webhook and land in `scheduling.partner_demo_contacts`
+(Service DB). That is system-observed partner-funnel activity — it satisfies the
+ratified honesty rule in a way dial counts never could, and **the dials exclusion
+stands unchanged** (§1's "Deliberately absent" paragraph is not weakened by this
+section; effort in the sheet remains invisible and unreported).
+
+**Data path (decided with the toolkit design, `to-do-sales-partner-toolkit.md`
+§ open item 3 → resolved here): a partner-keyed HTTP feed served by booking-system**,
+`ApiKeyGuard`-authenticated, consumed by mail-engine at compose time — NOT a second
+read-only role on the Service DB (one cross-system credential is the accepted TD-12
+cost; two is a pattern). The existing capture-time endpoint cannot serve this (it is
+prospect-phone-keyed, mandatory param, unaggregated); the report needs a variant keyed
+on `partner_number` with a `[from, to)` window. **The window is
+`[partners.last_report_at, compose time)`** — computed by MAIL-ENGINE (the caller,
+who owns cadence); the endpoint does no calendar math (final-review fix 2026-07-31:
+no calendar weeks anywhere — the earlier "calendar week via tz-handler" wording is
+retired; `America/Los_Angeles` matters only for DISPLAYED dates in the email, via
+Python `zoneinfo`).
+
+**Honesty caveats, binding on the composer:**
+- Blocked-ID contacts share one `anonymous` key → K counts **calls, not callers**, and
+  `anonymous` must be excluded from the unique-prospect count M.
+- Demo-contact writes are fail-soft (a DB failure never blocks the prospect's call) →
+  all counts are **floors**, not a ledger. The report never claims exactness.
+- Rows with a null rep snapshot (mapping outage at write time) are keyed by
+  `partner_number`, which is always present — never dropped.
+- Same as every section: if the feed is unreachable at compose time, the section is
+  omitted — no placeholder, no stale numbers.
 
 ## Cadence
 
@@ -115,7 +169,7 @@ the risk. No scheduler, one piece of state; the rule is written out in
 
 ## The core site's half
 
-Everything the report needs from the main app — the close-feed endpoint (earnings
+Everything the report needs from the main app — the close-feed read-only role (earnings
 inflow), trial-to-paid observability, and partner registration via the existing roster —
 is specified in `../../../docs/active/to-do-partner-report-support.md`. One operator
 runbook stays on this side for revision 7: create the roster row on the main site, note

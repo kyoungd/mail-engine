@@ -1,5 +1,21 @@
 # Interface contract — NMC close feed (main app → mail engine)
 
+**Revised 2026-07-31 (verification pass against the REAL schema — operator-approved
+project restart; corrected same day by fresh-context review):** §2 is rewritten. The
+first draft's column claims were never verified and were wrong
+(`nmc_sales_attribution` has `attributed_at`, no `status`, no phone, no kind, no
+partner_code column), and — more fundamentally — **an attribution-table feed cannot
+satisfy §3's own binding rule**: a row is written only when the order carried a rep
+or a `?r=` source (`nmc-order-subscription.ts:570`), so **tag-less** closes produce
+NO row. Which closes carry a source is path-dependent (review correction — the first
+revision got this wrong): a postcard/QR pointing at the MAIN site (`/us?r=…`) stamps
+`source` and DOES write a row (the inline-checkout code comments say so verbatim);
+the LANDING-page guest checkout (`getnevermisscall.com`) stamps only
+`order.metadata.mailer_code` — no `source`, no row; organic no-code signups write no
+row. The feed's spine is therefore the **`customer` table**, with attribution as a
+LEFT-JOIN decoration (a same-DB join — legal; the cross-DB prohibition is between
+the two *databases*).
+
 **Revised 2026-07-29 (operator decision): the transport is a READ-ONLY connection to the
 Medusa database, not an HTTP endpoint.** §1 records the decision and corrects an error in
 the original draft. Everything from §3 onward — idempotency, watermark, all-closes,
@@ -44,52 +60,101 @@ where an endpoint would have insulated it. Plus one more credential to hold and 
 **Two prerequisites, neither optional:**
 
 1. **A read-only Postgres role on the Medusa DB must be created — it does not exist
-   today.** PRD § Production connection strings lists only `medusajs_nmc_user`, the
-   **owner**. Handing mail-engine that credential would give the marketing app *write*
-   access to the subscriber database, which is a materially worse trade than the one being
-   accepted here. `grant connect` + `grant select` on the named tables only.
+   today** (re-verified 2026-07-31: PRD § Production connection strings still lists only
+   `medusajs_nmc_user`, the **owner**; zero grant DDL exists anywhere in the repo).
+   Handing mail-engine that credential would give the marketing app *write* access to
+   the subscriber database, which is a materially worse trade than the one being
+   accepted here. `grant connect` + `grant select` on the named tables only —
+   **and the named tables are THREE** (2026-07-31, from the real query + reads in §2):
+   `customer`, `nmc_sales_attribution`, `nmc_partner_code`. A grant
+   worded "the close tables only" omits `customer` and silently breaks both the feed's
+   spine and the status column; `nmc_sales_rep` is deliberately NOT granted — nothing
+   reads it (`sold_by` maps directly to mail-engine's own `partners.sales_rep_id`). Record the credential in PRD § Production connection
+   strings when minted (the mail-engine side's own `me_user_ro` +
+   `0002.readonly-grants.sql` is the working precedent for the pattern).
 2. **Mail-engine gets a third connection helper.** `db/session.py` (`OWNER_DATABASE_URL`)
    and `db/readonly.py` (`READONLY_DATABASE_URL`) both point at the mail-engine database.
    A new `db/medusa.py` reading `MEDUSA_READONLY_URL` keeps the boundary legible and keeps
    the existing helpers single-purpose. **Never** reuse either existing helper for this.
 
-## 2. The query (mail-engine implements, over the read-only role)
+## 2. The query (mail-engine implements, over the read-only role) — REWRITTEN 2026-07-31 against the verified schema
 
-Read `nmc_sales_attribution` (verified to carry `id`, `created_at`, `status`), joined in
-**mail-engine's** app code to whatever the main app uses to record the typed code — see
-`website/src/lib/nmc-partner-codes.ts`. `select` only; mail-engine never writes here.
+**The spine is `customer`, not `nmc_sales_attribution`.** Verified reality
+(`website/src/modules/nmc-sales/migrations/Migration20260602000000.ts:35-45` +
+`nmc-order-subscription.ts:569`): the attribution table carries
+`id BIGSERIAL, customer_id UNIQUE, sold_by, source, referral_code, signed_up_via,
+order_id, attributed_at` — and a row exists **only** when the close carried a rep or
+a `?r=` source. **Tag-less** closes write no row (organic self-serve, and the
+landing-page guest checkout whose code rides `order.metadata` instead — see the
+header note for the path-dependence; main-site `?r=` closes DO write rows). A feed
+on that table alone can never satisfy §3. The `customer` row exists for every
+signup, so:
 
-The field list below is now a **column contract**: these are the values mail-engine reads,
-whatever they are named on the Medusa side. The mapping (column → field) is pinned in
-`seams/nmc_closes.py` and is the one place a Medusa rename must be repaired.
-
-One row, as mail-engine sees it after mapping:
-
+```sql
+SELECT c.id, c.created_at, c.email,
+       c.metadata->>'business_phone'        AS raw_phone,
+       c.metadata->>'nmc_subscription_status' AS subscription_status,
+       a.sold_by,
+       UPPER(COALESCE(a.referral_code, a.source)) AS raw_code,
+       a.signed_up_via
+FROM customer c
+LEFT JOIN nmc_sales_attribution a ON a.customer_id = c.id
+WHERE c.created_at > %s
+  AND c.email NOT LIKE 'smoke-test+%%'      -- prod smoke-test convention
+  AND c.email NOT LIKE 'e2e-%%'             -- e2e convention
+ORDER BY c.created_at, c.id
+LIMIT %s
 ```
-id            "nmcclose_01J8..." / 4711      -- whatever nmc_sales_attribution.id is
-recorded_at   2026-07-29T18:04:11.412Z
-occurred_at   2026-07-29T17:58:02.000Z
-kind          signup_completed
-phone_e164    +18186793565
-partner_code  JK-01          (nullable)
-mailer_code   null           (nullable)
-subscriber_ref cus_QxyZ...
-```
 
-| Field | Required | Meaning |
+(Both tables are in the Medusa DB — this join does NOT cross the two-database
+boundary; the prohibition in §8 is about joining ACROSS the two databases.)
+
+**Grant scope: THREE tables — `customer`, `nmc_sales_attribution`,
+`nmc_partner_code`** (review correction: the first revision granted `nmc_sales_rep`
+too, but nothing reads it — `sold_by` IS the roster id, and mail-engine maps it
+directly to its own `partners.sales_rep_id`, which the operator runbook stamps for
+exactly this purpose. Never grant a 🔴 credential a table without a documented
+reader.)
+
+**`raw_code` is classified by mail-engine on read — one value, three outcomes:**
+match in `nmc_partner_code` (uppercased) → `partner_code`; match against
+mail-engine's OWN piece codes (its `pieces` table — no grant needed) →
+`mailer_code`; neither → page-default noise (`SMS_SALES` etc.), both fields null.
+A close is credited to a partner when `partner_code` matches **OR** `sold_by`
+matches `partners.sales_rep_id` — rep-entered closes carry `sold_by` but often no
+typed code.
+
+The field mapping, now against real sources — pinned in `seams/nmc_closes.py`, the
+one place a Medusa rename must be repaired:
+
+| Field | Source (real) | Notes |
 |---|---|---|
-| `id` | yes | **Stable and immutable forever.** The idempotency key — see §4. `nmc_sales_attribution.id` satisfies this. |
-| `recorded_at` | yes | The watermark — see §5. `created_at` is the candidate; **verify it is never backdated** before relying on it, since a backdated row is a permanently missed close. |
-| `occurred_at` | yes | When the close actually happened. Reported, never used for paging. |
-| `kind` | yes | `signup_completed` \| `trial_to_paid`. See §6 — this is what unblocks the main app. |
-| `phone_e164` | yes, nullable | The correlation key. **Normalized to E.164 by mail-engine on read** (`domain/phone.to_e164`) — nothing serves the row, so the main app cannot do it. Null is permitted and means "unattributable" — see §3. |
-| `partner_code` | yes, nullable | The typed partner code, when the subscriber gave one. **Null is normal** and does not mean "not a close". |
-| `mailer_code` | yes, nullable | The postcard `?r=` code, when the signup carried one. Present for funnel closes; null otherwise. Used only for the double-count question in §7. |
-| `subscriber_ref` | yes | Opaque main-app identifier, for audit and back-reference. mail-engine stores it and never interprets it. |
+| `id` | `customer.id` (`cus_…`) | Stable/immutable ✓ — the idempotency key (§4) |
+| `recorded_at` | `customer.created_at` | The watermark (§5). Assigned at durable write, never backdated ✓. ⚠️ No index on it in the Medusa schema was verified — check before relying at scale; table is small today |
+| `occurred_at` | `:= recorded_at` | Signup IS the close event; the two are the same instant for kind `signup_completed` |
+| `kind` | constant `signup_completed` | Not a column. `trial_to_paid` stays never-emitted until the main app can observe it (§6; verified 2026-07-31: it cannot today — no conversion timestamp exists anywhere) |
+| `phone_e164` | `customer.metadata->>'business_phone'`, normalized by mail-engine on read | ⚠️ **Late-arriving by design**: checkout collects NO phone; it first exists when the wizard saves it (possibly days after `created_at`, i.e. after the watermark has passed). See the backfill rule below |
+| `partner_code` | `raw_code` classified against `nmc_partner_code` (see classification rule above) | There is no partner_code column. Null when no attribution row, or the code isn't in the registry |
+| `mailer_code` | `raw_code` classified against mail-engine's own piece codes | Present for MAIN-site postcard/QR closes (`/us?r=…` → `source`). ⚠️ LANDING-page postcard closes carry the code only on `order.metadata` (no attribution row) — those reach the spine via PostHog, not this feed. See §7 |
+| `sold_by` | `a.sold_by` (nullable) | The roster rep id for rep-entered closes; mail-engine maps it to `partners.sales_rep_id` for crediting (review fix — previously fetched and dropped) |
+| `signed_up_via` | `a.signed_up_via` (nullable) | Path taken (`self_serve` / rep flows); stored in the event payload for audit — no branching on it (final-review fix: previously selected with no declared reader) |
+| `subscription_status` | `customer.metadata->>'nmc_subscription_status'` (nullable) | Current-state scalar, stored in the payload for audit/spine context; NEVER a conversion signal (Deliverable 2) and never branched on in v1 |
+| `subscriber_ref` | `customer.id` | Same as `id` — kept as a separate field so the contract shape survives if the spine ever changes |
 
-**Ordering and batching.** `where <recorded_at> > %s order by <recorded_at>, id limit %s`
-— mail-engine owns the loop and keeps reading until a short page comes back. No
-`next_since`/`has_more` protocol: the watermark is the last row's `recorded_at`, held by
+**The phone-backfill rule (new, binding on mail-engine):** because `phone_e164` can be
+null at first read and real later, the effective query bound is
+**`since = min(stored_watermark, now − 45 days)`** (final-review fix 2026-07-31 —
+the watermark and the trailing window need ONE combining rule): the trailing 45 days
+are always re-covered (re-serving is safe by §4; the UPDATE half is the second pass
+below), and a watermark older than 45 days — post-downtime — wins, so nothing is
+missed. The consumer re-polls that window each nightly and, for events it previously ingested with a
+null phone, updates the orphaned event's payload phone when it appears — orphan
+resolution is the designed resting place (§3), and this is the designed *un*-resting
+mechanism. An event whose phone never arrives simply stays orphaned.
+
+**Ordering and batching.** `where created_at > %s order by created_at, id limit %s` —
+mail-engine owns the loop and keeps reading until a short page comes back. No
+`next_since`/`has_more` protocol: the watermark is the last row's `created_at`, held by
 mail-engine (§ R3's `feed_watermarks`), and the main app is not involved.
 
 ---
@@ -167,7 +232,17 @@ stops being mailed and stops being assignable.
 
 ## 7. The one binding open question: double counting
 
-A close through the coded landing funnel **already** reaches the spine as
+**Reframed 2026-07-31 by the §2 rewrite (and corrected by review):** every close now
+reaches the spine from this feed (customer spine), and funnel closes ALSO arrive via
+PostHog — `landing_purchase_completed` for landing-page closes (whose mailer code
+this feed cannot see) and the `?r=` capture for main-site closes (whose mailer code
+this feed CAN see, in `raw_code`). Note the source text this section's options rest
+on already binds the direction: `partner-lead-assignment.md` §11 Q10 continues
+"…deduplicating against existing `signup.completed` events from any source first
+(S-10's double-count guard)". The dedupe question is unchanged in structure, sharper
+in scope.
+
+A close through the landing funnel **already** reaches the spine as
 `signup.completed` from the **PostHog** feed. The same close arriving from this feed
 carries a different `source`, so `(source, external_id)` will not dedupe it. Two events,
 one close.
@@ -199,22 +274,34 @@ a decision: this is `partner-lead-assignment.md` §11 Q10 and belongs to the ope
 
 ## 8. What each side implements
 
-**Main app**
-- The `GET /api/nmc/closes` route above, `X-API-KEY` authenticated, read-only.
-- A stable, immutable `id` per close and a monotonic `recorded_at`.
-- Phone normalized to E.164 before serving.
-- Emit `signup_completed` now; add `trial_to_paid` when observable.
+**Main app** *(corrected 2026-07-31 — the HTTP-route line below was stale from the
+pre-revision draft; under the read-only transport the main app builds NOTHING)*
+- Keep `customer.id` / `customer.created_at` stable and monotonic (they already are),
+  and don't rename the §2 columns without telling the marketing side (TD-12's sharp end).
+- The 🔴 operator action: mint the read-only role with the THREE-table grant (§1) and
+  record it in PRD § Production connection strings.
+- `trial_to_paid`: never emitted until observable. The verified cheapest path, if ever
+  wanted: stamp `nmc_first_paid_at` once in `handleInvoicePaid` when the pre-patch
+  status was `trialing` (a 🟡 main-app change, deliberately NOT part of this feed's v1).
 
 **mail-engine**
 - `db/medusa.py` — the read-only connection helper (§1 prerequisite 2).
 - `seams/nmc_closes.py` — an `NmcCloseFeed` implementing `ResponseFeed`, `source = "nmc"`,
   querying over that connection and yielding `Event(type="signup.completed", external_id=<close.id>, occurred_at=…,
-  payload={phone_e164, partner_code, mailer_code, subscriber_ref, kind}, contact_id=None)`.
+  payload={phone_e164, partner_code, mailer_code, sold_by, subscriber_ref, kind, signed_up_via, subscription_status}, contact_id=None)`.
 - Registration in `jobs/nightly_cli.py::_build_feeds` behind `MEDUSA_READONLY_URL`,
   skipped-and-reported when unset, exactly like the Lob and PostHog feeds.
-- A persisted watermark per feed. **`jobs/nightly_cli.py` currently passes a single
-  `since` for all feeds** (a 30-day lookback by default) — acceptable at first, since
-  over-polling is safe by §4, but a per-feed watermark is the correct end state.
+- A persisted watermark per feed. ⚠️ **`jobs/nightly_cli.py` currently passes a single
+  `since` for all feeds with a 30-day default lookback — 30 violates §2's binding
+  45-day backfill window** (under-polling loses late phones; over-polling is the safe
+  direction). This feed's lookback MUST be ≥45 days from day one; a per-feed
+  watermark is the correct end state; the effective bound is
+  `min(stored_watermark, now − 45d)` per §2.
+- **The phone-backfill update path (new build item, required by §2):**
+  `ingest_event`'s `ON CONFLICT DO NOTHING` cannot update an already-ingested
+  event's payload. mail-engine adds an explicit second pass: for orphaned nmc-source
+  events whose stored payload phone is null, re-read the row and update the payload
+  (and hand the event back to orphan resolution) when the phone has appeared.
 - No new inbound surface on either side.
 - **The test suite must never hold a Medusa credential that can write.** `tests/guard.py`
   refuses to run against a non-disposable mail-engine DB; the same fail-closed thinking

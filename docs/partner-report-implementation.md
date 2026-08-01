@@ -1,3 +1,16 @@
+> **⚠️ PARTIALLY SUPERSEDED — 2026-07-31 (project restart; see
+> `../../../docs/active/to-do-partner-report-project-implementation.md`, the staged
+> plan of record for sequencing).** Binding corrections to THIS document:
+> **R3:** the env vars `NMC_CLOSE_FEED_URL`/`NMC_CLOSE_FEED_KEY`, the
+> `recorded_at`/`has_more` paging, and the `next_since` watermark writer are all
+> RETIRED with the HTTP transport — the feed is a read-only Medusa query behind
+> `MEDUSA_READONLY_URL` with `since = min(stored_watermark, now − 45d)` per the
+> rewritten contract §2/§8; `feed_watermarks` lands in migration `0009` (revision 7).
+> **R4:** the vesting-line bullet is DEAD — v1 renders closes without vesting claims,
+> period (its own second bullet was already right; the composer's tests assert no
+> vesting/co-op lines exist).
+> **R1's four columns** ride `0009` via revision 7 of `partner-lead-assignment.md`.
+
 # Partner report — implementation plan
 
 *Execution brief for `partner-report-design.md` (APPROVED 2026-07-29, "nothing fancy").
