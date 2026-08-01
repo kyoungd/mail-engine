@@ -15,12 +15,14 @@ from uuid import UUID
 
 from psycopg import sql
 
+from config.params import HOUSE_PARTNER_ID
 from db.session import transaction
 from domain.errors import ValidationError
 from domain.phone import to_e164
 from domain.types import IntakeReport, SeedReport
 from resolution.pick import coalesce_email, pick_winner
-from service.ingestion import ingest_event
+from service.custody import set_owner
+from service.ingestion import append_event, ingest_event
 
 _TRUTHY = {"1", "true", "t", "yes", "y"}
 
@@ -147,9 +149,36 @@ def load_list(csv_path: str, source: str = "cslb") -> IntakeReport:
                         }
                     )
 
+            # Tombstone consult (S-6): a suppression survives FR-8's hard-delete via
+            # the tombstone, so a re-ingest of the same phone or list row re-acquires
+            # its suppression columns instead of resurrecting a mailable contact.
+            phones = [r["phone_e164"] for r in accepted if r["phone_e164"]]
+            keys = [r["list_key"] for r in accepted if r["list_key"]]
+            tombs_by_phone: dict[str, set[str]] = {}
+            tombs_by_key: dict[str, set[str]] = {}
+            if phones or keys:
+                cur.execute(
+                    "select phone_e164, list_key, channel from suppression_tombstones "
+                    "where phone_e164 = any(%s) or list_key = any(%s)",
+                    (phones, keys),
+                )
+                for t_phone, t_key, t_channel in cur.fetchall():
+                    if t_phone:
+                        tombs_by_phone.setdefault(t_phone, set()).add(t_channel)
+                    if t_key:
+                        tombs_by_key.setdefault(t_key, set()).add(t_channel)
+
             groups = _group(accepted, rule)
             for group in groups:
-                contact_id, primary_key = _resolve_group(cur, group, rule, source)
+                tomb_channels: set[str] = set()
+                for member in group:
+                    if member["phone_e164"]:
+                        tomb_channels |= tombs_by_phone.get(member["phone_e164"], set())
+                    if member["list_key"]:
+                        tomb_channels |= tombs_by_key.get(member["list_key"], set())
+                contact_id, primary_key = _resolve_group(
+                    cur, group, rule, source, tomb_channels
+                )
                 for member in group:
                     cur.execute(
                         sql.SQL(
@@ -179,6 +208,14 @@ def load_list(csv_path: str, source: str = "cslb") -> IntakeReport:
                     loaded += 1
                     if member["do_not_mail"]:
                         suppressed += 1
+                        # S-6 writer discipline (revision 5): the CSV's do_not_mail is
+                        # a suppression fact and gets its event like any other.
+                        append_event(
+                            cur, "system", "contact.suppressed", datetime.now(UTC),
+                            {"channel": "mail", "reason": "do_not_mail",
+                             "source": "intake"},
+                            contact_id=contact_id,
+                        )
 
     return IntakeReport(
         loaded=loaded, deduped=deduped, invalid=invalid, suppressed=suppressed
@@ -202,12 +239,17 @@ def _group(rows: list[dict], rule: str) -> list[list[dict]]:
     return groups + list(by_phone.values())
 
 
-def _resolve_group(cur, group: list[dict], rule: str, source: str) -> tuple[UUID, str | None]:
+def _resolve_group(
+    cur, group: list[dict], rule: str, source: str, tomb_channels: set[str]
+) -> tuple[UUID, str | None]:
     """Resolve one group to (contact_id, the list_key of the row to mark primary).
 
     An existing contact for the group's phone means ATTACH: no re-pick, no field writes
     beyond the absorbing `do_not_mail` merge, and no primary — the contact already has
-    one, and the partial unique index would reject a second."""
+    one, and the partial unique index would reject a second. `tomb_channels` is the
+    union of tombstone channels matching the group's phones/list_keys (S-6): a created
+    contact re-acquires those suppression columns; an attached contact already carries
+    its own history (its tombstones were written when IT was suppressed)."""
     phone = group[0]["phone_e164"] if rule == PHONE else None
     suppress_group = any(member["do_not_mail"] for member in group)
 
@@ -227,8 +269,9 @@ def _resolve_group(cur, group: list[dict], rule: str, source: str) -> tuple[UUID
     cur.execute(
         "insert into contacts "
         "(business_name, contact_name, phone_e164, email, addr_line1, addr_line2, "
-        "addr_city, addr_state, addr_zip, segment, source, do_not_mail) "
-        "values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) returning id",
+        "addr_city, addr_state, addr_zip, segment, source, do_not_mail, "
+        "do_not_text, do_not_call) "
+        "values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) returning id",
         (
             winner["business_name"],
             winner["contact_name"],
@@ -244,7 +287,9 @@ def _resolve_group(cur, group: list[dict], rule: str, source: str) -> tuple[UUID
             winner["addr_zip"],
             winner["segment"],
             source,
-            suppress_group,
+            suppress_group or "mail" in tomb_channels,
+            "sms" in tomb_channels,
+            "voice" in tomb_channels,
         ),
     )
     row = cur.fetchone()
@@ -337,35 +382,145 @@ def update_contact_address(
                 raise ValidationError("no_contact", f"no contact {contact_id}")
 
 
-def suppress(contact_id: UUID, reason: str) -> None:
-    """Set the human-authored flag AND append contact.opt_out. Irreversible by design:
-    there is no unsuppress verb, and recomputation preserves the flag."""
-    if reason not in ("do_not_mail", "opt_out"):
-        raise ValidationError(
-            "bad_reason", f"reason must be do_not_mail or opt_out, got {reason!r}"
+# S-6's channel model: which columns a suppression channel sets, and which
+# tombstone rows it writes. `all` is the opt_out case — every channel at once.
+_CHANNEL_COLUMNS: dict[str, tuple[str, ...]] = {
+    "mail": ("do_not_mail",),
+    "sms": ("do_not_text",),
+    "voice": ("do_not_call",),
+    "all": ("do_not_mail", "do_not_text", "do_not_call"),
+}
+_TOMBSTONE_CHANNELS: dict[str, tuple[str, ...]] = {
+    "mail": ("mail",),
+    "sms": ("sms",),
+    "voice": ("voice",),
+    "all": ("mail", "sms", "voice"),
+}
+# The channels the verb may clear (S-6): dnc_registry records what the registry
+# said, not what a person asked for. address_undeliverable's clear path is an
+# address correction, which does not exist yet — rejected like the permanent ones.
+_CLEARABLE_CHANNELS = frozenset({"dnc_registry"})
+
+
+def _primary_list_key(cur, contact_id: UUID) -> str | None:
+    """The primary intake row's list_key, for the tombstone. Either intake table;
+    seeds and hard-deleted contacts have none — the tombstone key is nullable."""
+    for table in ("intake_cslb_ca", "intake_fbn_ca"):
+        cur.execute(
+            sql.SQL(
+                "select list_key from {t} where contact_id = %s and is_primary"
+            ).format(t=sql.Identifier(table)),
+            (contact_id,),
         )
-    ingest_event(
-        source="human",
-        type="contact.opt_out",
-        occurred_at=datetime.now(UTC),
-        payload={"reason": reason},
-        contact_id=contact_id,
-    )
+        row = cur.fetchone()
+        if row is not None:
+            return row[0]
+    return None
+
+
+def suppress(contact_id: UUID, channel: str, reason: str) -> None:
+    """Per-channel suppression (S-6). Sets the channel's column, appends the event,
+    and writes the tombstone — one transaction on one cursor. `all` is the opt_out
+    case: every channel, `contact.opt_out`, three tombstone rows. A voice-blocking
+    suppression (`voice` or `all`) also ends any live assignment via set_owner in
+    the same transaction. Permanent by design: there is no unsuppress verb, and
+    `clear_suppression` rejects every channel this verb writes."""
+    if channel not in _CHANNEL_COLUMNS:
+        raise ValidationError(
+            "bad_channel",
+            f"channel must be one of {sorted(_CHANNEL_COLUMNS)}, got {channel!r}",
+        )
+    if not reason.strip():
+        raise ValidationError("bad_reason", "a suppression carries its reason")
+    if channel == "all" and reason == "do_not_mail":
+        # v3 derivation reads payload.reason on contact.opt_out: 'do_not_mail' means
+        # mail-only (the historical shape). An all-channel event carrying it would
+        # re-arm the exact ambiguity the split exists to end.
+        raise ValidationError(
+            "bad_reason", "reason 'do_not_mail' is the mail channel — use channel='mail'"
+        )
+
+    now = datetime.now(UTC)
     with transaction() as conn:
         with conn.cursor() as cur:
-            if reason == "do_not_mail":
-                cur.execute(
-                    "update contacts set do_not_mail = true where id = %s", (contact_id,)
+            cur.execute(
+                "select phone_e164, owner_id from contacts where id = %s", (contact_id,)
+            )
+            row = cur.fetchone()
+            if row is None:
+                raise ValidationError("no_contact", f"no contact {contact_id}")
+            phone, owner_id = row
+            list_key = _primary_list_key(cur, contact_id)
+
+            columns = _CHANNEL_COLUMNS[channel]
+            cur.execute(
+                sql.SQL("update contacts set {sets} where id = %s").format(
+                    sets=sql.SQL(", ").join(
+                        sql.SQL("{} = true").format(sql.Identifier(c)) for c in columns
+                    )
+                ),
+                (contact_id,),
+            )
+
+            if channel == "all":
+                append_event(
+                    cur, "human", "contact.opt_out", now,
+                    {"reason": reason}, contact_id=contact_id,
                 )
             else:
-                # opt_out halts both channels immediately: mail via do_not_mail (so the
-                # audience resolver excludes them before the next recompute), SMS via
-                # do_not_text. Matches the suppressed derivation (opt_out => suppressed).
-                cur.execute(
-                    "update contacts set do_not_mail = true, do_not_text = true "
-                    "where id = %s",
-                    (contact_id,),
+                append_event(
+                    cur, "human", "contact.suppressed", now,
+                    {"channel": channel, "reason": reason, "source": "human"},
+                    contact_id=contact_id,
                 )
+
+            for stone in _TOMBSTONE_CHANNELS[channel]:
+                cur.execute(
+                    "insert into suppression_tombstones "
+                    "(phone_e164, list_key, channel, reason) values (%s, %s, %s, %s)",
+                    (phone, list_key, stone, reason),
+                )
+
+            # S-6: setting a voice-blocking flag immediately removes the contact
+            # from its assignment — same transaction, so the removal cannot be lost.
+            if channel in ("voice", "all") and owner_id != HOUSE_PARTNER_ID:
+                set_owner(
+                    cur, contact_id, HOUSE_PARTNER_ID,
+                    event_type="contact.reclaimed",
+                    reason="do_not_call" if channel == "voice" else "opt_out",
+                    actor="system",
+                )
+
+
+def clear_suppression(
+    contact_id: UUID,
+    channel: str,
+    *,
+    reason: str = "",
+    source: str = "human",
+    external_id: str | None = None,
+) -> int:
+    """The single public write path for `contact.suppression_cleared` (S-6). Accepts
+    only the clearable column — `dnc_registry`, whose truth belongs to the registry —
+    and rejects the permanent channels at the write. Called internally by the scrub's
+    delisting path (which passes source='system' and the version-keyed external_id)."""
+    if channel not in _CLEARABLE_CHANNELS:
+        raise ValidationError(
+            "not_clearable",
+            f"channel {channel!r} is permanent; only {sorted(_CLEARABLE_CHANNELS)} clear",
+        )
+    with transaction() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "update contacts set dnc_registry = false where id = %s", (contact_id,)
+            )
+            if cur.rowcount == 0:
+                raise ValidationError("no_contact", f"no contact {contact_id}")
+            return append_event(
+                cur, source, "contact.suppression_cleared", datetime.now(UTC),
+                {"channel": channel, "reason": reason},
+                external_id=external_id, contact_id=contact_id,
+            )
 
 
 def record_outcome(contact_id: UUID, outcome: str, reason: str) -> int:

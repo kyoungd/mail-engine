@@ -105,11 +105,14 @@ def test_load_list_dedupes_against_existing_rows(clean_db, tmp_path, owner_conn)
     assert report.deduped == 1
 
 
-def test_suppress_sets_flag_appends_event_and_derives_suppressed(
+def test_suppress_mail_sets_flag_emits_suppressed_and_frees_the_stage(
     clean_db, owner_conn, readonly_url
 ):
+    """v3 counterpart of the v2 all-channel assertion (rewritten under the Phase 2
+    🔴 approval): a mail suppression gates mail via the column and emits
+    contact.suppressed — it no longer collapses the whole contact into SUPPRESSED."""
     contact_id = _seed_contact(owner_conn)
-    suppress(contact_id, "do_not_mail")
+    suppress(contact_id, "mail", "asked")
     recompute_state()
 
     with psycopg.connect(readonly_url) as conn:
@@ -118,12 +121,19 @@ def test_suppress_sets_flag_appends_event_and_derives_suppressed(
             row = cur.fetchone()
             assert row is not None and row[0] is True
             cur.execute(
-                "select count(*) from events where contact_id = %s and type = 'contact.opt_out'",
+                "select count(*) from events where contact_id = %s "
+                "and type = 'contact.suppressed'",
                 (contact_id,),
             )
             row = cur.fetchone()
             assert row is not None and row[0] == 1
-    assert _stage(readonly_url, contact_id) == "suppressed"
+            cur.execute(
+                "select count(*) from events where contact_id = %s and type = 'contact.opt_out'",
+                (contact_id,),
+            )
+            row = cur.fetchone()
+            assert row is not None and row[0] == 0
+    assert _stage(readonly_url, contact_id) != "suppressed"
 
 
 def test_suppress_is_one_way_no_unsuppress_verb():
@@ -134,7 +144,7 @@ def test_opt_out_halts_mail_immediately_without_a_recompute(clean_db, owner_conn
     from service.waves import resolve_audience
 
     contact_id = _seed_contact(owner_conn)  # plumber, do_not_mail = false
-    suppress(contact_id, "opt_out")
+    suppress(contact_id, "all", "asked to be left alone")
     # No recompute has run — the audience resolver must already exclude them.
     with owner_conn.cursor() as cur:
         remaining = resolve_audience(cur, {"trade": ["plumber"]}).ids
@@ -143,17 +153,18 @@ def test_opt_out_halts_mail_immediately_without_a_recompute(clean_db, owner_conn
     with psycopg.connect(readonly_url) as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "select do_not_mail, do_not_text from contacts where id = %s", (contact_id,)
+                "select do_not_mail, do_not_text, do_not_call from contacts where id = %s",
+                (contact_id,),
             )
             row = cur.fetchone()
             assert row is not None
-            assert row == (True, True)
+            assert row == (True, True, True)
 
 
-def test_suppress_rejects_bad_reason(clean_db, owner_conn):
+def test_suppress_rejects_bad_channel(clean_db, owner_conn):
     contact_id = _seed_contact(owner_conn)
     with pytest.raises(ValidationError):
-        suppress(contact_id, "whatever")
+        suppress(contact_id, "whatever", "reason")
 
 
 def test_record_outcome_lost_derives_lost_stage(clean_db, owner_conn, readonly_url):

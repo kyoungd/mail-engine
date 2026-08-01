@@ -1,5 +1,6 @@
-"""Contacts with two returned pieces (auto-suppressed by derivation) — a single FYI
-roll-up, not a per-contact nag."""
+"""Contacts with two returned pieces (address_undeliverable, derived by recompute —
+the v3 split's mail gate, no longer a stage) — a single FYI roll-up, not a
+per-contact nag."""
 
 from datetime import date
 
@@ -11,7 +12,7 @@ class _Rule:
     name = "returned_mail"
     priority = 6
     recipient = Recipient.YOUNG
-    nudge = "Returned mail — auto-suppressed, FYI"
+    nudge = "Returned mail — address undeliverable, FYI"
 
     def evaluate(self, cur, params, as_of: date) -> list[Hit]:
         cur.execute(

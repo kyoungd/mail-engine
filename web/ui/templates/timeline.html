@@ -36,10 +36,13 @@
 <h3>Suppress</h3>
 <form method="post" action="/contacts/{{ contact_id }}/suppress"
       onsubmit="return confirm('Suppression is permanent and irreversible. Proceed?')">
-  <select name="reason">
-    <option value="do_not_mail">do_not_mail (stop mail)</option>
-    <option value="opt_out">opt_out (stop mail + SMS)</option>
+  <select name="channel">
+    <option value="mail">mail (stop postcards)</option>
+    <option value="sms">sms (stop texts)</option>
+    <option value="voice">voice (do-not-call — ends any assignment)</option>
+    <option value="all">all (opt out of everything)</option>
   </select>
+  <input name="reason" size="40" placeholder="why (their words)" required>
   <button type="submit">Suppress — irreversible</button>
 </form>
 {% endblock %}

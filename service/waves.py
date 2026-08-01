@@ -62,6 +62,11 @@ def _audience_where(rule: dict[str, Any]) -> tuple[sql.Composed, list[Any]]:
     validate_audience_rule(rule)
     clauses: list[sql.Composable] = [
         sql.SQL("c.do_not_mail = false"),
+        # Derived mail gate (S-6 row 5): two returned pieces mean the address failed.
+        sql.SQL("c.address_undeliverable = false"),
+        # After v3's narrowing the stage means opt_out-only, and this clause becomes
+        # the backstop against EVENT-ONLY opt-outs (an opt_out event with no column
+        # writes): columns are the gate, the stage is the belt-and-suspenders (S-6).
         sql.SQL("c.stage_snapshot <> 'suppressed'"),
         # Seeds never come through the rule — resolve_audience appends them to every
         # wave separately, so excluding them here prevents a rule-less wave from

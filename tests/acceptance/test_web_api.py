@@ -389,15 +389,18 @@ def test_contact_suppress_route_sets_flags(clean_db, owner_conn):
     (contact_id,) = _seed_prospects(owner_conn, 1)
 
     response = client.post(
-        f"/contacts/{contact_id}/suppress", data={"reason": "opt_out"}, follow_redirects=False
+        f"/contacts/{contact_id}/suppress",
+        data={"channel": "all", "reason": "asked"},
+        follow_redirects=False,
     )
     assert response.status_code == 303
 
     with owner_conn.cursor() as cur:
         cur.execute(
-            "select do_not_mail, do_not_text from contacts where id = %s", (contact_id,)
+            "select do_not_mail, do_not_text, do_not_call from contacts where id = %s",
+            (contact_id,),
         )
-        assert cur.fetchone() == (True, True)
+        assert cur.fetchone() == (True, True, True)
 
 
 # --- v1 window: intake, orphans, nudges ------------------------------------------

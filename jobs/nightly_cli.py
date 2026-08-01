@@ -127,7 +127,9 @@ def main(argv: list[str] | None = None) -> int:
         print("dry-run — nothing ran")
         return 0
 
-    run_nightly(feeds, since, verifier=_build_verifier())
+    # DNC registry: no real FTC client exists yet (needs the SAN — Phase 0), so the
+    # nightly scrub stays unconfigured; dev scrubs run via `jobs.dnc_refresh --fake`.
+    run_nightly(feeds, since, verifier=_build_verifier(), dnc_registry=None)
     print("nightly complete")
     return 0
 

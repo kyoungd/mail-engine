@@ -57,21 +57,44 @@ def test_quiet_days_counts_from_the_last_inbound():
 # --- is_suppressed -------------------------------------------------------------
 
 
-def test_do_not_mail_flag_suppresses():
-    assert is_suppressed([], ContactFlags(do_not_mail=True)) is True
+def test_do_not_mail_flag_no_longer_suppresses_the_stage():
+    """v3: the flag is a mail-channel gate read by the audience resolver, not a
+    stage input — the phone stays live."""
+    assert is_suppressed([], ContactFlags(do_not_mail=True)) is False
 
 
 def test_opt_out_event_suppresses():
     assert is_suppressed([_ev("contact.opt_out", _dt(1))], NO_FLAGS) is True
 
 
-def test_one_returned_piece_is_not_suppression():
-    assert is_suppressed([_ev("piece.returned", _dt(1))], NO_FLAGS) is False
+def test_historical_do_not_mail_opt_out_is_mail_only():
+    """The historical-event trap: day-one events say contact.opt_out for every
+    reason; v3 reads payload.reason to tell them apart."""
+    event = _ev("contact.opt_out", _dt(1))
+    event = Event(
+        id=event.id, source=event.source, type=event.type,
+        occurred_at=event.occurred_at, ingested_at=event.ingested_at,
+        payload={"reason": "do_not_mail"},
+    )
+    assert is_suppressed([event], NO_FLAGS) is False
 
 
-def test_two_returned_pieces_suppress():
+def test_returned_pieces_no_longer_suppress_the_stage():
     events = [_ev("piece.returned", _dt(1)), _ev("piece.returned", _dt(2))]
-    assert is_suppressed(events, NO_FLAGS) is True
+    assert is_suppressed(events, NO_FLAGS) is False
+
+
+def test_one_returned_piece_is_not_undeliverable():
+    from derivation.rules import is_address_undeliverable
+
+    assert is_address_undeliverable([_ev("piece.returned", _dt(1))]) is False
+
+
+def test_two_returned_pieces_derive_address_undeliverable():
+    from derivation.rules import is_address_undeliverable
+
+    events = [_ev("piece.returned", _dt(1)), _ev("piece.returned", _dt(2))]
+    assert is_address_undeliverable(events) is True
 
 
 # --- derive_stage --------------------------------------------------------------

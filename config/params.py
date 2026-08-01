@@ -13,6 +13,11 @@ from uuid import UUID
 # this value; everybody imports it.
 HOUSE_PARTNER_ID = UUID("00000000-0000-4000-8000-000000000001")
 
+# DNC scrub cadence (partner-lead-assignment.md §6/S-9): re-check a contact when its
+# stamp is older than this. 21 days keeps every dialable contact inside the federal
+# 31-day safe-harbor window with margin for missed runs.
+DNC_RECHECK_DAYS = 21
+
 
 @dataclass(frozen=True)
 class Params:
@@ -27,6 +32,9 @@ class Params:
     cooldown_days: int = 3
     expire_days: int = 5
     orphan_max: int = 20
+    # Nudge YOUNG when the newest registry version ages past this — a week before
+    # the 31-day safe-harbor wall (Phase 2).
+    dnc_version_alert_days: int = 24
 
 
 DEFAULT_PARAMS = Params()

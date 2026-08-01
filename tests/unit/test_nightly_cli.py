@@ -15,10 +15,13 @@ def spy(monkeypatch):
     """Capture what run_nightly is handed, without running it."""
     captured = {}
 
-    def fake_run_nightly(feeds, since, as_of=None, sender=None, verifier=None):
+    def fake_run_nightly(
+        feeds, since, as_of=None, sender=None, verifier=None, dnc_registry=None
+    ):
         captured["feeds"] = feeds
         captured["since"] = since
         captured["verifier"] = verifier
+        captured["dnc_registry"] = dnc_registry
 
     monkeypatch.setattr(nightly_cli, "run_nightly", fake_run_nightly)
     for var in ("LOB_API_KEY", "POSTHOG_API_KEY", "POSTHOG_PROJECT_ID"):

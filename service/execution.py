@@ -20,7 +20,7 @@ from uuid import UUID
 from psycopg import sql
 
 from db.session import transaction
-from derivation.rules import derive_stage
+from derivation.rules import derive_stage, is_address_undeliverable
 from domain.errors import ValidationError
 from domain.types import ContactFlags, ExecutionReport, RecomputeReport
 from seams.print_api import PrintApi, Recipient
@@ -50,10 +50,14 @@ def recompute_state(contact_id: UUID | None = None) -> RecomputeReport:
                 return RecomputeReport(contacts_updated=0)
 
             ids = [c[0] for c in contacts]
+            # contact.dnc_checked is compliance audit trail, not judgment signal —
+            # ~300k events/year that would dwarf every other type in rehydration
+            # (Phase 2; "were we compliant that day" queries hit the type directly).
             cur.execute(
                 sql.SQL(
                     "select {cols} from events "
-                    "where contact_id = any(%s) order by contact_id, occurred_at"
+                    "where contact_id = any(%s) and type <> 'contact.dnc_checked' "
+                    "order by contact_id, occurred_at"
                 ).format(cols=EVENT_COLS),
                 (ids,),
             )
@@ -64,15 +68,21 @@ def recompute_state(contact_id: UUID | None = None) -> RecomputeReport:
             now = datetime.now(UTC)
             updates = []
             for cid, do_not_mail, do_not_text in contacts:
+                events = by_contact.get(cid, [])
                 stage = derive_stage(
-                    by_contact.get(cid, []),
+                    events,
                     ContactFlags(do_not_mail=do_not_mail, do_not_text=do_not_text),
                 )
-                updates.append((stage.value, now, cid))
+                # address_undeliverable's named writer (Phase 2): derived from the
+                # piece.returned events already in the stream. The human-authored
+                # do_not_* columns stay untouched (FR-7).
+                updates.append(
+                    (stage.value, now, is_address_undeliverable(events), cid)
+                )
 
             cur.executemany(
-                "update contacts set stage_snapshot = %s, stage_computed_at = %s "
-                "where id = %s",
+                "update contacts set stage_snapshot = %s, stage_computed_at = %s, "
+                "address_undeliverable = %s where id = %s",
                 updates,
             )
 

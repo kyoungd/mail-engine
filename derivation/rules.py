@@ -12,14 +12,16 @@ from datetime import date, datetime
 from domain.enums import ContactStage
 from domain.types import ContactFlags, Event
 
-RULESET_VERSION = "2"  # v2: contact.lost -> LOST stage (revivable)
+# v3: the suppression split (partner-lead-assignment.md S-6). is_suppressed narrows
+# to opt_out only; returned pieces derive address_undeliverable instead of a stage.
+RULESET_VERSION = "3"
 
 # The caller-initiated signals that constitute a response (data document §3).
 INBOUND_TYPES = frozenset({"page.visit", "call.inbound", "sms.inbound"})
 # Our engagement back on a live thread — the difference between "responded" and
 # "in conversation".
 ENGAGE_TYPES = frozenset({"sms.outbound", "call.answered"})
-# Returned pieces at or above this count auto-suppress the contact (data document §3).
+# Returned pieces at or above this count derive address_undeliverable (S-6 row 5).
 RETURNED_SUPPRESSION_COUNT = 2
 
 
@@ -62,12 +64,24 @@ def quiet_days(events: list[Event], as_of: date) -> int | None:
 
 
 def is_suppressed(events: list[Event], flags: ContactFlags) -> bool:
-    """Suppression is an absorbing state: a do-not-mail request, an opt-out, or two
-    returned pieces. All three are monotonic — once true, more events keep it true."""
-    if flags.do_not_mail:
-        return True
-    if any(e.type == "contact.opt_out" for e in events):
-        return True
+    """v3 (S-6): suppression as a STAGE means opt_out only — the do_not_* columns
+    are per-channel gates read by the audience resolver and the assignment/export
+    gates, not stage inputs, so `flags` is deliberately no longer consulted.
+
+    The historical-event trap: day-one `suppress()` emitted `contact.opt_out` for
+    every reason, with the real reason only in the payload. Keying on the event
+    type alone would keep every historical do-not-mail request fully SUPPRESSED —
+    so v3 reads payload.reason: 'do_not_mail' ⇒ mail-only (not a stage fact),
+    anything else ⇒ suppressed. Still monotonic: more events keep it true."""
+    return any(
+        e.type == "contact.opt_out" and e.payload.get("reason") != "do_not_mail"
+        for e in events
+    )
+
+
+def is_address_undeliverable(events: list[Event]) -> bool:
+    """S-6 row 5: two returned pieces mean the ADDRESS failed, not the contact —
+    a mail-channel gate (written by recompute_state), never a stage."""
     returned = sum(1 for e in events if e.type == "piece.returned")
     return returned >= RETURNED_SUPPRESSION_COUNT
 

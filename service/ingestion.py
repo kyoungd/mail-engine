@@ -14,6 +14,7 @@ from psycopg.types.json import Json
 
 from db.session import transaction
 from domain.enums import EventSource
+from domain.errors import ValidationError
 from domain.taxonomy import UnknownEventType, is_valid_type
 from domain.types import Event, ResolutionReport
 from resolution.matcher import THREAD_KEY, Lookups, resolve
@@ -116,7 +117,16 @@ def ingest_event(
 
 def record_note(contact_id: UUID, note_type: str, text: str) -> int:
     """Human residue capture. Wraps ingest_event(source='human'); AI-structuring of
-    a raw voice note happens before this call. `note_type` is validated as taxonomy."""
+    a raw voice note happens before this call. Restricted to `note.*` types
+    (Phase 2): an opt-out recorded as a note would write the event with no column
+    writes — opt-outs go through `suppress()`, which writes flags and event
+    atomically."""
+    if not note_type.startswith("note."):
+        raise ValidationError(
+            "bad_note_type",
+            f"record_note accepts note.* types only, got {note_type!r} — "
+            "suppressions go through suppress()",
+        )
     return ingest_event(
         source="human",
         type=note_type,

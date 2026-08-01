@@ -142,6 +142,11 @@ class ReasonBody(BaseModel):
     reason: str
 
 
+class SuppressBody(BaseModel):
+    channel: str
+    reason: str
+
+
 class AddressBody(BaseModel):
     addr_line1: str | None = None
     addr_line2: str | None = None
@@ -254,8 +259,8 @@ def api_lost(contact_id: UUID, body: ReasonBody):
 
 
 @app.post("/api/contacts/{contact_id}/suppress")
-def api_suppress(contact_id: UUID, body: ReasonBody):
-    suppress(contact_id, body.reason)
+def api_suppress(contact_id: UUID, body: SuppressBody):
+    suppress(contact_id, body.channel, body.reason)
     return {"status": "suppressed"}
 
 
@@ -478,8 +483,8 @@ def ui_lost(contact_id: UUID, reason: str = Form(...)):
 
 
 @app.post("/contacts/{contact_id}/suppress")
-def ui_suppress(contact_id: UUID, reason: str = Form(...)):
-    suppress(contact_id, reason)
+def ui_suppress(contact_id: UUID, channel: str = Form(...), reason: str = Form(...)):
+    suppress(contact_id, channel, reason)
     return RedirectResponse(f"/contacts/{contact_id}", status_code=303)
 
 

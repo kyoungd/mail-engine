@@ -114,9 +114,13 @@ def get_contact_timeline(contact_id: UUID) -> list[Event]:
     a prospect calls back."""
     with readonly_connection() as conn:
         with conn.cursor() as cur:
+            # contact.dnc_checked is excluded: compliance audit trail at ~300k/year
+            # would bury the story this view exists to tell (Phase 2); compliance
+            # queries hit the type directly.
             cur.execute(
                 sql.SQL(
                     "select {cols} from events where contact_id = %s "
+                    "and type <> 'contact.dnc_checked' "
                     "order by occurred_at, id"
                 ).format(cols=EVENT_COLS),
                 (contact_id,),

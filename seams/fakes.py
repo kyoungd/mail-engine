@@ -139,3 +139,22 @@ class FakeVerifier:
             std_addr_state=(address.get("addr_state") or "").upper(),
             std_addr_zip=f"{(address.get('addr_zip') or '').strip()[:5]}-1234",
         )
+
+
+class FakeDncRegistry:
+    """Programmable `DncRegistry` (design §6/S-9). One version, per-area-code sets
+    of 10-digit national numbers. Delisting between runs is modeled by a second
+    instance with a newer version and the number absent — exactly how the real
+    registry presents it (full-list diff)."""
+
+    def __init__(self, *, version: str, numbers: dict[str, set[str]]) -> None:
+        self._version = version
+        self._numbers = {code: frozenset(nums) for code, nums in numbers.items()}
+        self.calls: list[str] = []
+
+    def version(self) -> str:
+        return self._version
+
+    def numbers(self, area_code: str) -> frozenset[str]:
+        self.calls.append(area_code)
+        return self._numbers.get(area_code, frozenset())

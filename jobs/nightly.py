@@ -6,10 +6,12 @@ judgment job (nudges out) is wired in here in Phase 4.
 
 from datetime import UTC, date, datetime
 
+from jobs.dnc_refresh import dnc_refresh
 from jobs.sync import sync
 from jobs.verify_addresses import verify_addresses
 from judgment import digest
 from seams.address_verifier import AddressVerifier
+from seams.dnc_registry import DncRegistry
 from seams.response_feed import ResponseFeed
 from seams.sender import Sender
 from service.execution import recompute_state
@@ -22,6 +24,7 @@ def run_nightly(
     as_of: date | None = None,
     sender: Sender | None = None,
     verifier: AddressVerifier | None = None,
+    dnc_registry: DncRegistry | None = None,
 ) -> None:
     for feed in feeds:
         sync(feed, since)  # a feed failure raises here — before recompute
@@ -32,6 +35,13 @@ def run_nightly(
         # no-op when nothing is unverified (design §5), and a vendor error on one row
         # never raises — that row simply stays unverified for tomorrow.
         verify_addresses(verifier)
+    if dnc_registry is not None:
+        # The daily scrub (S-9): facts-in like the feeds — writes dnc_registry and
+        # dnc_checked_at columns plus audit events; a no-op when nothing has crossed
+        # the 21-day threshold. Skipped when unconfigured (no SAN yet): a missing
+        # registry delays scrubbing, and Phase 4's stale-check gate — not this job —
+        # is what fails closed for assignment.
+        dnc_refresh(dnc_registry)
     resolve_orphans()
     recompute_state()
     digest.run(as_of or datetime.now(UTC).date(), sender=sender)  # nudges out, after fresh state
