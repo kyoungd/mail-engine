@@ -777,3 +777,34 @@ runbook.
 **Named consequence:** partners dial COLD lists until mail resumes — the designed
 postcard-then-call warm-up does not exist yet. A sales-motion fact for partner
 expectations, not a technical gap.
+
+## Nationwide program, grow-per-partner DNC subscription; partner-held SANs REJECTED (decided 2026-08-01)
+
+The sales-partner program is **nationwide with no area restriction in principle**:
+any region unlocks the day a partner appears in it. The DNC subscription model is
+**grow-per-partner** — run `jobs/derive_area_codes.py` on each new partner's base
+ZIP, subscribe their derived set (the org's first five codes are free — five TOTAL
+per organization, not per partner — then $82/code/year, FY2026, verified against
+the FTC 2025-08-27 Federal Register notice), and record it via
+`subscribe_area_codes`. Contacts in unsubscribed codes stay unassignable until
+their code is priced in — a visible $82 decision per code, never a silent gap. The
+full-registry cap ($22,626/yr) was considered and rejected at this scale:
+pre-paying for geography with no partner standing in it.
+
+**Partner-held DNC subscriptions REJECTED** (operator floated, resolved same day):
+16 CFR §310.8 attaches the access fee to the SELLER — "a violation for any seller
+to initiate, or cause any telemarketer to initiate … unless SUCH SELLER … has paid,"
+with the mirror provision binding the telemarketer to THAT SELLER's payment. NMC is
+the seller; a partner dialing under only their own SAN violates for both parties at
+once. Also: it would kill recruiting (FTC registration before first dial), destroy
+the §310.4(b)(3) safe harbor (NMC's procedures + the versioned dnc_checked audit
+trail ARE the proof), and save ~$400/yr at 3 partners. NMC holds the one SAN, runs
+the one scrub, partners receive pre-scrubbed exports — "we handle compliance" stays
+a program feature. Seller-of-record mechanics on the SAN remain on the Q6 counsel
+agenda.
+
+**Nationwide consequences now on the build queue:** per-contact timezone +
+calling-window enforcement on exports (the §6 CA-only waiver dies with CA-only),
+state DNC registries + telemarketer registration/bonding added to the Q6 agenda,
+and per-state intake sources when list acquisition starts (timing: separate
+decision).
