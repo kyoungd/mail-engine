@@ -76,6 +76,36 @@ def _build_verifier():
     return LobAddressVerifier(key)
 
 
+def _build_sender():
+    """The real email Sender (Stage C1), or None when SMTP env is absent — dark,
+    like every unconfigured seam. Requires all of SMTP_HOST/SMTP_USER/SMTP_PASS;
+    SMTP_PORT defaults 587 (STARTTLS), SMTP_FROM defaults to SMTP_USER."""
+    host = os.environ.get("SMTP_HOST")
+    user = os.environ.get("SMTP_USER")
+    password = os.environ.get("SMTP_PASS")
+    if not (host and user and password):
+        return None
+    from seams.email_sender import EmailSender
+
+    return EmailSender(
+        host=host,
+        port=int(os.environ.get("SMTP_PORT", "587")),
+        user=user,
+        password=password,
+        from_addr=os.environ.get("SMTP_FROM"),
+    )
+
+
+def _build_demos_client():
+    """The B2 summary client for the report's demo-line section, or None —
+    the composer omits the section when the feed is absent or unreachable."""
+    if not (os.environ.get("NMC_BOOKING_URL") and os.environ.get("NMC_API_KEY")):
+        return None
+    from seams.nmc_demos import NmcDemosClient
+
+    return NmcDemosClient.from_env()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m jobs.nightly_cli",
@@ -143,9 +173,13 @@ def main(argv: list[str] | None = None) -> int:
         from seams.nmc_closes import NmcCloseFeed
 
         close_feed = NmcCloseFeed.from_env()
+    sender = _build_sender()
+    if sender is None:
+        print("SKIPPED sender: SMTP env absent — digest + partner reports dark",
+              file=sys.stderr)
     run_nightly(
         feeds, since, verifier=_build_verifier(), dnc_registry=None,
-        close_feed=close_feed,
+        close_feed=close_feed, sender=sender, demos_client=_build_demos_client(),
     )
     print("nightly complete")
     return 0

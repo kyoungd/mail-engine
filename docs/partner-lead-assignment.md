@@ -892,7 +892,11 @@ events. The flip is a no-op while every contact is house-owned. *(Ordering amend
 AFTER S-1 goes live — safe only because Phase 4 ships the sender-None recording
 guard, under which no partner-recipient nudge is recorded while the sender is
 unreal, so the un-flipped classification cannot misroute a recorded nudge. The flip
-lands with the real sender; the guard is removed in the same change.)*
+lands with the real sender. SECOND amendment, operator decision at the Stage C
+gate 2026-08-01: the guard is KEPT permanently, not removed — after C1 a
+senderless nightly means misconfigured SMTP, which is exactly the state where
+burning a partner's hot_response would hurt; the guard costs nothing when a
+sender is present.)*
 
 ---
 

@@ -525,8 +525,13 @@ def test_nightly_runs_steps_after_recompute_and_digest_routes_post_return(
         assert _owner(cur, contact) == HOUSE_PARTNER_ID  # won -> terminated same night
         cur.execute("select stage_snapshot from contacts where id = %s", (contact,))
         assert cur.fetchone()[0] == "won"  # so the step ran AFTER recompute
-    for founder, _message in sender.sent:
-        assert founder != str(partner)  # nudges routed on post-return ownership
+    for founder, message in sender.sent:
+        # nudges route on post-return ownership. (Re-scoped at the Stage C gate,
+        # 2026-08-01: the partner REPORT legitimately addresses the partner, so
+        # the assertion excludes it — any other send to the partner still fails.)
+        if message.startswith("Your NeverMissCall partner report"):
+            continue
+        assert founder != str(partner)
     _rm_partner(owner_conn, partner)
 
 

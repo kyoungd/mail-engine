@@ -9,7 +9,10 @@ from judgment.protocol import Hit, Recipient
 class _Rule:
     name = "quiet_reengage"
     priority = 4
-    recipient = Recipient.DEAL_OWNER
+    # S-7 flip (Stage C1): inactivity is inferred from ABSENCE of spine evidence,
+    # and for a partner-owned contact absence is not proof of neglect — this
+    # routes to Young, never the partner.
+    recipient = Recipient.YOUNG
     nudge = "The thread's gone quiet — ping today"
 
     def evaluate(self, cur, params, as_of: date) -> list[Hit]:

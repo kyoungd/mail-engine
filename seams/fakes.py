@@ -174,3 +174,19 @@ class FakeCloseFeed:
         for close in sorted(self._closes, key=lambda c: (c.recorded_at, c.id)):
             if close.recorded_at > since:
                 yield close
+
+
+class FakeDemosClient:
+    """Programmable `DemosClient` (Stage C2). `fail=True` models an unreachable
+    booking-system — the composer must OMIT the section, never placeholder it."""
+
+    def __init__(self, *, partners: list | None = None, fail: bool = False) -> None:
+        self._partners = partners or []
+        self.fail = fail
+        self.windows: list[tuple[datetime, datetime]] = []
+
+    def summary(self, from_: datetime, to: datetime) -> list:
+        if self.fail:
+            raise OSError("booking-system unreachable")
+        self.windows.append((from_, to))
+        return list(self._partners)

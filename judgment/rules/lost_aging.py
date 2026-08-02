@@ -10,7 +10,8 @@ from judgment.protocol import Hit, Recipient
 class _Rule:
     name = "lost_aging"
     priority = 9
-    recipient = Recipient.DEAL_OWNER
+    # S-7 flip (Stage C1): inactivity-driven — routes to Young (see quiet_reengage).
+    recipient = Recipient.YOUNG
     nudge = "Propose marking lost — or one last text"
 
     def evaluate(self, cur, params, as_of: date) -> list[Hit]:

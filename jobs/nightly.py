@@ -11,9 +11,11 @@ from jobs.dnc_refresh import dnc_refresh
 from jobs.sync import sync
 from jobs.verify_addresses import verify_addresses
 from judgment import digest
+from judgment.partner_report import run_partner_reports
 from seams.address_verifier import AddressVerifier
 from seams.dnc_registry import DncRegistry
 from seams.nmc_closes import CloseFeed
+from seams.nmc_demos import DemosClient
 from seams.response_feed import ResponseFeed
 from seams.sender import Sender
 from service.assignment import run_expiry_step, run_won_termination_step
@@ -29,6 +31,7 @@ def run_nightly(
     verifier: AddressVerifier | None = None,
     dnc_registry: DncRegistry | None = None,
     close_feed: CloseFeed | None = None,
+    demos_client: DemosClient | None = None,
 ) -> None:
     for feed in feeds:
         sync(feed, since)  # a feed failure raises here — before recompute
@@ -60,3 +63,8 @@ def run_nightly(
     run_expiry_step()
     run_won_termination_step()
     digest.run(as_of or datetime.now(UTC).date(), sender=sender)  # nudges out, after fresh state
+    # The partner report runs LAST — binding: composed before expiry it would tell
+    # a partner they hold contacts already returned to the pool (R2, review
+    # 2026-07-29). Dark when no sender is configured; failures raise after every
+    # partner has been attempted.
+    run_partner_reports(sender=sender, demos=demos_client)

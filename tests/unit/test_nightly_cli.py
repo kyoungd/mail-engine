@@ -17,17 +17,21 @@ def spy(monkeypatch):
 
     def fake_run_nightly(
         feeds, since, as_of=None, sender=None, verifier=None, dnc_registry=None,
-        close_feed=None,
+        close_feed=None, demos_client=None,
     ):
         captured["feeds"] = feeds
         captured["since"] = since
         captured["verifier"] = verifier
         captured["dnc_registry"] = dnc_registry
         captured["close_feed"] = close_feed
+        captured["sender"] = sender
+        captured["demos_client"] = demos_client
 
     monkeypatch.setattr(nightly_cli, "run_nightly", fake_run_nightly)
     for var in ("LOB_API_KEY", "LOB_AV_API_KEY", "POSTHOG_API_KEY",
-                "POSTHOG_PROJECT_ID", "MEDUSA_DATABASE_URL", "MEDUSA_READONLY_URL"):
+                "POSTHOG_PROJECT_ID", "MEDUSA_DATABASE_URL", "MEDUSA_READONLY_URL",
+                "SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS", "SMTP_FROM",
+                "NMC_BOOKING_URL", "NMC_API_KEY"):
         monkeypatch.delenv(var, raising=False)
     return captured
 
