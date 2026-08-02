@@ -756,3 +756,24 @@ adopted regardless: every readout and accrual counts DISTINCT CONTACTS reaching
 signups (cost-per-customer, co-op accrual, the readout); the PostHog retirement is
 a follow-up gated on the feed's first proven real closes, not a build item today.
 Until then both events may coexist per the S-10 refinement (2026-08-01 entry above).
+
+## Priority shift: the sales-partner system is PRIMARY; direct mail waits (decided 2026-08-01)
+
+The program's order of effort inverts: fulfilling support for sales partners is now
+the primary product; the direct-mail campaign (wave 1, address verification's
+audience-scoped mode, the ghost wave, the live Lob key, creative) PARKS. Parked mail
+machinery consumes nothing (dark seams, unset keys, the AV gate shipped closed).
+
+**mail-engine itself does not park** — the partner system's spine (contacts,
+custody, DNC compliance, exports, the report) IS mail-engine; only the
+mail-specific half waits.
+
+The new critical path: the compliance chain (SAN → counsel → area-code
+re-derivation → real FTC client → paper prongs) · C3 go-live (prod release, env,
+nightly cron, operator-as-partner first report) · B2 deploy ·
+`partnership-program.md` amendment · first partner activation via the cutover
+runbook.
+
+**Named consequence:** partners dial COLD lists until mail resumes — the designed
+postcard-then-call warm-up does not exist yet. A sales-motion fact for partner
+expectations, not a technical gap.
