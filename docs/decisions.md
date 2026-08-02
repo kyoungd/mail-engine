@@ -808,3 +808,24 @@ calling-window enforcement on exports (the §6 CA-only waiver dies with CA-only)
 state DNC registries + telemarketer registration/bonding added to the Q6 agenda,
 and per-state intake sources when list acquisition starts (timing: separate
 decision).
+
+## DNC subscription policy: trial-1 / activation-2 / expand-on-shortfall (decided 2026-08-01)
+
+Refines the same-day grow-per-partner decision into the per-partner ladder:
+
+1. **Trial (Step 11):** subscribe ONE code — the partner's densest from
+   `derive_area_codes` — free while the org's five last.
+2. **Activation (Step 12 pass):** the partner's top-2 codes (≤$164/yr, often $0).
+   Data basis: top-2 covered 72% of the Chatsworth radius, and capacity binds
+   first anyway — one dense code (818: 4,387 contacts) exceeds a full-timer's
+   ~2,000/yr.
+3. **Expansion:** buy code #3+ ONLY when a refill request reports a meaningful
+   `dnc_unsubscribed` shortfall — the partner demonstrably drank the subscribed
+   pool dry. $82 the day the data says it buys leads, never on a calendar.
+
+Supersedes the operator's floated "2 per year" cap: same cost discipline, but the
+trigger is the shortfall signal instead of the calendar, so a productive partner
+is never stranded behind an arbitrary annual limit. **Overlay-market caveat**
+(watch at onboarding): where codes overlay one footprint (Dallas 214/469/972/945;
+LA's 213/323, 310/424, 818/747), the script's ranked list is the tell — a #3
+nearly the size of #2 is an overlay market saying buy it at activation.
