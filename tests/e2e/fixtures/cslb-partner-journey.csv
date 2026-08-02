@@ -1,0 +1,7 @@
+list_key,business_name,contact_name,trade,trades,license_class,phone,email,addr_line1,addr_line2,addr_city,addr_state,addr_zip,segment,do_not_mail
+cslb-pj-001,Reseda Rooter,Reseda Rooter Inc,plumber,plumber,C36,818-555-0101,,18210 Sherman Way,,Reseda,CA,91335,plumber-ca,
+cslb-pj-002,Van Nuys Drainworks,Van Nuys Drainworks,plumber,plumber,C36,818-555-0102,,14410 Sylvan St,,Van Nuys,CA,91401,plumber-ca,
+cslb-pj-003,Burbank Pipe & Supply,Burbank Pipe & Supply,plumber,plumber,C36,818-555-0103,,275 E Olive Ave,,Burbank,CA,91502,plumber-ca,
+cslb-pj-004,No Phone Plumbing,No Phone Plumbing,plumber,plumber,C36,,,321 Empty Line Rd,,Glendale,CA,91203,plumber-ca,
+cslb-pj-005,Harbor Plumbing Co,Harbor Plumbing Co,plumber,plumber,C36,310-555-0105,,638 S Beacon St,,San Pedro,CA,90731,plumber-ca,
+cslb-pj-006,Frost HVAC Systems,Frost HVAC Systems,hvac,hvac,C20,818-555-0106,,1111 W Magnolia Blvd,,Burbank,CA,91506,hvac-ca,
