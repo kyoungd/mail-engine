@@ -1,4 +1,51 @@
-# Current state — 2026-08-01: Stages A, B, AND C1/C2 complete — the partner report exists end to end; C3 (live verification) is the remaining prod-day ceremony
+# Current state — 2026-08-02: SALES-PARTNER SYSTEM IS PRIMARY; build complete, waiting on two operator clocks
+
+**The priority pivot (operator, 2026-08-01, `decisions.md`):** the sales-partner
+system is the primary product; **direct mail PARKS** — wave 1, the audience-scoped
+AV mode, the ghost wave, the live Lob key, creative all wait. Parked machinery
+consumes nothing. mail-engine itself does NOT park: the partner spine (contacts,
+custody, DNC, exports, report) IS mail-engine. Named consequence: partners dial
+COLD lists until mail resumes — set partner expectations accordingly.
+
+**Scope: NATIONWIDE, no area restriction in principle.** DNC subscription policy,
+FINAL after three same-day refinements (`decisions.md` has the evolution):
+**every partner starts with ONE area code** (their densest, from
+`jobs/derive_area_codes.py` on their base ZIP) · **more on request when doing
+good, NO cap for performers** (the request is the qualifying event, like the
+refill; observables: batch worked down / closes / demo-line activity) · operator
+approves each $82 purchase (org's first five free, FY2026 verified) · seed 2 at
+onboarding only when #1 is thin (rural/overlay metros). **Partner-held SANs
+REJECTED on 16 CFR §310.8** — the fee binds the SELLER (NMC); NMC holds the one
+SAN, partners receive pre-scrubbed exports.
+
+**The area-code derivation is BUILT and the old dispute is settled**
+(`jobs/derive_area_codes.py` + pinned Census 2023 ZCTA centroids in `config/`):
+Chatsworth 20 mi → **818 · 805 · 310 · 661 · 323** = 89.2% of 6,971 in-radius;
+**747 ranks #6 (143) — 661 wins at every radius**, as revisions 4–5 predicted.
+Re-run per partner at onboarding; record via `subscribe_area_codes`.
+
+**Paper is drafted, counsel-ready** (root repo `docs/`):
+`partner-dialing-procedure.md` (the safe-harbor written-procedures prong + five
+agreement clauses) and `counsel-memo-dnc-b2b.md` (the Q6 memo: the operator's
+B2B/held-out-publicly theory for stress-testing, **Chennette v. Porch.com (9th
+Cir. 2022)** as the on-point adverse authority, postures A/B/C). Send both AHEAD
+of the counsel hour.
+
+**Nationwide build consequences, queued (not started):** per-contact timezone +
+calling-window enforcement on exports (§6's CA-only waiver dies with CA-only);
+per-state intake sources when list acquisition starts (timing undecided); state
+registries/registration on the counsel agenda.
+
+**What blocks the first legal dial: two operator clocks + one ceremony.**
+1. **SAN registration** (telemarketing.donotcall.gov, NMC EIN) — then
+   `subscribe_area_codes add 818` (John's #1) and the real FTC client gets built
+   against the first downloaded file.
+2. **Q6 counsel hour** — memo + procedure ready to send.
+3. **C3 prod ceremony** 🔴 (below) + B2 deploy + repo pushes — on request.
+
+---
+
+# Previous — 2026-08-01: Stages A, B, AND C1/C2 complete — the partner report exists end to end; C3 (live verification) is the remaining prod-day ceremony
 
 **Stage C1+C2, DONE 2026-08-01 (operator gate; guard-keep decision):**
 
