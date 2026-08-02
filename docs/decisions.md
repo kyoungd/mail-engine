@@ -829,3 +829,16 @@ is never stranded behind an arbitrary annual limit. **Overlay-market caveat**
 (watch at onboarding): where codes overlay one footprint (Dallas 214/469/972/945;
 LA's 213/323, 310/424, 818/747), the script's ranked list is the tell — a #3
 nearly the size of #2 is an overlay market saying buy it at activation.
+
+## Amendment: partner-requested area codes join the expansion triggers (decided 2026-08-01, same day)
+
+The ladder's step 3 gains a second trigger: code #3+ unlocks on EITHER a
+`dnc_unsubscribed` refill shortfall (system evidence) OR an explicit partner
+request (partner evidence) — operator approval gates both. The request arrives
+through the human channel like a refill request (no portal, standing decision);
+approval practice: run `derive_area_codes` on the partner's base first — a
+requested code ranking low in their radius is usually overlay confusion, and the
+script names the code that actually buys contacts. Purchase at the SAN portal →
+`subscribe_area_codes add` → the nightly scrub sweeps the new code automatically
+(unscrubbed contacts stay unassignable by the freshness gate — nobody jumps the
+scrub). No code change required; the pipeline already behaves this way.
