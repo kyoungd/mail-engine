@@ -93,7 +93,8 @@ def correlate_closes(feed: CloseFeed, *, now: datetime | None = None) -> Correla
                     if (existing[1] is None and phone
                             and not (existing[2] or {}).get("phone")):
                         cur.execute(
-                            "update events set payload = payload || %s where id = %s",
+                            "update events set payload = payload || %s::jsonb "
+                            "where id = %s",
                             (Json({"phone": phone}), existing[0]),
                         )
                         backfilled += 1
@@ -110,11 +111,24 @@ def correlate_closes(feed: CloseFeed, *, now: datetime | None = None) -> Correla
                         skipped += 1  # the guard: the funnel already told the spine
                         continue
 
+                # mailer-code classification, our half (§2/B1): the seam could only
+                # rule out registry codes; a surviving candidate is a mailer code
+                # only if WE printed it — otherwise it is page-default noise
+                # (SMS_SALES etc.) and stores as null.
+                mailer_code = None
+                if close.mailer_code:
+                    cur.execute(
+                        "select 1 from pieces where mailer_code = %s",
+                        (close.mailer_code.lower(),),
+                    )
+                    if cur.fetchone() is not None:
+                        mailer_code = close.mailer_code.lower()
+
                 payload = {
                     "kind": close.kind,
                     "phone": phone,
                     "partner_code": close.partner_code,
-                    "mailer_code": close.mailer_code,
+                    "mailer_code": mailer_code,
                     "sold_by": close.sold_by,
                     "signed_up_via": close.signed_up_via,
                     "subscription_status": close.subscription_status,
@@ -134,6 +148,14 @@ def correlate_closes(feed: CloseFeed, *, now: datetime | None = None) -> Correla
                     "do update set watermark = excluded.watermark, updated_at = now()",
                     (FEED_NAME, newest),
                 )
+
+    if backfilled:
+        # B1: a backfilled phone is attributable NOW — re-run orphan resolution in
+        # the same nightly rather than waiting for tomorrow's pass (the nightly's
+        # own resolve_orphans ran before this job, by the pinned ordering).
+        from service.ingestion import resolve_orphans
+
+        resolve_orphans()
 
     return CorrelationReport(
         seen=seen, ingested=ingested, skipped_existing=skipped,

@@ -744,3 +744,15 @@ anything that COUNTS signups deduplicates per contact.
 
 Also stale in the 2026-07-12 entry: its "fixed 7-day lookback" — the code and the
 implementation plan say 30 days.
+
+## §7 dedupe: (2) sequenced + (3) regardless (decided 2026-08-01, the B-GATE)
+
+The close-feed/PostHog double-count question (contract §7, design §11 Q10) is
+decided per the recommendation: **(2) retire PostHog's `signup.completed` once the
+close feed is proven against real closes** — one writer per fact, sequenced so the
+spine's most important inflow never depends on an unproven route — **and (3)
+adopted regardless: every readout and accrual counts DISTINCT CONTACTS reaching
+`won`, never `signup.completed` rows.** (3) binds now on anything that counts
+signups (cost-per-customer, co-op accrual, the readout); the PostHog retirement is
+a follow-up gated on the feed's first proven real closes, not a build item today.
+Until then both events may coexist per the S-10 refinement (2026-08-01 entry above).
