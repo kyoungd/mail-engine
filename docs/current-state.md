@@ -1,4 +1,28 @@
-# Current state — 2026-08-01: partner build CODE-COMPLETE in dev — Stage A (Phases 1, 2, 4) all landed
+# Current state — 2026-08-01: Stages A AND B complete — the queue is Stage C (Sender + composer)
+
+**Stage B, DONE 2026-08-01 (operator-approved gate + B-GATE decision):**
+
+- **B1 reconciled** — mailer-code classification against our own `pieces` (noise →
+  null), the 45-day-floor test (already correct), same-run orphan re-resolution on
+  phone backfill. The backfill tests caught and fixed a live Batch C defect
+  (`payload || json` missing its `::jsonb` cast — the path had never been
+  exercised). The `_build_feeds` contradiction was escalated and the PROJECT PLAN
+  amended (operator-ratified): the close feed keeps its pinned dedicated slot.
+- **B2 shipped dark** (core repo, booking-system): `GET
+  /api/partner-demo-calls/summary?from&to` — per-partner_number aggregates,
+  anonymous-sentinel rules, latest-non-null salesRepId, BigInt-as-string. 792
+  booking-system tests green. Nothing calls it until C2. Normal core-repo deploy
+  gates apply when it ships to prod.
+- **B-GATE decided: (2) sequenced + (3) regardless** (`decisions.md` 2026-08-01) —
+  retire PostHog's `signup.completed` only after the close feed is proven on real
+  closes; all readouts count DISTINCT CONTACTS reaching `won`, never event rows
+  (binds on the readout/accrual code when it gets built).
+- **Turn-on remains a deliberate act:** set `MEDUSA_READONLY_URL` in `.env`
+  (local mirror for dev, the PRD credential for prod). Unset everywhere today.
+
+---
+
+# Previous — 2026-08-01: partner build CODE-COMPLETE in dev — Stage A (Phases 1, 2, 4) all landed
 
 **Partner lead assignment** (`partner-lead-assignment.md` rev 7 + implementation plan,
 batched per ground rule 5) is the active build:
