@@ -842,3 +842,21 @@ script names the code that actually buys contacts. Purchase at the SAN portal �
 `subscribe_area_codes add` → the nightly scrub sweeps the new code automatically
 (unscrubbed contacts stay unassignable by the freshness gate — nobody jumps the
 scrub). No code change required; the pipeline already behaves this way.
+
+## SUPERSEDING: one code to start, unlimited on performance (decided 2026-08-01, third refinement same day)
+
+Supersedes the trial-1/activation-2 ladder (above, same day): **every partner
+starts with ONE area code** — their densest, from `derive_area_codes` — and gets
+more **on request, when they are doing good, with NO cap for performers.** The
+request is the qualifying event, exactly like the refill: one principle for leads
+and geography both. "Doing good," in observables the system actually has (dials
+are invisible by design): the batch worked down (the request itself), closes
+credited (report §2), demo-line activity (report §3). Operator approves each
+request; $82/code past the org's free five.
+
+Retained from the ladder: the overlay caveat and **thin-#1 discretion** — the
+derivation script prints code #1's size at onboarding; when it is thin (a few
+hundred contacts in rural/overlay-fragmented metros), seed with 2 on day one
+rather than starving a good partner in week three. Unlimited-on-performance
+mirrors the dropped holdings ceiling: expiry carries anti-hoarding, the $82 is
+spent only against proof.
