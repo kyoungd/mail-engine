@@ -1,4 +1,32 @@
-# Current state — 2026-08-01: Stages A AND B complete — the queue is Stage C (Sender + composer)
+# Current state — 2026-08-01: Stages A, B, AND C1/C2 complete — the partner report exists end to end; C3 (live verification) is the remaining prod-day ceremony
+
+**Stage C1+C2, DONE 2026-08-01 (operator gate; guard-keep decision):**
+
+- **C1** — `seams/email_sender.py` is the real Sender (TD-10's fix): SMTP via
+  `SMTP_*` env (house Gmail pattern), recipient from the partner row, first line
+  of the message = subject, LOUD failure on null/`sms`/unknown channel. Dark until
+  the env is set (deliberately unset — C3's act). **S-7 flip landed**
+  (quiet_reengage + lost_aging → YOUNG). **The sender-None recording guard is
+  KEPT permanently** (operator decision at the gate, design S-7 note amended) —
+  a senderless nightly can never burn a partner nudge.
+- **C2** — `judgment/partner_report.py`: cadence (heartbeat 7d / batch / removal
+  triggers), the three design sections (holdings + re-pull, closes with
+  orphaned-close "details pending", demo line via `seams/nmc_demos.py` → B2,
+  omitted when unreachable), house excluded, stamp-only-after-successful-send,
+  per-partner failure isolation, runs LAST in the nightly after expiry.
+  `MEDUSA_READONLY_URL` is SET in dev `.env` (local mirror) — the close feed is
+  live locally.
+- **C3 remains** — the prod-day ceremony: mail-engine prod release (migrations
+  0009+0010 + `suppression_report` review) · set SMTP_* + NMC_BOOKING_URL/KEY +
+  prod `MEDUSA_READONLY_URL` (PRD credential) in the prod checkout's `.env` ·
+  operator-as-partner receives the first real report · verify holdings/closes/
+  demo-line against real data (test identity yk@nevermisscall.com, demo number
+  818-418-0546) · only then does a real partner enter the send list.
+- Suite: **477 offline tests**, ruff + pyright clean.
+
+---
+
+# Previous — 2026-08-01: Stages A AND B complete — the queue is Stage C (Sender + composer)
 
 **Stage B, DONE 2026-08-01 (operator-approved gate + B-GATE decision):**
 
