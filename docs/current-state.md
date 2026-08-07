@@ -24,6 +24,19 @@ it re-enters `e2e` and the release gate at un-park, and the Lob asset-outage
 chase is closed as out-of-scope. Release gate reworded accordingly. Also fixed:
 `make help` had always hidden `e2e` (its grep pattern lacked digits).
 
+**The sales-partner application is ALREADY LIVE end to end (verified
+read-only, same day — no NMC changes):** `/us/sales-partners` serves 200 with
+the Apply form (the 307 is Medusa's cache-cookie self-redirect) and is linked
+from the home page; the sales-partner code is byte-identical young↔production
+(young is ahead by docs only); prod Medusa (`website-4zds.onrender.com`) is
+healthy and `POST /store/sales-partner-application` answers — a keyed
+honeypot-filled probe returned `200 {ok:true}` with zero side effects (the
+honeypot short-circuits before validation/email/storage). **There is no
+publish step.** The ONE unverified leg is email delivery (operator
+notification + Stage-2 auto-reply): the operator submits a TEST application
+from the live page — the route stores nothing, so a submission is just the
+two emails.
+
 **The `PostHogFeed` integration test is BUILT and COVERED live (same day,
 uncommitted):** `tests/integration/test_posthog_feed.py` + the `posthog_feed`
 fixture — real auth, real HogQL against the real project, every returned row
