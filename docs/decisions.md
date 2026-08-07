@@ -1126,3 +1126,59 @@ main list and clears DNC.** Consequences:
 - Rests on the seller-attachment premise (permission to a partner = permission
   to NMC), **on the Q6 counsel agenda**. If counsel narrows it, the change is
   the export predicate, not the schema.
+
+## REVERSED: partner-sourced numbers are CUT; a referral is a targeting signal, not a lead-capture path (decided 2026-08-06, same day)
+
+Reverses the entry directly above, hours after it. The feature was built to
+rev 5 (`f3ce10c`) and **fully backed out the same day** (migration `0012`,
+`service/referrals.py` deleted, the export's personal-window waiver removed).
+Production never received it; nothing was imported and nothing was dialed.
+
+**Why cut.** The design bundled three separable things — *acquisition* (new
+inventory), *permission* (a legal basis to call), and *custody* (90-day
+exclusivity). Only permission was hard, and it did not survive scrutiny:
+
+- What the CSV collected was **oral, relayed permission**. Both
+  16 CFR § 310.4(b)(1)(iii)(B)(1) and 47 CFR § 64.1200(c)(2)(ii) require a
+  **signed writing** to exempt a registry-listed number, so a referral supplies
+  no basis at all. Rev 5's oral-vs-written reasoning (the "~3 months vs. until
+  revoked" line) confused permission with the **EBR-from-inquiry** window and is
+  withdrawn.
+- The decisive argument was **safe-harbor contagion**: § 310.4(b)(3) forgives an
+  *isolated error despite procedures*. A category-wide carve-out is not an
+  isolated error, so waiving the scrub for referrals risked the posture for the
+  **whole program**, including the scrubbed CSLB calls. Now counsel **Q8(e)**.
+
+**What replaces it — no code, and it was already possible.** A referral is a
+*targeting* request that takes no shortcut through the DNC gates:
+
+1. The partner sends a **name and town**, never a number.
+2. The contractor is almost certainly already ours — CSLB is the whole state
+   (84,072 rows), so a licensed referral is a row we hold, not new data.
+3. Operator looks them up (`search_contacts`, web `/contacts`) and assigns by id
+   (`assignment_cli assign --ids-file`). **The explicit-id path runs the identical
+   `_gate`** — a hand-picked referral is refused exactly like any other candidate.
+4. Clears ⇒ next sheet, dialed normally with the referrer named in the opener.
+   `dnc_registry` ⇒ **not callable** (~48% of contractors, measured 11,551/24,212);
+   in-person or the demo line is the only route. `dnc_unsubscribed` ⇒ the
+   area-code purchase decision. `dnc_stale` ⇒ tonight's cycle handles it.
+
+**The real value of a referral is territory evidence, not the contact.** A
+partner who keeps being introduced to people in an unsubscribed code is telling
+us where their social density is — which is already an approved expansion
+trigger ("partner-requested area codes join the expansion triggers", 2026-08-01).
+At the measured listing rate a mid-tier code (619, 951, 310 ≈ 2,100–2,300 core
+contractors) yields ~1,100 dialable for $82 — about 7¢ each, worked warm.
+
+**Known gap, accepted:** `move_contact` was deleted with the feature, so when a
+referral hits `already_assigned` (another partner holds it) there is no verb to
+adjudicate — the answer today is "leave it." At two partners over 100,444
+contacts the collision odds do not justify the code; it is in git history at
+`f3ce10c` if it is ever wanted.
+
+**Partner-facing consequence:** `nvermisscall/docs/partner-dialing-procedure.md`
+gains **rule 2** ("Referrals: get the name, not the number"), which also sets the
+~50% expectation before a partner discovers it, and invites the area-code request
+explicitly. If revived, the shape to build is the *inverse* of rev 5: scrub
+first, then 90 days of custody on the survivors, unsubscribed codes never
+reaching a sheet.

@@ -10,34 +10,44 @@ when it is the common one (operator decision, §3).*
 
 ---
 
-> ## ⚠️ §4's registry waiver is UNSETTLED — do not treat the built code as decided
+> ## 🚫 DEFERRED — not built, not shipped. This is a future-upgrade spec.
 >
-> **2026-08-06.** Two things landed after rev 5 was written and the import verb
-> was built to it:
+> **Operator decision, 2026-08-06: cut from this version.** The feature was built
+> to rev 5 (`f3ce10c`) and then **fully backed out** the same day — the import
+> verb, migration `0011`, the export's personal-window waiver, the assignment
+> attribution gate, the holdings splits, and the console front door are all gone
+> (`0012.drop-sourced-attribution.sql`). Production never received any of it.
+> Nothing was ever imported and nothing was ever dialed under it.
 >
-> 1. **The legal premise under §4 is weaker than rev 5 assumed.** §2's
->    oral-vs-written reasoning was wrong (corrected in place below). What the CSV
->    collects is **oral, relayed permission**, and our reading of
->    16 CFR § 310.4(b)(1)(iii)(B)(1) is that only a **signed writing** exempts a
->    registry-listed number. A referral does not supply one. This is now
->    **counsel question 8** in `nvermisscall/docs/counsel-memo-dnc-b2b.md`.
-> 2. **The operator has proposed the inverse posture** — *scrub first, then 90
->    days on the survivors, and numbers in unsubscribed area codes never reach a
->    sheet.* That supersedes §4's "no registry check required" if adopted. Not
->    yet decided; the open mechanics are whether an out-of-code number is
->    rejected or parked, and whether import scrubs inline or waits for the
->    nightly.
+> **Why it was cut:** the design bundled three separable things — *acquisition*
+> (new inventory), *permission* (a legal basis to call), and *custody* (90-day
+> exclusivity). Only permission was hard, and it did not hold up. What the CSV
+> collects is **oral, relayed permission**; our reading of
+> 16 CFR § 310.4(b)(1)(iii)(B)(1) is that only a **signed writing** exempts a
+> registry-listed number, so a referral supplies no basis at all. §2's
+> oral-vs-written reasoning, which the waiver rested on, was wrong and is
+> corrected in place below.
 >
-> The strongest argument for scrub-first is **not** any of the above — it is that
-> § 310.4(b)(3)'s safe harbor forgives an *isolated error despite procedures*. A
-> category-wide carve-out is not an isolated error, so exempting referrals risks
-> the safe-harbor posture for the **whole program**, including the scrubbed CSLB
-> calls. Asked as question 8(e).
+> The decisive argument was not that one, though — it was **safe-harbor
+> contagion**. § 310.4(b)(3) forgives an *isolated error despite procedures*; a
+> category-wide carve-out is not an isolated error, so waiving the scrub for
+> referrals put the posture for the **whole program** at risk, including the
+> scrubbed CSLB calls. Open as **counsel question 8(e)** in
+> `nvermisscall/docs/counsel-memo-dnc-b2b.md`.
 >
-> `service/referrals.py` implements rev 5 as written (waiver on, `_cliff()`
-> warns rather than blocks). It is uncommitted and unreleased; nothing has been
-> dialed under it. Sections 4, 5 and 9 below still describe the waiver design —
-> read them as the pending-review option, not as settled.
+> **What partners do instead (no system involvement):** a referral is not
+> dialable. Rule 1 of the dialing procedure stands absolute — you call what is on
+> your current export, and nothing else, however you came by the number. A
+> partner offered an introduction either gives out the demo line and lets the
+> contractor call in (an inbound inquiry creates an EBR, which clears the
+> registry on its own, and the demo line already carries per-partner
+> attribution), or sends the number to the operator for a future scrubbed batch.
+>
+> **If this is ever revived**, the shape to build is the *inverse* of §4: scrub
+> first, then 90 days of custody on the survivors, with unsubscribed area codes
+> never reaching a sheet. That keeps acquisition and custody and drops the
+> permission waiver entirely. Sections 4, 5 and 9 below describe the ORIGINAL
+> waiver design — read them as the rejected option, kept for the reasoning.
 
 ---
 

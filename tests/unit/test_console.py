@@ -204,7 +204,7 @@ def test_picking_a_partner_with_hours_asks_nothing_more(monkeypatch):
 
 
 def test_help_manual_prints_and_returns_to_menu(monkeypatch, capsys):
-    _feed(monkeypatch, "11", "0")
+    _feed(monkeypatch, "10", "0")
     assert console.main([]) == 0
     out = capsys.readouterr().out
     assert "operator manual" in out
@@ -212,22 +212,3 @@ def test_help_manual_prints_and_returns_to_menu(monkeypatch, capsys):
     assert out.count("mail-engine console") >= 2  # menu re-rendered after help
 
 
-def test_collected_file_is_picked_from_the_drop_folder_by_number(monkeypatch, tmp_path):
-    (tmp_path / "john.csv").write_text("phone\n")
-    (tmp_path / "steven.csv").write_text("phone\n")
-    monkeypatch.setattr(console, "_COLLECTED", tmp_path)
-    _feed(monkeypatch, "2")  # a number, never a path
-    assert console._pick_collected_file() == tmp_path / "steven.csv"
-
-
-def test_collected_file_accepts_a_bare_filename(monkeypatch, tmp_path):
-    (tmp_path / "john.csv").write_text("phone\n")
-    monkeypatch.setattr(console, "_COLLECTED", tmp_path)
-    _feed(monkeypatch, "john.csv")
-    assert console._pick_collected_file() == tmp_path / "john.csv"
-
-
-def test_an_empty_drop_folder_says_where_the_file_goes(monkeypatch, tmp_path, capsys):
-    monkeypatch.setattr(console, "_COLLECTED", tmp_path)
-    assert console._pick_collected_file() is None
-    assert str(tmp_path) in capsys.readouterr().out

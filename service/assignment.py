@@ -24,7 +24,6 @@ from psycopg.types.json import Json
 from config.params import (
     ASSIGNMENT_EXPIRY_DAYS,
     DNC_FRESHNESS_DAYS,
-    PERSONAL_WINDOW_DAYS,
     HOUSE_PARTNER_ID,
     derived_batch_size,
 )
@@ -126,25 +125,20 @@ _CANDIDATE_COLS = sql.SQL(
     "(c.phone_e164 is not null and substring(c.phone_e164 from 3 for 3) in "
     "  (select area_code from dnc_subscriptions)) as area_subscribed, "
     "exists (select 1 from suppression_tombstones t "
-    "  where t.phone_e164 = c.phone_e164 and t.channel = 'voice') as tombstoned, "
-    "c.sourced_by_partner_id"
+    "  where t.phone_e164 = c.phone_e164 and t.channel = 'voice') as tombstoned"
 )
 
 
-def _gate(row, requesting_partner_id: UUID) -> str | None:
+def _gate(row) -> str | None:
     """First failing gate → shortfall cause; None → assignable."""
     (_id, phone, batch_ptr, owner_id, stage, do_not_call, dnc_registry, is_seed,
-     _checked_at, dnc_fresh, area_subscribed, tombstoned, sourced_by) = row
+     _checked_at, dnc_fresh, area_subscribed, tombstoned) = row
     if is_seed:
         return "seed"
     if phone is None:
         return "no_phone"
     if batch_ptr is not None or owner_id != HOUSE_PARTNER_ID:
         return "already_assigned"
-    if sourced_by is not None and sourced_by != requesting_partner_id:
-        # Another partner collected this number: it returns to them, never into
-        # someone else's batch (partner-sourced-leads.md §4, requirement 2).
-        return "sourced_elsewhere"
     if stage == "won":
         return "won"
     if stage in ("responded", "in_conversation"):
@@ -274,7 +268,7 @@ def assign_batch(
             assigned: list[UUID] = []
             shortfall: dict[str, list[UUID]] = {}
             for row in cur.fetchall():
-                cause = _gate(row, partner_id)
+                cause = _gate(row)
                 if cause is None and (count is None or len(assigned) < count):
                     assigned.append(row[0])
                 elif cause is not None:
@@ -330,25 +324,13 @@ def export_batch(partner_id: UUID) -> ExportResult:
                 "c.addr_line1, c.addr_line2, c.addr_city, c.addr_state, c.addr_zip, "
                 "b.expires_at, "
                 "(c.dnc_checked_at is not null and c.dnc_checked_at >= now() - "
-                " make_interval(days => %s)) as dnc_fresh, "
-                # The personal-list window: attributed to THIS partner and inside
-                # PERSONAL_WINDOW_DAYS of the recorded permission date.
-                "(c.sourced_by_partner_id = c.owner_id and c.permission_at is not null "
-                " and c.permission_at >= current_date - make_interval(days => %s)) "
-                "  as personal, "
-                "c.dnc_registry, "
-                "exists (select 1 from suppression_tombstones t "
-                "  where t.phone_e164 = c.phone_e164 and t.channel = 'voice') "
-                "  as tombstoned "
-                # LEFT: a sourced holding carries no batch pointer and would
-                # otherwise vanish from the partner's own sheet.
-                "from contacts c left join assignment_batches b "
+                " make_interval(days => %s)) as dnc_fresh "
+                "from contacts c join assignment_batches b "
                 "  on b.id = c.assignment_batch_id "
                 "where c.owner_id = %s "
-                # Our own list is never waived — not by permission, not by anything.
-                "and c.do_not_call = false "
+                "and c.do_not_call = false and c.dnc_registry = false "
                 "order by c.id",
-                (DNC_FRESHNESS_DAYS, PERSONAL_WINDOW_DAYS, partner_id),
+                (DNC_FRESHNESS_DAYS, partner_id),
             )
             rows = cur.fetchall()
             cur.execute(
@@ -360,32 +342,20 @@ def export_batch(partner_id: UUID) -> ExportResult:
     writer = csv.writer(out)
     writer.writerow(
         ["business_name", "contact_name", "phone", "addr_line1", "addr_line2",
-         "city", "state", "zip", "origin", "expires_at", "generated_at"]
+         "city", "state", "zip", "expires_at", "generated_at"]
     )
     shortfall: dict[str, list[UUID]] = {}
     for (cid, business_name, contact_name, phone, line1, line2, city, state,
-         zip_, expires_at, dnc_fresh, personal, dnc_registry, tombstoned) in rows:
-        # The rule (partner-sourced-leads.md §4): on the sheet if it is in their
-        # personal list, or if it came off the main list and clears DNC. The
-        # personal window waives the FTC-REGISTRY checks only — a tombstone is
-        # our own list and is never waived.
-        if tombstoned:
-            shortfall.setdefault("tombstoned", []).append(cid)
+         zip_, expires_at, dnc_fresh) in rows:
+        if not dnc_fresh:
+            shortfall.setdefault("dnc_stale", []).append(cid)
             continue
-        if not personal:
-            if dnc_registry:
-                shortfall.setdefault("dnc_registry", []).append(cid)
-                continue
-            if not dnc_fresh:
-                shortfall.setdefault("dnc_stale", []).append(cid)
-                continue
         writer.writerow(
             [
                 # the same fallback execute_wave uses for a null-name recipient
                 business_name or contact_name or "Business Owner",
                 contact_name or "",
                 phone, line1 or "", line2 or "", city or "", state or "", zip_ or "",
-                "sourced" if personal else "issued",
                 expires_at.isoformat() if expires_at else "",
                 generated_at.isoformat(),
             ]
@@ -393,25 +363,16 @@ def export_batch(partner_id: UUID) -> ExportResult:
     return ExportResult(csv=out.getvalue(), shortfall=shortfall)
 
 
-def reclaim(
-    partner_id: UUID, reason: str, actor: str, *, include_sourced: bool = False
-) -> int:
+def reclaim(partner_id: UUID, reason: str, actor: str) -> int:
     """S-5: return every holding of a partner to the house, one event each. Works
-    on inactive partners (Step 12 removes access; reclaim retrieves the leads).
-
-    Their own collected numbers are NOT ours to take, so a plain reclaim leaves
-    them (partner-sourced-leads.md §4). `include_sourced` is the explicit
-    operator act for the partnership-ends case."""
+    on inactive partners (Step 12 removes access; reclaim retrieves the leads)."""
     if not reason.strip():
         raise ValidationError("bad_reason", "a reclaim carries its reason")
     with transaction() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "select id from contacts where owner_id = %s "
-                + ("" if include_sourced else
-                   "and (sourced_by_partner_id is null "
-                   "     or sourced_by_partner_id <> owner_id) ")
-                + "order by id for update",
+                "order by id for update",
                 (partner_id,),
             )
             holdings = [r[0] for r in cur.fetchall()]
@@ -421,32 +382,6 @@ def reclaim(
                     event_type="contact.reclaimed", reason=reason, actor=actor,
                 )
     return len(holdings)
-
-
-def move_contact(contact_id: UUID, to_partner_id: UUID, reason: str, actor: str) -> None:
-    """Move ONE contact's custody between partners — the conflict-resolution verb
-    (partner-sourced-leads.md §6). `reclaim` is all-or-nothing and too blunt when
-    two partners both claim one number; the operator adjudicates on evidence and
-    this records the outcome as an ordinary custody event with its reason."""
-    if not reason.strip():
-        raise ValidationError("bad_reason", "a custody move carries its reason")
-    with transaction() as conn:
-        with conn.cursor() as cur:
-            cur.execute("select id from partners where id = %s", (to_partner_id,))
-            if cur.fetchone() is None:
-                raise ValidationError("no_partner", f"no partner {to_partner_id}")
-            cur.execute(
-                "select owner_id from contacts where id = %s for update", (contact_id,)
-            )
-            row = cur.fetchone()
-            if row is None:
-                raise ValidationError("no_contact", f"no contact {contact_id}")
-            if row[0] == to_partner_id:
-                return
-            set_owner(
-                cur, contact_id, to_partner_id,
-                event_type="contact.assigned", reason=reason, actor=actor,
-            )
 
 
 def run_expiry_step() -> int:
@@ -476,14 +411,9 @@ def run_won_termination_step() -> int:
     be dialing a paying customer, and expiry is months too slow for that."""
     with transaction() as conn:
         with conn.cursor() as cur:
-            # owner <> house, NOT "has a batch pointer": a SOURCED holding carries
-            # no batch, and a won sourced contact staying on a partner's sheet is
-            # S-10's worst case. Keying on the owner also stops the step
-            # re-selecting won contacts already in the pool every night forever.
             cur.execute(
                 "select id from contacts where stage_snapshot = 'won' "
-                "and owner_id <> %s order by id for update",
-                (HOUSE_PARTNER_ID,),
+                "and assignment_batch_id is not null order by id for update",
             )
             due = [r[0] for r in cur.fetchall()]
             for cid in due:

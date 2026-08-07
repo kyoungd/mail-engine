@@ -22,10 +22,6 @@ from collections.abc import Callable
 from pathlib import Path
 
 _SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
-# Where partners' collected-number CSVs are dropped. Sibling to both checkouts
-# (the ../dnc-lists/ pattern) and gitignored for the same reason: these files
-# carry real people's numbers plus the permission record behind each one.
-_COLLECTED = Path(__file__).resolve().parents[2] / "collected"
 
 
 def _ask(prompt: str, default: str = "") -> str:
@@ -81,28 +77,6 @@ def _roster() -> list[tuple[str, int | None, str | None]]:
                 (HOUSE_PARTNER_ID,),
             )
             return list(cur.fetchall())
-
-
-def _pick_collected_file() -> Path | None:
-    """The CSV comes out of the drop folder, chosen by number or name — no paths
-    to type (operator, 2026-08-06). Nothing there is a dead end worth naming: an
-    empty folder means the file has not been saved yet, so print where it goes."""
-    _COLLECTED.mkdir(parents=True, exist_ok=True)
-    files = sorted(_COLLECTED.glob("*.csv"))
-    if not files:
-        print(f"no CSV files in {_COLLECTED} — drop the partner's file there first")
-        return None
-    print(f"files in {_COLLECTED}:")
-    for i, f in enumerate(files, start=1):
-        print(f"  {i}) {f.name}")
-    choice = _ask("file", "1")
-    if choice.isdigit() and 1 <= int(choice) <= len(files):
-        return files[int(choice) - 1]
-    named = _COLLECTED / choice
-    if named.exists():
-        return named
-    print(f"no such file: {named}")
-    return None
 
 
 def _partner_id(name: str):
@@ -348,59 +322,6 @@ def _subscribe() -> int:
     return _step_subscribe()
 
 
-def _import_collected() -> int:
-    """Item 11: a partner's own collected numbers. Conflicts resolve inline —
-    the evidence is printed where the decision is made, not in a report the
-    operator has to go hunting through afterwards."""
-    import csv as _csv
-
-    from service.assignment import move_contact
-    from service.referrals import import_collected
-
-    partner = _pick_partner(allow_new=False) or ""
-    if not partner:
-        return 1
-    path = _pick_collected_file()
-    if path is None:
-        return 1
-    with path.open(newline="") as fh:
-        rows = [{**row, "sourced_by": row.get("sourced_by") or partner}
-                for row in _csv.DictReader(fh)]
-    if not rows:
-        print("empty file")
-        return 1
-
-    report = import_collected(rows, actor="console")
-    print(f"\nread {len(rows)} rows")
-    print(f"  created          {report.created:>3}   new to us")
-    print(f"  took custody     {report.took_custody:>3}   already in our list, unowned")
-    print(f"  already theirs   {report.already_theirs:>3}   permission recorded")
-    print(f"  conflict         {len(report.conflicts):>3}   held by another partner")
-    print(f"  rejected         {len(report.rejected):>3}")
-    for bad in report.rejected:
-        print(f"    row {bad.row}: {bad.reason}")
-    for cliff in report.cliffs:
-        print(
-            f"  ⚠ {cliff.phone} on the sheet until {cliff.expires_on} "
-            f"({cliff.why}) — needs DNC clearance after that"
-        )
-
-    for conflict in report.conflicts:
-        since = conflict.held_since.date().isoformat() if conflict.held_since else "?"
-        print(f"\nCONFLICT  {conflict.phone}")
-        print(f"  held by {conflict.held_by} since {since}")
-        print(f"  activity on this contact: {conflict.activity}")
-        answer = input(f"  → move to {partner}? [y/N]: ").strip().lower()
-        if answer != "y":
-            print("  (left where it is)")
-            continue
-        move_contact(conflict.contact_id, _partner_id(partner),
-                     reason=f"conflict resolved in favour of {partner}",
-                     actor="console")
-        print(f"  moved to {partner}")
-    return 0
-
-
 _MANUAL = """
 mail-engine console — operator manual
 
@@ -428,13 +349,6 @@ ITEMS
                       Give it to cron:  10 7 * * * scripts/dnc-daily.sh
   8  DNC portal       is the FTC subscription live / serving files
   9  subscribe        record an area code purchased at the SAN portal
- 10  import collected a partner's OWN numbers from a CSV dropped in the
-                      collected/ folder beside the checkout, with the
-                      permission that
-                      justifies calling them (who said it, when, where).
-                      In their personal list they are on the sheet for 90
-                      days with NO registry check — our own do-not-call
-                      still applies. Conflicts resolve inline on evidence.
 
 RULES THE SYSTEM ENFORCES (no way around them, by design)
   - on the DNC registry, opted out, or tombstoned  -> never assigned
@@ -473,8 +387,7 @@ ACTIONS: dict[str, tuple[str, Callable[[], int]]] = {
     "7": ("DNC daily cycle (download + scrub)", _dnc_daily),
     "8": ("DNC portal status", _dnc_portal_status),
     "9": ("subscribe an area code", _subscribe),
-    "10": ("import collected numbers", _import_collected),
-    "11": ("help", _help),
+    "10": ("help", _help),
 }
 
 

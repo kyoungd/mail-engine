@@ -165,25 +165,16 @@ def _status(name: str | None) -> int:
                 return 0 if name is None else 1
 
             for pid, pname, rep_id, code, export_at, report_at in partners:
-                # Split issued vs sourced: their own collected numbers are not
-                # part of the batch we sized from their hours.
                 cur.execute(
-                    "select count(*) filter (where sourced_by_partner_id is "
-                    "  distinct from owner_id), "
-                    "count(*) filter (where sourced_by_partner_id = owner_id) "
-                    "from contacts where owner_id = %s",
+                    "select count(*) from contacts where owner_id = %s",
                     (pid,),
                 )
                 row = cur.fetchone()
                 assert row is not None
-                issued, sourced = row
                 header = pname
                 if rep_id is not None or code is not None:
                     header += f"  (rep {rep_id or '-'}, code {code or '-'})"
-                holdings = f"{issued} issued"
-                if sourced:
-                    holdings += f" + {sourced} own"
-                print(f"{header}  holdings: {holdings}")
+                print(f"{header}  holdings: {row[0]}")
 
                 cur.execute(
                     "select b.idempotency_key, b.delivered_count, "
