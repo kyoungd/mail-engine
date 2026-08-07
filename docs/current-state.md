@@ -1,4 +1,214 @@
-# Current state — 2026-08-02: SALES-PARTNER SYSTEM IS PRIMARY; build complete, waiting on two operator clocks
+# Current state — 2026-08-05: DNC subscription is LIVE and all five files are DOWNLOADED; the format question is settled by real bytes
+
+**The FTC wait is over.** The subscription provisioned overnight (filed
+2026-08-03, live by 2026-08-05 — the portal's "~1 day" was nearly honest).
+`dnc-status.py` flipped to LIVE with five URLs; all five full files were
+fetched the same morning and sit in `marketing/dnc-lists/2026-08-05/`
+(zips unopened, CRC-clean):
+
+| Area | Numbers | Area | Numbers |
+|------|---------|------|---------|
+| 714 | 1,591,200 | 818 | 1,469,394 |
+| 760 | 1,464,756 | 916 | 1,536,340 |
+| 805 | 1,272,857 | **Total** | **7,334,547** |
+
+- **The five provisioned codes are 714 · 760 · 805 · 818 · 916** — the top-5
+  by measured contractor density, NOT the Chatsworth derivation set
+  (818·805·310·661·323). 310, 661, 323 are not subscribed; if partner #1's
+  sheet needs them, that's a purchase decision, not a download.
+- **Direct GET on the URLs 404s.** The file only comes through SOAP
+  `GetDNCFileByUrl(fileUrl, strSessionToken, strCoID)` → base64 inside the
+  envelope. **`scripts/dnc-download.py` (NEW, uncommitted)** does the whole
+  cycle: login → GetURLS → fetch-what's-missing, raw-response-first so a
+  decode bug can't lose the once-per-day fetch, skip-if-on-disk so re-runs
+  are free, CRC via streaming `zipfile`. `--only 818` for one code.
+- **The full-list format is SETTLED by real bytes: `AAA,NNNNNNN` LF-terminated**
+  (comma-delimited area code + 7-digit local; e.g. `818,0000818`). Verified
+  across all 7.33M lines: 0 malformed, 0 wrong-area, no CRLF, no header row.
+  The `8185551234` 10-digit guess is DEAD. `tests/fixtures/dnc/` (full-list
+  half) can now be pinned to this; the CHANGE-list format remains unverified.
+- **The real registry client is BUILT (2026-08-05, test-first, 🟡 gate
+  approved):** `seams/dnc_registry.FileDncRegistry` over a snapshot dir;
+  Protocol verb changed `numbers(area)` → **`listed(area, candidates)`** (the
+  decided streaming inversion). Every anomaly is a loud `DncRegistryError`
+  (absent/ambiguous zip, malformed or wrong-area line, CRC failure).
+  `dnc_refresh` gained `--snapshot DIR` (one `listed()` call per area code,
+  aborts before stamping on registry error); the `--fake`-only era is over.
+  9 new unit tests incl. a skip-if-absent pin over the real 818 zip; suite
+  490 green, ruff + pyright clean. Fixtures README: full-list format now
+  VERIFIED; change-list half still unverified.
+- **The FIRST REAL SCRUB ran on dev (2026-08-05), post re-ingest to canonical
+  100,444:** `dnc_refresh --snapshot ../dnc-lists/2026-08-05` →
+  **checked=24,212 hits=11,551 cleared=0** in 4m18s, all events
+  version-stamped `2026-08-05`. **~48% of contractor phones are on the
+  consumer DNC registry** (714: 47.9% · 760: 46.4% · 805: 52.6% ·
+  818: 43.6% · 916: 49.6%) — sole props registering personal cells, the
+  exact Chennette population the Q6 memo covers; the scrub takes them out
+  conservatively. **818 dialable pool = 3,395 of 6,023** → partner #1's
+  real arithmetic is ~17 batches of 200, not ~30. Dev-only: the prod scrub
+  stays a C3/cutover-day act. `dnc_subscriptions` (dev) now records all
+  five codes.
+- Calendar note: 12-month renewal runs from purchase (2026-08-03).
+
+---
+
+# Previous — 2026-08-04: DNC download is FILED and blocked on the FTC; the C3 rehearsal is now the only thing moving
+
+**Where the week stands.** The DNC arc got as far as it can without the
+government: the subscription for **5 area codes was filed 2026-08-03** (portal
+promised ~1 day, said chase at 3 — call it a week). Everything downstream of it
+— the real scrub, partner #1's first legal dial — waits on that queue. **C3 is
+therefore the only live critical path, and it is blocked on nothing but the
+operator running `scripts/partner-rehearsal.sh all`.** Nothing has ever sent a
+real mail-engine email yet.
+
+**The DNC registry design is now DECIDED and recorded** (`decisions.md`, three
+entries — read those, not this summary, for the reasoning):
+
+- **Files, never a database table.** The registry is an *input, not a record*:
+  we already persist the only part that matters (`contacts.dnc_registry` /
+  `dnc_checked_at` + the version-stamped `contact.dnc_checked` event). The
+  inversion that settles it — we never ask "what is on the registry?" but
+  "which of MY 6,023 numbers in 818 are on it?", so the set in memory is OURS
+  (~1 MB) and their file streams past it. Deciding factors were **backup
+  propagation** (a table of 10M consumer numbers copied into every DB backup
+  forever) and moving parts, NOT performance. Flips only if change lists ever
+  become worth having.
+- **Layout: `marketing/dnc-lists/<YYYY-MM-DD>/`** — sibling to both checkouts
+  (`../dnc-lists/`), gitignored, same pattern as `ingestion-app-1/`. The
+  directory name IS the registry version stamped on check events. **Keep the
+  portal's `.zip` unopened** — parser streams via `zipfile`, and the CRC is a
+  free completeness check (a truncated flat file looks valid and would silently
+  under-block, putting registered consumers into a partner's sheet).
+
+**The portal has a documented API, and it was exercised LIVE (2026-08-04):**
+`DownloadSvc.asmx` — target namespace and SOAPAction prefix are the same string.
+`Login(coID, pwd, userType=Downloader, enumCertify=Agree)` → **`LoginOK`**, so
+**certifying programmatically is legitimate — no web click needed**; the whole
+monthly cycle can automate. Side effect: **the Downloader password question is
+RESOLVED** — the change DID go through despite the portal's system-failure
+message (vault updated; the portal-issued original is dead). But
+`CanGetFullFile` and `GetURLS` both return `InvalidRequest` with a fresh token
+in either format — **the account has no area-code subscription provisioned yet**,
+which the filing timeline explains. `GetDNCFileByUrl` was never called, so the
+once-per-day allowance is untouched.
+
+- **`scripts/dnc-status.py`** (NEW, uncommitted) turns the wait into one
+  command: logs in, calls `GetURLS`, prints LIVE/PENDING with the chase date
+  baked in. Exit codes are cron-shaped (0 live / 1 pending / 2 error) and it
+  does NOT consume the daily download. Currently prints PENDING.
+
+**⚠️ The DNC sample fixtures are NOT format-authoritative.**
+`tests/fixtures/dnc/` was built from a search-engine synthesis and is now marked
+UNVERIFIED in its README — public sources **contradict each other** (full list:
+`8185551234` vs `818,5551234`; change list: comma-delimited vs **fixed-width**).
+Our fixtures assumed plausibly the worst mix of the two. **Pin the parser to the
+portal's Data Demo sample or the first real download — never to our guess**
+(the repo's verify-external-facts rule; the seam docstring says the same).
+
+**Secrets were swept out of all tracked documentation (2026-08-03).** New vault
+at **`~/.config/nvermisscall/keys.md`** (chmod 600, outside every repo,
+extending the `~/.config/render/api-key` precedent); repo docs and memory now
+only POINT at it. Two findings worth acting on: a block labeled *"Fake
+credentials (safe for testing)"* in `docs/backlog/TWILIO-A2P-10DLC-ISV-REFERENCE.md`
+held the **REAL prod Twilio SID + auth token** (byte-identical to
+`booking-system/.env`), and `test-services/docs/PRD.md` carried an
+`api-service-key` whose shape suggests it may be the **prod `NMC_API_KEY`**.
+Both are rotation candidates — and scrubbing the working tree does NOT scrub git
+history. The **SAN Organization ID `10337886-60999`** is recorded (identifier,
+not a secret); portal passwords live only in the vault.
+
+**Contractor density, measured (for area-code choice).** Core trades only
+(plumber + HVAC + electrician), phones present: **818 = 4,367** (1,501 / 871 /
+1,995) — a 50% lead over #2, and it strengthens when the painter/landscaper/
+roofer filler is excluded. Then 714 (2,914), 916 (2,627), 760 (2,540), 805
+(2,358), 619 (2,283), 951 (2,198), 310 (2,103 — plumber-rich), 909, 707. The
+org's 5 free codes cover ~14,800 core companies ≈ 74 batches of 200 pre-scrub.
+**There is no locksmith data** — the six loaded trades are electrician, plumber,
+painter, HVAC, landscaper, roofer; locksmiths are generally not CSLB-licensed,
+so they would need a different source entirely.
+
+**Also today:** `jobs/subscribe_area_codes --help` now carries the full
+"how to get the DNC list for an area code" procedure (SAN login → add code →
+download full list → record + scrub → calendar the 12-month renewal), since
+that CLI is the front door where the claim gets made.
+
+**Uncommitted here:** `scripts/partner-rehearsal.sh`, `scripts/dnc-status.py`,
+`tests/fixtures/dnc/`, the three `decisions.md` DNC entries, the
+`subscribe_area_codes` help text. In the PARENT repo: `marketing/.gitignore`
+(dnc-lists), the PRD/doc secret scrubs, and the ceremony doc's queued-follow-up
+section.
+
+---
+
+# Previous — 2026-08-02 (later session): C3 IS RUNNING — Stages A/B/C done, D staged for LOCAL testing; the dress rehearsal script is the next act
+
+**The ceremony has a doc and a ledger** (parent repo,
+`docs/active/to-do-partner-report-c3-ceremony.md` — placement rule: parent-repo
+work executes in PARENT sessions, mail-engine work here). Progress today:
+
+- **Stage A ✅** — the partner-lifecycle e2e journey committed (`16576c5`) and the
+  FULL 22-commit partner arc pushed to origin. The journey (`tests/e2e/
+  test_partner_journey.py`) walks intake → partners_cli → subscribe 818 →
+  fake scrub → assign (every gate named) → export → nightly (close, won-
+  termination, report via the real Sender/captured socket) → replays → reclaim;
+  green beside the mail funnel under `make e2e` (10.6s); fakes ONLY where
+  local-real is impossible.
+- **Stage B ✅ (parent session)** — B2 was discovered NOT deployed (impressions
+  came from Toolkit Phase 5); now merged `ec7fac6`, live on Render, smoke
+  401-unkeyed / 200-keyed with real rep-3 aggregates.
+- **Stage C ✅** — prod released: fresh dump `~/db-backups/
+  mailengine_prod-2026-08-02.dump` (16 MB), prod checkout `a027210` → `16576c5`,
+  migrations **0009+0010 applied to `mailengine_prod`**, partners seeded,
+  contacts 100,445 unchanged, `suppression_report` ALL ZEROS — and the zeros are
+  a **trusted instrument reading**: a six-case known-answer validation on dev hit
+  the prediction on all seven fields, and a real `recompute_state()` landed every
+  case exactly where the simulation said. Dev restored to canonical after.
+- **Stage D ⏳ staged for LOCAL testing** — prod `.env` gained `SMTP_*` (login
+  verified live), `MEDUSA_READONLY_URL` (verified), and — operator decision —
+  `NMC_BOOKING_URL=http://localhost:3002` + the LOCAL booking-system
+  `NMC_API_KEY` for the local test era (prod URL commented beside it; flip both
+  at go-live). **`LOB_API_KEY` is commented out**: the prod checkout held a LIVE
+  Lob key; darked during testing per the guard's live-key principle (restore at
+  mail un-park; TD-9 rotation now urgent — the key appeared in session output).
+  Partner row `Young-partner` (rep 3, operator email) created in prod. Findings:
+  **`nmc_partner_code` is EMPTY on prod** → close crediting runs the `sold_by`
+  leg (operator sets `sold_by=3` on the attribution row, the S98 manual path);
+  prod `NMC_API_KEY` exists ONLY in Render env (nowhere on disk).
+- **Stage E NOT run.** The permission classifier blocks this session from
+  running the prod nightly (and local psql writes) — the operator runs those by
+  hand. Nothing has ever sent a real mail-engine email yet.
+
+**The next act: `scripts/partner-rehearsal.sh` (UNCOMMITTED) — the operator-run
+local dress rehearsal.** Full story on disposable data: partner signs up → 818
+subscribed + fake-scrubbed → **200 contacts assigned (gates make them all-818)**
+→ export → an assigned contact "buys" (rows in local `medusa_nmc`) → operator
+credits `sold_by=3` → nightly via the REAL `nightly_cli` (first-ever execution:
+env feed-building, real PostHog pull, real close-feed SQL, real SMTP send) with
+the predicted email printed before the run. Prereq `check` passes; local
+booking-system demo rows moved to rep 3 (7 calls / 2 unique / 0 blocked / 1
+text); local mirror holds 82 customers in the 45-day window (they ingest
+uncredited — only the buyer shows in the report). Then Stage E proper: prod
+nightly, operator test-signup + credit, cron, ledger.
+
+**Design clarifications pinned today:** "assign an area code to a partner" =
+the onboarding sequence (derive → purchase at SAN portal → `subscribe_area_codes
+add` → scrub → batch), per the superseding one-code-to-start decision — NOT a
+schema binding; **gap queued (🟡 when partner #2 onboards in a different code):
+no `area_code` assignment-rule key exists**, so multi-code batches can't be
+partitioned per partner yet; **queued follow-up (approved 2026-08-03): a
+partner-ops umbrella CLI** — `jobs/partner_onboard.py` (one interactive command
+walking derive → SAN-purchase pause → subscribe → scrub → assign → export;
+`scripts/partner-rehearsal.sh` is the prototype) + a `partners status` view,
+🟡 AFTER the rehearsal runs, spec'd in the C3 ceremony doc § Queued follow-up.
+**TEXAS is the first expansion state after C3**
+(shared typed intake table + `source` column direction; TX telemarketing law on
+the Q6 agenda). Holdings verification stays deferred past C3 — never fake-scrub
+prod.
+
+---
+
+# Earlier — 2026-08-02: SALES-PARTNER SYSTEM IS PRIMARY; build complete, waiting on two operator clocks
 
 **The priority pivot (operator, 2026-08-01, `decisions.md`):** the sales-partner
 system is the primary product; **direct mail PARKS** — wave 1, the audience-scoped
@@ -37,7 +247,8 @@ per-state intake sources when list acquisition starts (timing undecided); state
 registries/registration on the counsel agenda.
 
 **What blocks the first legal dial: two operator clocks + one ceremony.**
-1. **SAN registration** (telemarketing.donotcall.gov, NMC EIN) — then
+1. **SAN registration** (telemarketing.donotcall.gov, NMC EIN) — **STARTED
+   2026-08-03: Organization ID `10337886-60999`** — then
    `subscribe_area_codes add 818` (John's #1) and the real FTC client gets built
    against the first downloaded file.
 2. **Q6 counsel hour** — memo + procedure ready to send.

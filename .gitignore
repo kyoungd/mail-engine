@@ -2,6 +2,14 @@
 # Founder seed addresses (real home/office addresses) — env-specific, never committed.
 # The committed template is config/seeds.example.json.
 config/seeds.json
+# Contact data — lists of real businesses and phone numbers. Same rule as
+# ingestion-app-1/ and dnc-lists/: source and working lists live beside the
+# repo, never in it. config/collected-template.csv style templates are fine;
+# anything holding real rows is not.
+*-leads.csv
+docs/main_contacts.csv
+docs/main-contacts-diff.csv
+
 .venv/
 __pycache__/
 *.pyc

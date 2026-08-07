@@ -794,3 +794,22 @@ def test_column_still_equals_derivation_across_all_new_paths(clean_db, owner_con
             events = [event_from_row(r) for r in cur.fetchall()]
             assert current_owner(events, HOUSE_PARTNER_ID) == _owner(cur, cid)
     _rm_partner(owner_conn, partner)
+
+
+def test_area_code_rule_key_bounds_the_batch(clean_db, owner_conn):
+    """The picked code must MEAN something: {"area_code": ["818"]} keeps a batch
+    local even when the org owns five codes (found live 2026-08-05 — a rule-less
+    smoke batch spread 25/21/21/18/15 across all five owned codes)."""
+    with owner_conn.cursor() as cur:
+        _subscribe(cur, "818", "805")
+        partner = _mk_partner(cur, "AreaBound", hours=10)
+        in_code = [_pool_contact(cur, f"+1818555100{i}") for i in range(3)]
+        out_code = _pool_contact(cur, "+18055551009")
+    owner_conn.commit()
+    report = assign_batch(partner, "areabound-b1", "test",
+                          audience_rule={"area_code": ["818"]}, count=10)
+    with owner_conn.cursor() as cur:
+        assert all(_owner(cur, c) == partner for c in in_code)
+        assert _owner(cur, out_code) == HOUSE_PARTNER_ID  # 805 never entered the batch
+    assert len(report.assigned) == 3  # bounded by the code, not the count
+    _rm_partner(owner_conn, partner)

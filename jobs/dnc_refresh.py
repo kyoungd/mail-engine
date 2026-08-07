@@ -68,9 +68,20 @@ def dnc_refresh(registry: DncRegistry, *, limit: int | None = None) -> DncReport
             )
             due = cur.fetchall()
 
+    # One listed() call per area code over OUR due numbers — the registry file
+    # streams past our set, never the reverse (decisions.md 2026-08-03). A
+    # DncRegistryError here aborts before anything is stamped.
+    by_code: dict[str, set[str]] = {}
+    for _, phone, _, _, area_code in due:
+        by_code.setdefault(area_code, set()).add(_national(phone))
+    on_registry = {
+        code: registry.listed(code, frozenset(numbers))
+        for code, numbers in by_code.items()
+    }
+
     checked = hits = cleared = 0
     for contact_id, phone, owner_id, already_listed, area_code in due:
-        hit = _national(phone) in registry.numbers(area_code)
+        hit = _national(phone) in on_registry[area_code]
         with transaction() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -116,15 +127,21 @@ def main(argv: list[str] | None = None) -> int:
         "registry (partner-lead-assignment.md §6/S-9). Runs daily; no-op when "
         "nothing has crossed the 21-day threshold.",
         epilog=(
-            "The real FTC client requires the org SAN (telemarketing.donotcall.gov),\n"
-            "which does not exist yet — until it does, only --fake runs are possible.\n\n"
+            "Real runs read a downloaded snapshot directory (see\n"
+            "scripts/dnc-download.py; layout marketing/dnc-lists/<YYYY-MM-DD>/ —\n"
+            "the directory name is the registry version stamped on check events).\n\n"
             "Examples:\n"
+            "  uv run python -m jobs.dnc_refresh --snapshot ../dnc-lists/2026-08-05\n"
             "  uv run python -m jobs.dnc_refresh --fake v1              # empty fake registry\n"
             "  uv run python -m jobs.dnc_refresh --fake v1 --listed 8185550123\n"
             "  uv run python -m jobs.dnc_refresh --fake v1 --limit 100\n\n"
             "Requires OWNER_DATABASE_URL — make targets source .env; this module does not."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--snapshot", metavar="DIR", default=None,
+        help="use the real FileDncRegistry over a downloaded snapshot directory",
     )
     parser.add_argument(
         "--fake", metavar="VERSION", default=None,
@@ -141,20 +158,28 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    if args.fake is None:
+    if (args.snapshot is None) == (args.fake is None):
         print(
-            "dnc_refresh: no real FTC registry client exists yet (needs the SAN — "
-            "Phase 0). Use --fake VERSION for dev runs.",
+            "dnc_refresh: exactly one of --snapshot DIR (real registry files) or "
+            "--fake VERSION (dev) is required.",
             file=sys.stderr,
         )
         return 2
 
-    from seams.fakes import FakeDncRegistry
+    registry: DncRegistry
+    if args.snapshot is not None:
+        from pathlib import Path
 
-    by_code: dict[str, set[str]] = {}
-    for number in args.listed:
-        by_code.setdefault(number[:3], set()).add(number)
-    registry = FakeDncRegistry(version=args.fake, numbers=by_code)
+        from seams.dnc_registry import FileDncRegistry
+
+        registry = FileDncRegistry(Path(args.snapshot))
+    else:
+        from seams.fakes import FakeDncRegistry
+
+        by_code: dict[str, set[str]] = {}
+        for number in args.listed:
+            by_code.setdefault(number[:3], set()).add(number)
+        registry = FakeDncRegistry(version=args.fake, numbers=by_code)
 
     report = dnc_refresh(registry, limit=args.limit)
     print(

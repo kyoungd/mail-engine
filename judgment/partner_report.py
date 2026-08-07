@@ -73,13 +73,17 @@ def _holdings_section(cur, partner_id: UUID, since: datetime,
         (partner_id, now),
     )
     batches = cur.fetchall()
+    # Issued and sourced counted apart: the sheet the partner holds carries both,
+    # so a single "contacts currently yours" number that saw only batch rows would
+    # disagree with what they can see (partner-sourced-leads.md §6).
     cur.execute(
-        "select count(*) from contacts where owner_id = %s "
-        "and assignment_batch_id is not null",
+        "select count(*) filter (where assignment_batch_id is not null), "
+        "count(*) filter (where sourced_by_partner_id = owner_id) "
+        "from contacts where owner_id = %s",
         (partner_id,),
     )
     row = cur.fetchone()
-    holding = row[0] if row else 0
+    holding, sourced_holding = (row[0], row[1]) if row else (0, 0)
     removals = _removals(cur, partner_id, since)
 
     if not batches and not any(removals.values()):
@@ -96,6 +100,9 @@ def _holdings_section(cur, partner_id: UUID, since: datetime,
                 f"expires {_day(expires_at)}"
             )
     lines.append(f"Contacts currently yours: {holding}")
+    if sourced_holding:
+        noun = "number" if sourced_holding == 1 else "numbers"
+        lines.append(f"Plus {sourced_holding} {noun} you collected yourself")
     if any(removals.values()):
         lines.append(
             f"Removed since your last report: {removals['opted_out']} opted out, "

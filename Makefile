@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help up down migrate run test e2e seed-contacts lint fmt nuke
+.PHONY: help up down migrate run console test e2e seed-contacts lint fmt nuke
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -19,6 +19,9 @@ migrate: ## Apply migrations as the owner role, then the grain swap (ground rule
 run: ## Start the web window (sources .env)
 	@set -a && . ./.env && set +a && \
 		uv run uvicorn web.api:app --host 127.0.0.1 --port $${WEB_PORT:?WEB_PORT not set in .env}
+
+console: ## Operator menu over the partner/DNC CLIs (sources .env)
+	@set -a && . ./.env && set +a && PYTHONPATH=. uv run python -m jobs.console
 
 test: ## Run the test suite (fast, offline; e2e deselected)
 	uv run pytest

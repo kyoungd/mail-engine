@@ -32,6 +32,7 @@ _AUDIENCE_KEYS = {
     "stage",
     "city",
     "zip_prefix",
+    "area_code",
     "not_responded_to_wave",
     "limit",
 }
@@ -106,6 +107,13 @@ def _audience_where(rule: dict[str, Any]) -> tuple[sql.Composed, list[Any]]:
         # A ZIP band is the reliable region definition (e.g. SFV = 913/914/916).
         clauses.append(sql.SQL("c.addr_zip like any(%s)"))
         params.append([f"{str(z).strip()}%" for z in rule["zip_prefix"]])
+    if "area_code" in rule:
+        # The phone's area code — the unit of DNC-subscription legality, so this
+        # is how a partner batch stays local when the org owns several codes.
+        # A phoneless contact never matches (substring of null is null), which is
+        # right for a dialing audience.
+        clauses.append(sql.SQL("substring(c.phone_e164 from 3 for 3) = any(%s)"))
+        params.append([str(a).strip() for a in rule["area_code"]])
     if "stage" in rule:
         clauses.append(sql.SQL("c.stage_snapshot::text = any(%s)"))
         params.append(list(rule["stage"]))

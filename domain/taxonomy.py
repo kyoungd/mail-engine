@@ -27,6 +27,7 @@ EVENT_TYPES: frozenset[str] = frozenset(
         "contact.assignment_expired",
         "contact.reclaimed",
         "contact.dnc_checked",
+        "contact.permission_recorded",
         "contact.suppressed",
         "contact.suppression_cleared",
         "nudge.sent",

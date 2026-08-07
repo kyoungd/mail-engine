@@ -155,9 +155,9 @@ class FakeDncRegistry:
     def version(self) -> str:
         return self._version
 
-    def numbers(self, area_code: str) -> frozenset[str]:
+    def listed(self, area_code: str, candidates: frozenset[str]) -> frozenset[str]:
         self.calls.append(area_code)
-        return self._numbers.get(area_code, frozenset())
+        return candidates & self._numbers.get(area_code, frozenset())
 
 
 class FakeCloseFeed:

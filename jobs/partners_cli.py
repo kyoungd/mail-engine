@@ -28,6 +28,11 @@ examples:
 
   # Show the roster
   python -m jobs.partners_cli list
+
+  # Where each partner is in the assignment cycle (batches, day N of 90,
+  # the day-30 checkpoint, export/report stamps)
+  python -m jobs.partners_cli status
+  python -m jobs.partners_cli status John
 """
 
 # CLI flag -> column. Only flags the operator actually passed are written, so a
@@ -76,6 +81,14 @@ def _build_parser() -> argparse.ArgumentParser:
     set_parser.add_argument("--addr-zip", dest="addr_zip")
 
     sub.add_parser("list", help="Print the partner roster")
+
+    status_parser = sub.add_parser(
+        "status", help="Where each partner is in the assignment cycle"
+    )
+    status_parser.add_argument(
+        "name", nargs="?", default=None,
+        help="One partner (shown even if inactive); default: all active partners",
+    )
     return parser
 
 
@@ -120,10 +133,95 @@ def _list() -> int:
     return 0
 
 
+def _status(name: str | None) -> int:
+    """The assignment-cycle view (operator decision 2026-08-05): per partner —
+    holdings, live batches with day N of 90 and the day-30 checkpoint, stamps.
+    The house is the pool, not a partner cycle, so it never appears."""
+    from config.params import (
+        ASSIGNMENT_EXPIRY_DAYS,
+        HOUSE_PARTNER_ID,
+        DEFAULT_PARAMS,
+    )
+    from judgment.rules.batch_checkpoint import ACTIVITY_TYPES
+
+    with transaction() as conn:
+        with conn.cursor() as cur:
+            if name is None:
+                cur.execute(
+                    "select id, name, sales_rep_id, partner_code, last_export_at, "
+                    "last_report_at from partners "
+                    "where status = 'active' and id <> %s order by name",
+                    (HOUSE_PARTNER_ID,),
+                )
+            else:
+                cur.execute(
+                    "select id, name, sales_rep_id, partner_code, last_export_at, "
+                    "last_report_at from partners where name = %s and id <> %s",
+                    (name, HOUSE_PARTNER_ID),
+                )
+            partners = cur.fetchall()
+            if not partners:
+                print("no partners" if name is None else f"no partner named {name!r}")
+                return 0 if name is None else 1
+
+            for pid, pname, rep_id, code, export_at, report_at in partners:
+                # Split issued vs sourced: their own collected numbers are not
+                # part of the batch we sized from their hours.
+                cur.execute(
+                    "select count(*) filter (where sourced_by_partner_id is "
+                    "  distinct from owner_id), "
+                    "count(*) filter (where sourced_by_partner_id = owner_id) "
+                    "from contacts where owner_id = %s",
+                    (pid,),
+                )
+                row = cur.fetchone()
+                assert row is not None
+                issued, sourced = row
+                header = pname
+                if rep_id is not None or code is not None:
+                    header += f"  (rep {rep_id or '-'}, code {code or '-'})"
+                holdings = f"{issued} issued"
+                if sourced:
+                    holdings += f" + {sourced} own"
+                print(f"{header}  holdings: {holdings}")
+
+                cur.execute(
+                    "select b.idempotency_key, b.delivered_count, "
+                    "(current_date - b.created_at::date), b.expires_at::date, "
+                    "(select count(*) from events e "
+                    "  join contacts c on c.id = e.contact_id "
+                    "  where c.assignment_batch_id = b.id and e.type = any(%s) "
+                    "  and e.occurred_at >= b.created_at) "
+                    "from assignment_batches b "
+                    "where b.partner_id = %s and b.expires_at > now() "
+                    "order by b.created_at",
+                    (list(ACTIVITY_TYPES), pid),
+                )
+                for key, delivered, day, expires, activity in cur.fetchall():
+                    line = (
+                        f"  batch {key}: {delivered} assigned  "
+                        f"day {day} of {ASSIGNMENT_EXPIRY_DAYS}  expires {expires}  "
+                    )
+                    if activity == 0 and day >= DEFAULT_PARAMS.batch_checkpoint_days:
+                        line += "QUIET past day 30"
+                    else:
+                        line += f"activity: {activity}"
+                    print(line)
+
+                stamp = lambda v: v.date().isoformat() if v else "never"  # noqa: E731
+                print(
+                    f"  last export: {stamp(export_at)}  "
+                    f"last report: {stamp(report_at)}"
+                )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     if args.command == "set":
         return _set(args)
+    if args.command == "status":
+        return _status(args.name)
     return _list()
 
 

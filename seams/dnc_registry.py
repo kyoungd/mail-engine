@@ -1,25 +1,41 @@
 """The DNC-registry seam (partner-lead-assignment.md §6/S-9, Phase 2).
 
 Anti-corruption boundary for the FTC national do-not-call registry. The portal at
-telemarketing.donotcall.gov serves per-area-code FULL lists and change lists under
-an org Subscription Account Number (SAN); full-list diff is the correct v1, change
-lists an optimization. Per the dependency rule, `seams` is imported only by `jobs`
-and `service/execution` — the scrub is `jobs/dnc_refresh`; `assign_batch` never
-touches this (it reads the columns the scrub wrote).
+telemarketing.donotcall.gov serves per-area-code FULL lists under an org
+Subscription Account Number (SAN); full-list re-download is the ratified v1,
+change lists an optimization. Per the dependency rule, `seams` is imported only
+by `jobs` and `service/execution` — the scrub is `jobs/dnc_refresh`;
+`assign_batch` never touches this (it reads the columns the scrub wrote).
 
-The real FTC client requires the SAN, which does not exist yet (Phase 0's lead-time
-item) — and the portal's file format is unverifiable from this repo until it does
-(the verify-external-facts rule). Until then `FakeDncRegistry` is the only
-implementation; the real client lands as a sibling class here once the SAN grants
-access to a real file to pin the parser against.
+The registry lives in FILES, never a database table (decisions.md 2026-08-03):
+the question is never "what is on the registry?" but "which of MY numbers are?",
+so the set held in memory is ours and the portal's file streams past it —
+that inversion is why the verb is `listed(candidates)` rather than a
+`numbers()` that would hold ~1.5M of their numbers in memory. Snapshots land in
+`marketing/dnc-lists/<YYYY-MM-DD>/` via `scripts/dnc-download.py`; the
+directory name IS the registry version stamped on every check event.
+
+Format pinned to REAL bytes (first live downloads, 2026-08-05): the Flat full
+list is `AAA,NNNNNNN` LF-terminated — comma-delimited area code + 7-digit
+local — one number per line, no header, inside the portal's zip. Verified over
+all 7,334,547 lines of the five subscribed codes: zero deviations.
 """
 
+import zipfile
+import zlib
+from pathlib import Path
 from typing import Protocol, runtime_checkable
+
+
+class DncRegistryError(Exception):
+    """A snapshot that cannot be trusted end-to-end. Loud on purpose: a silent
+    short or misread file under-blocks — marking listed numbers clear and
+    putting registered consumers into a partner's sheet."""
 
 
 @runtime_checkable
 class DncRegistry(Protocol):
-    """A registry snapshot: one version string, per-area-code number sets."""
+    """A registry snapshot: one version string, membership by intersection."""
 
     def version(self) -> str:
         """The registry version this snapshot represents. The scrub stamps it on
@@ -27,8 +43,53 @@ class DncRegistry(Protocol):
         dedupe), which is what makes re-runs idempotent."""
         ...
 
-    def numbers(self, area_code: str) -> frozenset[str]:
-        """Registered numbers for one area code, as 10-digit national strings
-        (no +1). Contacts' E.164 phones are stripped of the +1 before the
-        membership test."""
+    def listed(self, area_code: str, candidates: frozenset[str]) -> frozenset[str]:
+        """Which of MY candidate numbers (10-digit national strings, no +1) are
+        on the registry for this area code. Contacts' E.164 phones are stripped
+        of the +1 before the call. Raises DncRegistryError rather than ever
+        returning an under-count."""
         ...
+
+
+class FileDncRegistry:
+    """The real FTC client's parser half, over one downloaded snapshot
+    directory. The zip stays unopened on disk (bytes identical to what the FTC
+    served); lines stream through `zipfile`, whose CRC-32 check at end of member
+    is the completeness guarantee a truncated plain-text list would not give."""
+
+    def __init__(self, snapshot_dir: Path) -> None:
+        self._dir = Path(snapshot_dir)
+
+    def version(self) -> str:
+        return self._dir.name
+
+    def listed(self, area_code: str, candidates: frozenset[str]) -> frozenset[str]:
+        zips = sorted(self._dir.glob(f"*_{area_code}_*.zip"))
+        if len(zips) != 1:
+            raise DncRegistryError(
+                f"{len(zips) or 'no'} zips for area code {area_code} in "
+                f"{self._dir} — refusing to scrub against an "
+                f"{'ambiguous' if zips else 'absent'} file"
+            )
+        prefix = f"{area_code},".encode()
+        hits: set[str] = set()
+        try:
+            with zipfile.ZipFile(zips[0]) as zf:
+                with zf.open(zf.infolist()[0]) as member:
+                    for lineno, raw in enumerate(member, start=1):
+                        line = raw.rstrip(b"\n")
+                        if (
+                            len(line) != 11
+                            or not line.startswith(prefix)
+                            or not line[4:].isdigit()
+                        ):
+                            raise DncRegistryError(
+                                f"{zips[0].name} line {lineno}: {raw!r} does not "
+                                f"match the pinned format {area_code},NNNNNNN"
+                            )
+                        number = area_code + line[4:].decode("ascii")
+                        if number in candidates:
+                            hits.add(number)
+        except (zipfile.BadZipFile, zlib.error, EOFError) as exc:
+            raise DncRegistryError(f"{zips[0].name}: corrupt zip ({exc})") from exc
+        return frozenset(hits)

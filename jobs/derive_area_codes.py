@@ -166,7 +166,12 @@ def main(argv: list[str] | None = None) -> int:
         print()
         _print_report(derive(args.base_zip, radius, centroids, contacts), args.top)
 
-    print(f"\nsubscription list: {' '.join(picks)}", file=sys.stderr)
+    print(
+        f"\nderived ranking: {' '.join(picks)}  "
+        "(policy 2026-08-01: start with ONE code — the densest; "
+        "more on request when performing)",
+        file=sys.stderr,
+    )
     return 0
 
 

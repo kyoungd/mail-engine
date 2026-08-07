@@ -31,6 +31,12 @@ BATCH_FLOOR = 100
 BATCH_CAP = 500
 BATCH_ROUND = 50
 ASSIGNMENT_EXPIRY_DAYS = 90
+# The personal-list window (partner-sourced-leads.md §4, operator 2026-08-06): a
+# number a partner collected is on their sheet for this long from the recorded
+# permission date, with NO FTC-registry check. Flat 90 days is the shorter of the
+# two legal lives (oral inquiry ~3 months; written until revoked), so it is safe
+# for both. Our own do_not_call and tombstones are never waived by it.
+PERSONAL_WINDOW_DAYS = 90
 
 
 def derived_batch_size(weekly_hours: int) -> int:
@@ -57,6 +63,9 @@ class Params:
     # Nudge YOUNG when the newest registry version ages past this — a week before
     # the 31-day safe-harbor wall (Phase 2).
     dnc_version_alert_days: int = 24
+    # The day-30 activity checkpoint on a live batch (§5 amendment 2026-08-05):
+    # visibility to the operator, never auto-reclaim.
+    batch_checkpoint_days: int = 30
 
 
 DEFAULT_PARAMS = Params()

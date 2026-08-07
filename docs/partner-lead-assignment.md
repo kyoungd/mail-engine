@@ -275,6 +275,23 @@ refilled on request when worked down. Both belong in `config/params.py` alongsid
 judgment parameters, not in prose. Expiry — not a holdings ceiling — carries the
 anti-hoarding load; see S-3.
 
+### Amendment (2026-08-05): the day-30 activity checkpoint
+
+Ratified with the operator (decisions.md 2026-08-05). The 90-day expiry stays the
+single clock; the checkpoint adds **visibility at day 30, never an auto-reclaim**.
+A batch older than `batch_checkpoint_days` (30, in `config/params.py`) whose
+contacts show **no spine-observable activity since assignment** — no inbound
+events, no notes, no `signup.completed` — surfaces as a judgment-rule hit in the
+operator digest and as a line in the partner report. The operator decides:
+coach, reclaim, or wait. The S-7 principle is why this is soft: the spine
+observes callers and closes, never the partner's dialing effort, and absence of
+evidence is not proof of neglect. Crediting is unaffected by the checkpoint or
+by expiry — the Medusa attribution row decides at close time (first credit wins
+if partners ever conflict; operator adjudicates). Area codes are
+partner-**requested** on the existing subscription ladder (`derive_area_codes`
+is the recommendation engine, no longer the default assignment); everything else
+in this section stands.
+
 **The Step 11 trial batch goes through the system too (revision 4).** A new partner's
 25-lead trial is a first-class `assign_batch` call with an explicit count — the floor
 of 100 **and the cap of 500** apply to *derived* batches, not to explicit founder

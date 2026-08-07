@@ -860,3 +860,269 @@ hundred contacts in rural/overlay-fragmented metros), seed with 2 on day one
 rather than starving a good partner in week three. Unlimited-on-performance
 mirrors the dropped holdings ceiling: expiry carries anti-hoarding, the $82 is
 spent only against proof.
+
+## DNC registry lives in FILES, never a database table (decided 2026-08-03)
+
+The scrub reads the portal's downloads as **streamed files**; the registry is
+never loaded into `mailengine_*`. S-9 said "downloads the current registry
+files" and was silent on where they land, and the seam's
+`numbers(area_code) -> frozenset` implied holding an area code in memory —
+neither was a decision. This is the decision.
+
+**The inversion that settles it.** We never ask "what is on the registry?"; we
+ask "which of MY 6,023 numbers in 818 are on it?" So the set held in memory is
+**ours** — ~1 MB — and the registry file streams past it line by line and is
+discarded. Peak memory is flat in the registry's size. A naive
+parse-into-a-set was the only thing that made size look frightening: `818,5551234`
+is 12 bytes on disk but ~120 as a Python string in a set, a tenfold expansion
+that streaming never pays. Files are tens of MB; five codes stream in seconds.
+
+**Why not a table.** The registry is an **input, not a record** — we already
+persist the only part that matters, the per-contact verdict (`dnc_registry`,
+`dnc_checked_at`) plus the version-stamped `contact.dnc_checked` event, which is
+what answers "were we clear to call on the day we called?" Keeping the other ten
+million numbers is keeping the ore after the smelting. Performance decides
+nothing here (seconds of streaming vs. a monthly `COPY` — both fine for a
+nightly job); what decides it is (a) **backup propagation** — a table of ten
+million consumers' phone numbers is copied into every DB backup forever, a
+categorically worse breach than our 82k business contacts, for zero gain — and
+(b) moving parts: a table needs a migration, load job, staging table, atomic
+swap, version tracking, and a bloat strategy for ~10M rows replaced monthly;
+a file needs a parser.
+
+**Layout** (the folder is gitignored, so the convention lives here):
+`marketing/dnc-lists/<YYYY-MM-DD>/` — sibling to both checkouts, reached as
+`../dnc-lists/`, same pattern as `ingestion-app-1/`. **The directory name IS the
+registry version** stamped on every check event; ISO so it sorts and so the
+31-day limit is eyeballable off the folder name. **Keep the portal's `.zip`
+unopened** — the parser streams through `zipfile`, the bytes stay identical to
+what the FTC served, and the CRC is a free completeness check: a truncated
+plain-text list looks valid and would silently under-block, marking listed
+numbers clear and putting registered consumers into a partner's sheet. Retain
+13+ months. Never committed, never exported to partners (the SAN lets us *use*
+the list, not redistribute it).
+
+**What would flip this:** change lists. Applying `A`/`D` deltas needs a snapshot
+to apply them to, and a table would then earn its keep. Full-list re-download is
+the ratified v1, a re-scan costs seconds, and the portal serves full lists per
+area code — so that day may never come.
+
+### Addendum (2026-08-03, same day): the portal has a documented download API
+
+Found while asking whether our sample fixtures were format-authoritative (they
+are not — see below). `https://telemarketing.donotcall.gov/DownloadSvc/DownloadSvc.asmx`
+is a PUBLIC SOAP discovery endpoint on the FTC's own host; the operations and
+schemas below are primary-source facts, not inference:
+
+- `Login(strCoID, strCoPwd, userType, enumCertify)` — `userType` is an enum of
+  `Unknown|Representative|Downloader`, `enumCertify` of `Unknown|Agree|Disagree`.
+  Our Organization ID + **Downloader** password map straight onto the first two.
+- `GetURLS(fileFormat, strSessionToken, strCoID)` — `fileFormat` is `"Xml or
+  Flat"`; returns an array of download URLs. **This confirms `Flat` is a real
+  option** (it does NOT confirm the byte layout of a flat line).
+- `GetDNCFileByUrl`, `CanGetFullFile` — the full-list path.
+- `SubmitDeltaFileRequest` → `GetDeltaFileRequestStatus` → `GetDeltaFileUrl` —
+  change lists are an async request/poll/fetch flow, not a plain download.
+- `LoginResult.code` includes `AlreadyDownloadedToday`, `NoFullDownloadPerformed`,
+  `CertificationNotAgreed`, `SessionExpired`.
+
+Two consequences. **The download can be automated** — the operator need not
+hand-drop files monthly. And `AlreadyDownloadedToday` means a nightly job must
+NOT re-fetch blindly: it reuses the cached file, which is exactly the
+`dnc-lists/<version>/` folder above. The folder survives as a *cache the job
+fills*, not merely a drop box — and it becomes load-bearing rather than
+convenient.
+
+The WSDL adds the transport detail: `GetDNCFileByUrl` returns
+`FileDownloadResponse{code, value: base64Binary}` — the file arrives base64'd
+INSIDE the SOAP envelope, not as a plain HTTP download. So the flow is
+Login → CanGetFullFile → GetURLS → GetDNCFileByUrl per URL → base64-decode → zip.
+
+**Still unverified: the flat file's line layout — and secondary sources actively
+CONTRADICT each other**, which is why we will not guess:
+
+| | Claim A | Claim B |
+|---|---|---|
+| Full list | `8185551234` (10 digits/line) | `818,5551234` (code, comma, 7 digits) |
+| Change list | comma-delimited w/ ISO timestamp | **fixed-width fields** |
+
+`tests/fixtures/dnc/` assumed B-then-A — plausibly the worst mix of two
+disagreeing sources. Pin the parser against the portal's Data Demo sample or the
+first real download, never against our guess.
+
+### Addendum 2 (2026-08-04): the API was exercised live — auth works, no files yet
+
+Ran the real SOAP flow against `DownloadSvc.asmx` with the org's Downloader
+credential. Verified facts for whoever builds the client:
+
+- Endpoint `https://telemarketing.donotcall.gov/DownloadSvc/DownloadSvc.asmx`,
+  target namespace **and** SOAPAction prefix are the same string:
+  `https://telemarketing.donotcall.gov/DownloadSvc/` (SOAPAction = prefix + op).
+- `Login(strCoID, strCoPwd, userType=Downloader, enumCertify=Agree)` →
+  `code=LoginOK`, `value=` a 36-char GUID session token. **Certifying
+  programmatically works** — no web click needed for the API path.
+- `CanGetFullFile(token, coID)` → `code=InvalidRequest`.
+- `GetURLS(Flat|Xml, token, coID)` → `<string>Invalid request.</string>`.
+
+Both data calls fail identically with a FRESH token and in either file format,
+so it is not token handling and not format: **the account has no area-code
+subscription yet**, so there is nothing to serve. Registration alone does not
+provision files — codes must be purchased/selected on the Representative side
+first. Expect `GetURLS` to return real URLs once ≥1 code is subscribed.
+
+Consequence for the build: the auth half of the client is proven and cheap; the
+parser still waits on a real file, which now waits on the first area-code
+purchase. The Data Demo sample (portal web UI) remains the faster path to
+pinning the parser.
+
+## The 30/90 custody clock + partner-ops CLI decisions (decided 2026-08-05)
+
+Operator session, following the first real scrub (24,212 checked / 11,551 hits —
+~48% of contractor phones on the consumer DNC; partner pool math is post-scrub
+math from now on).
+
+**The clock: 90-day custody, day-30 activity checkpoint — visibility, never
+auto-reclaim.** `ASSIGNMENT_EXPIRY_DAYS = 90` stays the single expiry (deal-
+registration norm; a 200-lead batch at ~10 hrs/week needs 4–8 weeks of working
+time). The new element is the day-30 checkpoint: a batch older than 30 days with
+NO spine-observable activity (inbound events, notes, `signup.completed`) on its
+contacts surfaces in the operator digest and the partner report — the operator
+decides coach / reclaim / wait. Rejected: hard auto-reclaim at day 30. The spine
+observes callers and closes, never the partner's dialing effort (the S-7
+principle); auto-reclaiming on invisible effort punishes a partner working a
+slow segment. Crediting needs no attribution tail: the Medusa attribution row
+(`sold_by`/partner code) decides at close time, independent of custody state.
+Conflict rule when partner #2 exists: first credit wins, operator adjudicates —
+not built until it happens.
+
+**Entity-specific do-not-contact: confirmed already built, no new machinery.**
+The operator asked for "our own do-not-call list" — that is `do_not_call` via
+`suppress(contact_id, "voice", ...)`: human-authored, permanent (not in
+`_CLEARABLE_CHANNELS`), tombstone-backed across re-ingest, gates assignment
+ahead of the registry flag, and is the TSR §310.4(b)(1)(iii)(A) entity-specific
+prong the dialing procedure already names. Workflow burden is human: partners
+must report opt-outs same day (procedure §, onboarding drill).
+
+**Daily download + scrub, cron-shaped, CLI-first.** The subscription allows one
+fetch per file per day; downloading daily keeps every check ≤1-day-old version
+and every dial ≤22 days (21-day recheck + 1), comfortably inside the 31-day
+safe harbor. `scripts/dnc-daily.sh` chains `dnc-download.py` → `dnc_refresh
+--snapshot <newest>`; manual runs stay first-class. Storage ~10 GB/year of
+zips; retention pruning is a later knob, not a blocker.
+
+**Partner-cycle visibility = `partners_cli status`, pulled FORWARD of the
+rehearsal** (operator instruction 2026-08-05, superseding the 2026-08-03
+"after the rehearsal" sequencing for this piece; the umbrella
+`partner_onboard.py` stays queued post-rehearsal). Per partner: holdings,
+live batches with day-N-of-90 and checkpoint status, last export, last report.
+CLI, not web — "we already have a text based UI, so we can expand that."
+
+**Identity: Medusa-keyed status quo made explicit.** Partners exist manually in
+both systems, joined by `sales_rep_id`/`partner_code` (decided 2026-07-29,
+unchanged). No provisioning sync; mail-engine keeps its own operational columns
+(channel, hours, radius, report stamps).
+
+**Area codes: partner-REQUESTED on the existing subscription ladder.** The
+partner picks/requests codes; `derive_area_codes` demotes from default to
+recommendation engine. Everything else holds: one code to start, operator
+approves each $82 purchase, growth on demonstrated performance. Rejected:
+"assign from the entire CA list" — the unit of dial-legality is the subscribed
+area code (~25 CA codes ≈ $2k/yr + full-state scrub surface), and the 31-day
+freshness gate structurally blocks unsubscribed codes anyway.
+
+### Addendum (2026-08-05, same day): the console — "no TUI" amended to "no TUI framework"
+
+The queued follow-up's "no new app, no TUI" wording (C3 ceremony doc §
+Queued follow-up) is amended by operator instruction: `jobs/console.py` is a
+plain-input() MENU over the existing front doors — `make console`. Still no
+TUI framework, no new dependencies, zero business logic in the console (the
+web window's one-verb-per-route thinness, applied to a terminal). It also
+delivers the umbrella's onboarding walk ahead of the rehearsal: derive →
+STRUCTURAL SAN-purchase pause → subscribe → scrub → assign → export, with the
+pause pinned by test so nothing downstream can run undeclined. The separate
+`partner_onboard.py` module is superseded — the walk lives in the console.
+
+### Addendum 2 (2026-08-06): the walk consumes; the daily cycle syncs
+
+Operator correction after driving the walk live: downloading and scrubbing DNC
+files is a SEPARATE operation (the daily cycle — cron or menu 7), and the
+onboarding walk had no business running it inline (it produced five "already
+downloaded today" NOTEs mid-workflow). The walk is now consumption-only:
+pick → pause-if-unowned → register → subscribe → assign → export. Guard rails
+instead of inline sync: an owned code with zero assignable inventory stops at
+the pick pointing at menu 7; a just-purchased code ends after subscribe with
+the same guidance (its file is not provisioned yet anyway). Safety is
+unchanged — the assign gates refuse unscrubbed contacts regardless; the stops
+just say so up front. Also this session: register step gained select-or-create
+(numbered roster pick), missing weekly_hours prompts once at pick, and the
+console boundary translates SystemExit AND domain exceptions into printed
+step results (two live crashes: unknown partner, no-hours ValidationError).
+
+## Partner-sourced numbers: give them the lead, attribute it, release after 30 days (decided 2026-08-06)
+
+Partners collect numbers of their own; there was nowhere to put them, and the
+dialing procedure forbids calling anything off the current export. Design:
+`partner-sourced-leads.md` rev 4. Three operator decisions:
+
+**The number is usually already ours — give it to them anyway.** The spine holds
+the full CA CSLB list (100,444 contacts / 81,988 with phones / six trades), so a
+licensed contractor a partner meets is probably already a row. The import takes
+custody of an unowned existing contact rather than merely annotating it: "he
+worked for it." The genuinely new rows are what our purchased lists never
+covered — locksmiths (no CSLB data), handymen, unlicensed, out-of-trade,
+out-of-state.
+
+**The marker is an ATTRIBUTION, not a status:** `contacts.sourced_by_partner_id`,
+set by the import, never cleared automatically. One column, three jobs — custody
+kind is derived (`sourced_by = owner` ⇒ sourced, uncounted, unexpiring), "never
+reassigned to another partner" is an audience exclusion, and holdings split by
+comparing the two columns. This replaced a `custody_kind` enum whose fatal flaw
+(review finding) was having no reset path: a stranded 'sourced' value would have
+made a later *issued* assignment never expire. Persistence is the intent, so the
+bug cannot exist. Also dropped from rev 2: a referral intake table that was
+excluded from every reader — the `contact.permission_recorded` event is the legal
+record, the CSV file is the archive.
+
+**Partnership ends ⇒ custody returns at once, attribution holds 30 days, then
+clears** (`partners.deactivated_at` + a nightly release step). The window makes a
+temporary ending reversible. **No special DNC sync is needed and the number 30 is
+why:** `dnc_refresh` already sweeps every contact in a subscribed code past the
+21-day recheck, house-owned included, so the quarantine (30) outlasts the recheck
+cycle (21) and released contacts are always freshly scrubbed against the 31-day
+wall. Exception: contacts in unsubscribed codes are never scrubbed, so they
+return as dead inventory until that code is bought.
+
+**Conflict (the number is another partner's): nothing moves automatically.** The
+operator adjudicates on evidence of who has been working it, and the import report
+assembles that evidence in place — holder and since-when, contact activity
+(reusing `batch_checkpoint.ACTIVITY_TYPES`), and per-partner demo-line calls via
+`seams/nmc_demos.py`. Needs a single-contact custody-move verb, which does not
+exist today.
+
+Parked: the territory-vs-area-code rethink (rev 1's coverage numbers were
+pre-scrub and wrong — 3,964 "dialable" was really 2,227) and permission as a
+DNC gate waiver (needs the seller-attachment premise blessed — **added to the Q6
+counsel agenda**).
+
+### Addendum (2026-08-06): the personal-list rule, stated by the operator
+
+Supersedes the "record permission but act on nothing" posture in
+`partner-sourced-leads.md` rev 4. **A number is on the partner's sheet if it is
+in their personal list (≤90 days from `permission_at`), or if it came off the
+main list and clears DNC.** Consequences:
+
+- The personal list skips the **FTC registry** checks only (registry hit,
+  unsubscribed area code, stale scrub). It never skips **our own** do_not_call
+  or a suppression tombstone — the entity-specific list has no exemption in law.
+- **Dedup needs no code**: `contacts` is phone-unique since the grain migration,
+  so a number reachable from both sources is one row. Personal rules win while
+  the window is open.
+- **90 days flat, no `permission_kind`.** Oral permission is good ~3 months and
+  written until revoked; 90 days is the shorter, so it is safe for both and
+  spares a partner from making a legal classification in a spreadsheet cell.
+- This corrects rev 4's "sourced custody never expires" — it expires at 90 days,
+  after which ordinary rules resume (DNC-clear ⇒ normal lead; listed or
+  out-of-code ⇒ dead inventory).
+- Rests on the seller-attachment premise (permission to a partner = permission
+  to NMC), **on the Q6 counsel agenda**. If counsel narrows it, the change is
+  the export predicate, not the schema.

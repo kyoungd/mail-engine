@@ -1,0 +1,32 @@
+-- Partner-sourced numbers (partner-sourced-leads.md rev 5, 🔴-approved 2026-08-06;
+-- plan: migration-0011-plan.md rev 3).
+--
+-- Attribution, not status: this records WHO sourced a contact, so custody kind
+-- is DERIVED (sourced_by_partner_id = owner_id ⇒ sourced: uncounted, outside the
+-- batch clock) rather than stored. A stored kind would need a reset path on every
+-- return-to-house — won, suppressed, DNC-hit, reclaimed — and a stranded value
+-- would make a later ISSUED assignment never expire. Persistence is the intent
+-- here, so that bug cannot exist. Persistence is also what implements "never
+-- reassigned to another partner": the assignment audience excludes contacts
+-- attributed elsewhere, so a released contact returns to its sourcer.
+--
+-- No ON DELETE clause, deliberately: it would be this schema's first, it is an
+-- automatic clear in a design whose rule is "cleared only by an explicit operator
+-- act", and deleting a partner who still holds contacts is already blocked by
+-- contacts_owner_id_fkey (NO ACTION). NO ACTION forces the right order — clear
+-- attribution, then delete the partner.
+--
+-- No index on either column: the assignment audience already full-scans every
+-- non-seed contact `for update`, and contacts.owner_id carries no index today
+-- either. Add one with the nightly release step if measurement asks for it.
+alter table contacts add column sourced_by_partner_id uuid references partners(id);
+
+-- The permission date from the import CSV, and the clock for the 90-day
+-- personal-list window (operator rule, 2026-08-06: a number in the partner's
+-- personal list is on their sheet for 90 days with no FTC-registry check; after
+-- that ordinary rules resume). Dated from when permission was GIVEN, not when it
+-- was imported, because that is when the legal window opens. Read by the export,
+-- which applies the registry predicates only outside this window. Our own
+-- do_not_call and suppression tombstones are NEVER waived by it — the
+-- entity-specific list has no exemption in law.
+alter table contacts add column permission_at date;
