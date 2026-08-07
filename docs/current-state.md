@@ -1,4 +1,26 @@
-# Current state — 2026-08-07 (later session): the integration tier EXISTS and `NmcDemosClient` has its first test
+# Current state — 2026-08-07 (later session): test architecture hardened, everything PUSHED, CI is GREEN
+
+**End state: both repos committed and pushed** (mail-engine `main` through the
+tz-fix commit; nvermisscall `young` 847aace with the CLAUDE.md amendment), and
+**CI's second run is GREEN.** Its FIRST run went red and earned its keep
+immediately: `test_ui_waves_shows_dropped_label_and_executed_at` asserted a
+PT-rendered literal — the waves template strftimes whatever zone the psycopg
+SESSION hands back (server TimeZone, not process TZ), so the UTC runner
+rendered 18:38 against the pinned 11:38. Fixed as an operator-approved
+frozen-tier escalation: the test now derives its expected string through the
+same connection machinery; verified under PT, TZ=UTC, and TZ=Asia/Tokyo (an
+astimezone() variant was tried and REJECTED — process TZ and session TimeZone
+diverge locally). This was the TZ=UTC owed item's predicted bug class, caught
+by CI on day one. Also: three 2026-08-05/06 leftover files (real-parser
+suppression tests, TD register, close-feed addendum) rode ahead in a
+carry-forward commit.
+
+Still operator-owed: the backup cron one-liner · offsite backup destination ·
+`make e2e` re-run once Lob's test-env asset rendering recovers.
+
+---
+
+# Earlier — 2026-08-07 (later session): the integration tier EXISTS and `NmcDemosClient` has its first test
 
 **The amendment and the first test both landed.** `marketing/CLAUDE.md` now
 carries the Rule Zero mutate/consume split and the `make integration` tier
