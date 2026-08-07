@@ -1,4 +1,117 @@
-# Current state — 2026-08-05: DNC subscription is LIVE and all five files are DOWNLOADED; the format question is settled by real bytes
+# Current state — 2026-08-06: partner-sourced numbers were BUILT and CUT the same day; a referral is now a territory signal, not a lead
+
+**The feature shipped and was reverted within hours, and the reversal is the
+result worth keeping.** `f3ce10c` built the collected-numbers arc to
+`partner-sourced-leads.md` rev 5; `138ee8b` backed it out in full. Production
+never received any of it, nothing was ever imported, and nothing was dialed
+under it.
+
+**Why it was cut.** The design bundled three separable things — *acquisition*
+(new inventory), *permission* (a legal basis to call), and *custody* (90-day
+exclusivity). Only permission was hard, and it did not survive:
+
+- What the CSV collected was **oral, relayed permission**. Both
+  16 CFR § 310.4(b)(1)(iii)(B)(1) and 47 CFR § 64.1200(c)(2)(ii) require a
+  **signed writing** to exempt a registry-listed number, so a referral supplies
+  no basis at all. Rev 5's oral-vs-written reasoning — "~3 months vs. until
+  revoked, so 90 days is the shorter of the two" — confused permission with the
+  **EBR-from-inquiry** window and is withdrawn in place.
+- **The decisive argument was safe-harbor contagion**, not that one:
+  § 310.4(b)(3) forgives an *isolated error despite procedures*, and a
+  category-wide carve-out is not an isolated error. Waiving the scrub for
+  referrals risked the posture for the **whole program**, including the scrubbed
+  CSLB calls. Now **counsel Q8(e)**.
+
+**What replaces it needs no code, and already worked.** A referral is a
+*targeting* request that takes no shortcut through the DNC gates: the partner
+sends a **name and town, never a number** → operator looks it up
+(`search_contacts`, web `/contacts`) → assigns by id (`assignment_cli assign
+--ids-file`). **The explicit-id path runs the identical `_gate`**, verified in
+code — a hand-picked referral is refused exactly like any other candidate.
+Clears ⇒ next sheet, dialed with the referrer named in the opener.
+`dnc_registry` ⇒ **not callable** (~48%, measured 11,551/24,212);
+`dnc_unsubscribed` ⇒ the area-code decision; `dnc_stale` ⇒ tonight's cycle.
+
+**The real value of a referral is territory evidence.** A partner repeatedly
+introduced to people in an unsubscribed code is telling us where their social
+density is — already an approved expansion trigger (2026-08-01). At the measured
+listing rate a mid-tier code (619 · 951 · 310 ≈ 2,100–2,300 core contractors)
+yields ~1,100 dialable for $82, about 7¢ each, worked warm.
+
+**What moved, by repo:**
+
+- **mail-engine `main`** — `f3ce10c` (build) then `138ee8b` (revert +
+  `decisions.md` reversal entry). Migration **`0012`** drops
+  `sourced_by_partner_id` / `permission_at` rather than leaving readerless
+  columns — a populated-by-nothing column a future reader might trust is **TD-2
+  exactly**. Removed: `service/referrals.py`, two acceptance suites, console
+  item 10, `PERSONAL_WINDOW_DAYS`, `contact.permission_recorded`,
+  `move_contact`, `reclaim`'s `include_sourced`, the issued/sourced holdings
+  splits. **The safety-critical revert is `service/assignment.py`:** the export
+  is back to an unconditional `dnc_registry = false`, and the `if not personal:`
+  branch that could skip it is gone, along with the LEFT JOIN that let batchless
+  contacts onto a sheet. Won-termination returned to the batch-pointer predicate
+  (`set_owner` nulls the pointer on return to house, so it never re-selects).
+- **Kept from `f3ce10c`** (rode along, unrelated): the DNC file registry, the
+  portal scripts, `jobs/console.py`, `batch_checkpoint`, the **`area_code`
+  assignment-rule key** (which closes the multi-code partition gap), and
+  `partners_cli status`.
+- **nvermisscall `young`** — `8197319` counsel memo **Q8** (referred numbers,
+  five sub-parts; catch-all renumbered to Q9) plus a §1 fact and a §2 bullet on
+  the written-permission requirement; `dd49227` **rule 2** in
+  `partner-dialing-procedure.md` ("Referrals: get the name, not the number"),
+  rules 2–7 renumbered 3–8, acknowledgment now cites rules 1, 2, 3, 5. The rule
+  sets the ~50% expectation *before* a partner discovers it and invites the
+  area-code request explicitly.
+- **`partner-sourced-leads.md`** now opens with a **DEFERRED** banner — what was
+  cut, why, what partners do instead, and the shape to build if revived (the
+  *inverse* of rev 5: scrub first, then 90 days on survivors, unsubscribed codes
+  never reaching a sheet). The body is kept for the reasoning.
+
+**Known gap, accepted:** `move_contact` went with the feature, so nothing
+adjudicates `already_assigned` when two partners claim one contact. At two
+partners over 100,444 contacts the answer is "leave it"; it is in history at
+`f3ce10c`.
+
+**⚠️ `marketing/CLAUDE.md` is NEW (uncommitted, lands in the PARENT repo).**
+Rule Zero is a scope boundary: working under `marketing/` means mail-engine, and
+NMC service code is never edited, tested, or run — with the narrow exception of
+the partner-program docs that live in the parent repo. It exists because the only
+CLAUDE.md that loaded here was the root's, which is entirely NMC context; asked
+for "a full test" this session, that produced a run of `test---layer1/2/3.sh`
+against NMC (Layer 3 spending real OpenAI money) before it was caught. The file
+also records mail-engine's own test surface — **`make test` + `make e2e`, and
+neither needs ngrok or the NMC services**.
+
+**Gates:** **518 offline tests green**, ruff + pyright clean, after the back-out.
+**`make e2e` has NOT been run this session** — that verification is still owed.
+Dev DB verified canonical afterwards: **100,444 contacts · 102,431 intake · 0
+duplicate phones**, migration head `0012`.
+
+**⚠️ Dev-DB performance is degraded and the fix is pending an operator act.** An
+ingest was killed mid-transaction (a 2-minute tool timeout), which is exactly the
+documented bloat condition: the recovery re-ingest took **6m52s against a ~48s
+baseline**. Data is correct; speed is not. The remedy is drop/recreate
+`mailengine_dev` (**`template template0`** — this cluster's `template1` has the
+collation mismatch) → `make migrate` → re-ingest. Verified safe: 0 active
+connections, `me_user` owns it and has `CREATEDB`. Truncate + `vacuum analyze`
+is **not** sufficient.
+
+**One prod-release note:** `mailengine_prod` is at **`0010`**; dev is at `0012`.
+`0011` and `0012` cancel out, so prod needs **neither** — confirm how yoyo
+handles that skip *before* the next prod release rather than during it.
+
+**Also this session:** `docs/main_contacts.csv` (681 rows) was diffed against the
+spine — 663 already ours by phone, 1 in-file duplicate, leaving **17 new rows,
+every one in an unsubscribed area code** (941 ×15 Sarasota/Venice FL, 201 NJ,
+321 FL). Under the DNC gates that file yields **zero usable leads**; it is a
+Florida block, not a CA one. Contact-data CSVs are now gitignored
+(`*-leads.csv`, `docs/main_contacts*.csv`) — real rows live beside the repo, as
+`ingestion-app-1/` and `dnc-lists/` already do.
+
+---
+
+# Previous — 2026-08-05: DNC subscription is LIVE and all five files are DOWNLOADED; the format question is settled by real bytes
 
 **The FTC wait is over.** The subscription provisioned overnight (filed
 2026-08-03, live by 2026-08-05 — the portal's "~1 day" was nearly honest).
