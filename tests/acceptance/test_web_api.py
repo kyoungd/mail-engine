@@ -178,18 +178,27 @@ def test_ui_waves_lists_every_status(clean_db, owner_conn):
 
 def test_ui_waves_shows_dropped_label_and_executed_at(clean_db, owner_conn):
     wave_id = _draft(owner_conn, 1)
+    executed = "2026-07-12T11:38:00-07:00"
     with owner_conn.cursor() as cur:
         cur.execute(
-            "update waves set status = 'sent', "
-            "executed_at = '2026-07-12T11:38:00-07:00' where id = %s",
-            (wave_id,),
+            "update waves set status = 'sent', executed_at = %s where id = %s",
+            (executed, wave_id),
         )
     owner_conn.commit()
 
     response = client.get("/waves")
     assert response.status_code == 200
     assert "dropped" in response.text  # 'sent' rendered as the operator's word
-    assert "2026-07-12 11:38" in response.text
+    # the template strftimes whatever zone the psycopg session hands back
+    # (server TimeZone, not process TZ) — derive the expected string through
+    # the same machinery, or a PT literal fails on a UTC runner
+    # (CI run 31206600447, 2026-08-07)
+    with owner_conn.cursor() as cur:
+        cur.execute("select executed_at from waves where id = %s", (wave_id,))
+        row = cur.fetchone()
+        assert row is not None
+    expected = row[0].strftime("%Y-%m-%d %H:%M")
+    assert expected in response.text
 
 
 def test_ui_new_wave_form_drafts_and_redirects_to_preview(clean_db, owner_conn):
