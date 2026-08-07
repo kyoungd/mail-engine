@@ -8,6 +8,7 @@ mail-only), assignment-ending voice suppressions, scrub idempotency and delistin
 deterministic address_undeliverable recompute, the event-only opt-out backstop,
 record_note's note.*-only restriction, and the tombstone surviving re-ingest."""
 
+import zipfile
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -15,7 +16,7 @@ import pytest
 
 from config.params import HOUSE_PARTNER_ID
 from domain.errors import ValidationError
-from seams.fakes import FakeDncRegistry
+from seams.dnc_registry import FileDncRegistry
 from service.contacts import clear_suppression, load_list, suppress
 from service.custody import set_owner
 from service.execution import recompute_state
@@ -226,7 +227,26 @@ def _subscribe(cur, *codes: str) -> None:
         )
 
 
-def test_registry_hit_sets_flag_stamps_and_stays_mailable(clean_db, owner_conn):
+def _registry(tmp_path, *, version: str, numbers: dict[str, set[str]]) -> FileDncRegistry:
+    """The production parser over a portal-shaped snapshot — real zip, real
+    `AAA,NNNNNNN` bytes, directory name as the version.
+
+    An area code mapped to an EMPTY set still gets its zip: that is how the
+    registry presents a delisting (absence from a newer full list), whereas a
+    missing zip is a loud error. The distinction is the whole of S-9's clear path.
+    """
+    directory = tmp_path / version
+    directory.mkdir(exist_ok=True)
+    for area_code, nationals in numbers.items():
+        member = f"{version}_{area_code}_TEST.txt"
+        with zipfile.ZipFile(directory / f"{member}.zip", "w") as zf:
+            zf.writestr(
+                member, "".join(f"{area_code},{n[3:]}\n" for n in sorted(nationals))
+            )
+    return FileDncRegistry(directory)
+
+
+def test_registry_hit_sets_flag_stamps_and_stays_mailable(clean_db, owner_conn, tmp_path):
     from jobs.dnc_refresh import dnc_refresh
 
     with owner_conn.cursor() as cur:
@@ -234,7 +254,7 @@ def test_registry_hit_sets_flag_stamps_and_stays_mailable(clean_db, owner_conn):
         _subscribe(cur, "818")
     owner_conn.commit()
 
-    registry = FakeDncRegistry(version="v1", numbers={"818": {"8185550009"}})
+    registry = _registry(tmp_path, version="2026-08-05", numbers={"818": {"8185550009"}})
     report = dnc_refresh(registry)
     assert report.checked >= 1 and report.hits == 1
 
@@ -245,11 +265,13 @@ def test_registry_hit_sets_flag_stamps_and_stays_mailable(clean_db, owner_conn):
         row = cur.fetchone()
         assert row is not None and row[0] is not None
         checked = _events(cur, contact_id, "contact.dnc_checked")
-        assert len(checked) == 1 and checked[0]["registry_version"] == "v1"
+        assert len(checked) == 1 and checked[0]["registry_version"] == "2026-08-05"
         assert contact_id in _audience(cur)  # registry-listed is still mailable
 
 
-def test_registry_hit_on_an_assigned_contact_ends_the_assignment(clean_db, owner_conn):
+def test_registry_hit_on_an_assigned_contact_ends_the_assignment(
+    clean_db, owner_conn, tmp_path
+):
     from jobs.dnc_refresh import dnc_refresh
 
     with owner_conn.cursor() as cur:
@@ -258,7 +280,9 @@ def test_registry_hit_on_an_assigned_contact_ends_the_assignment(clean_db, owner
         _assign(cur, contact_id, _john(cur))
     owner_conn.commit()
 
-    dnc_refresh(FakeDncRegistry(version="v1", numbers={"818": {"8185550010"}}))
+    dnc_refresh(
+        _registry(tmp_path, version="2026-08-05", numbers={"818": {"8185550010"}})
+    )
 
     with owner_conn.cursor() as cur:
         cur.execute("select owner_id from contacts where id = %s", (contact_id,))
@@ -268,7 +292,7 @@ def test_registry_hit_on_an_assigned_contact_ends_the_assignment(clean_db, owner
         assert len(reclaims) == 1 and reclaims[0]["reason"] == "dnc_registry"
 
 
-def test_scrub_is_idempotent_on_the_registry_version(clean_db, owner_conn):
+def test_scrub_is_idempotent_on_the_registry_version(clean_db, owner_conn, tmp_path):
     """Same registry version twice ⇒ no duplicate events (external_id dedupe)."""
     from jobs.dnc_refresh import dnc_refresh
 
@@ -277,7 +301,7 @@ def test_scrub_is_idempotent_on_the_registry_version(clean_db, owner_conn):
         _subscribe(cur, "818")
     owner_conn.commit()
 
-    registry = FakeDncRegistry(version="v1", numbers={"818": {"8185550011"}})
+    registry = _registry(tmp_path, version="2026-08-05", numbers={"818": {"8185550011"}})
     dnc_refresh(registry)
     with owner_conn.cursor() as cur:
         cur.execute(
@@ -292,7 +316,7 @@ def test_scrub_is_idempotent_on_the_registry_version(clean_db, owner_conn):
         assert len(_events(cur, contact_id, "contact.dnc_checked")) == 1
 
 
-def test_delisting_clears_the_registry_flag_with_an_event(clean_db, owner_conn):
+def test_delisting_clears_the_registry_flag_with_an_event(clean_db, owner_conn, tmp_path):
     """The clear path has a writer — through the JOB, not only the verb (S-9)."""
     from jobs.dnc_refresh import dnc_refresh
 
@@ -301,7 +325,9 @@ def test_delisting_clears_the_registry_flag_with_an_event(clean_db, owner_conn):
         _subscribe(cur, "818")
     owner_conn.commit()
 
-    dnc_refresh(FakeDncRegistry(version="v1", numbers={"818": {"8185550012"}}))
+    dnc_refresh(
+        _registry(tmp_path, version="2026-08-05", numbers={"818": {"8185550012"}})
+    )
     with owner_conn.cursor() as cur:
         cur.execute(
             "update contacts set dnc_checked_at = now() - interval '30 days' "
@@ -309,7 +335,7 @@ def test_delisting_clears_the_registry_flag_with_an_event(clean_db, owner_conn):
             (contact_id,),
         )
     owner_conn.commit()
-    dnc_refresh(FakeDncRegistry(version="v2", numbers={"818": set()}))
+    dnc_refresh(_registry(tmp_path, version="2026-08-06", numbers={"818": set()}))
 
     with owner_conn.cursor() as cur:
         assert _flags(cur, contact_id)["dnc_registry"] is False

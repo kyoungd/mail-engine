@@ -1,5 +1,16 @@
 # Interface contract — NMC close feed (main app → mail engine)
 
+> ⚠️ **The TRANSPORT below is superseded (operator decision 2026-08-06).** The
+> direct read-only Medusa connection is reversed in favour of an **HTTP endpoint
+> served by the main app**, `X-API-KEY`, on B2's pattern — see `decisions.md`
+> 2026-08-06 and **TD-12**, now the highest-priority item in the technical-debt
+> register. Not yet scheduled; the current implementation stays live until the
+> migration is taken, and this contract is amended *first* when it is.
+>
+> **What survives the change unaltered:** §2's field table (it becomes the
+> serializer spec), §3's binding rule about tag-less closes, §4 re-serving, §5 the
+> watermark, §6 kinds, §7 double-counting. Only *how the bytes arrive* changes.
+
 **Revised 2026-07-31 (verification pass against the REAL schema — operator-approved
 project restart; corrected same day by fresh-context review):** §2 is rewritten. The
 first draft's column claims were never verified and were wrong

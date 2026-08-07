@@ -9,9 +9,15 @@ with a green suite — that is what makes them worth writing down. Where an item
 deliberate accepted trade, it says so and points at the decision; where it is an accident,
 it says that too.
 
-**Highest value first: TD-10** (nothing delivers a nudge) and **TD-2** (columns read by live
-logic with no writer). They are the same failure shape at opposite ends of the system — a
-complete pipeline missing its last inch, with tests that supply the missing piece themselves.
+**Highest priority: TD-12** — mail-engine reads the Medusa database directly instead of
+calling an API. Elevated by operator decision 2026-08-06, reversing the 2026-07-29 trade.
+Everything else in this file is a gap in what the system does; this one is a pattern the
+rest of the architecture forbids, and it is the only item with a standing instruction to
+pay it down.
+
+**Then TD-10** (nothing delivers a nudge) and **TD-2** (columns read by live logic with no
+writer). They are the same failure shape at opposite ends of the system — a complete
+pipeline missing its last inch, with tests that supply the missing piece themselves.
 
 **TD-11 is no longer time-sensitive** (decided 2026-07-30, `decisions.md`): verification
 runs pay-as-you-go over what is about to be mailed; the full-list backfill — the thing
@@ -273,9 +279,70 @@ mailed audiences only. The schema does not change either way.
 
 ## TD-12 — mail-engine reads the Medusa DB directly, with no version boundary
 
-**Status:** accepted trade, decided by the operator 2026-07-29 (`decisions.md`,
-`nmc-close-feed-contract.md` §1). Not a defect — a known cost taken deliberately, recorded
-at the operator's instruction so it is not rediscovered as a surprise.
+**Status: ⭐ HIGHEST PRIORITY IN THIS FILE. The 2026-07-29 trade is REVERSED** — operator
+decision 2026-08-06: the direct-DB close inflow is to be replaced by an HTTP endpoint on
+the main app. Not yet scheduled; the operator takes it when there is time. Until then the
+current implementation stays in place and working — this is a debt to retire deliberately,
+not a broken thing to hurry.
+
+**Why it changed.** The operator's position is that direct database access to the main
+app's data is an exception to how every other seam works, and the isolation of this one
+case does not make the pattern acceptable. Three things support reopening a decision that
+was ratified nine days earlier:
+
+1. **It contradicts the stated architecture.** The root `CLAUDE.md` lists *"Cross-schema
+   direct DB access → use service APIs"* as anti-pattern #1, and *"Service Communication:
+   HTTP APIs with `X-API-KEY`."* Every other cross-system seam obeys that. This one does
+   not.
+2. **The benefit that carried the original decision was surrendered days later anyway.**
+   The 2026-07-29 call turned on *"the main app now writes no code."* On 2026-08-01 the
+   main app wrote code: **B2**, `GET /api/partner-demo-calls/summary` on booking-system —
+   an `X-API-KEY` endpoint serving the demo-line half of the same partner report, 792
+   tests green. So the cost of an endpoint is no longer hypothetical; it was paid once,
+   for the sibling feed, and it was small. The partner report currently pulls closes over
+   SQL and demo stats over HTTP, an inconsistency inside one feature.
+3. **The direct-DB choice is what makes this feed untestable** (found 2026-08-06). Because
+   the transport is a database owned by another app, test fixtures cannot be created
+   without a *writable* Medusa credential — which `tests/guard.py` exists to prevent, and
+   which would put a truncate-the-subscriber-table failure mode one `.env` typo away. Over
+   HTTP the client tests like `NmcDemosClient` and `PostHogFeed` do: injected transport,
+   offline, no credential. The whole difficulty dissolves with the transport.
+
+Also worth recording: the objection raised against direct-DB access *at the original
+review* was withdrawn as mistaken (it wrongly claimed a two-database invariant breach —
+see below). The decision stood on its own merits at the time. The grounds above are new
+information, not the same argument re-run.
+
+**The migration, when it is taken.** `CloseFeed` is a Protocol, so the blast radius is
+small by construction — `jobs/close_correlation.py`, the `Close` dataclass, the 45-day
+watermark rule, the double-count guard, the nightly wiring and every consumer test are
+untouched. What moves:
+
+- **NMC side (parent repo, `website/`):** one additive Medusa route, `X-API-KEY`, mirroring
+  B2's conventions — `GET /api/partner-closes?since=<ISO>&limit=<n>`. No migration, no
+  schema change, read-only. `nmc-close-feed-contract.md` §2's column table is already the
+  serializer spec.
+- **mail-engine side:** `NmcCloseFeed` becomes an HTTP client shaped like
+  `seams/nmc_demos.py`. `db/medusa.py`, `MEDUSA_READONLY_URL` and the guard's Medusa clause
+  fall away. `FakeCloseFeed` stays — it tests the *consumer*, which is correct — and the
+  client gains transport-injection tests.
+- **Two relocations to decide, not drift into:** the `raw_code` classification against
+  `nmc_partner_code` moves server-side (arguably more correct — Medusa owns that registry),
+  and paging becomes the endpoint's job. The keyset-boundary question in
+  `NmcCloseFeed.closes()` (cursor advances on `created_at` alone while the sort is
+  `(created_at, id)`) moves with it, into a repo whose suite can cover it.
+- **Sequence:** amend the contract first, then build the route against the agreed shape,
+  then swap the client. Not the reverse — the endpoint should not be reverse-engineered
+  from `_CLOSES_SQL`.
+
+**Not a security problem.** `medusa_nmc_ro` is genuinely `select`-only on exactly three
+tables (verified 2026-08-06: `create table` → *permission denied for schema public*). The
+objection is coupling and consistency, not exposure.
+
+---
+
+*The remainder of this entry is the 2026-07-29 record, kept because it is the reasoning
+the reversal acts on.*
 
 **The trade.** The partner close inflow (Q10) is a **read-only connection from mail-engine
 to the Medusa database**, querying `nmc_sales_attribution` directly, instead of an HTTP
@@ -299,11 +366,11 @@ draft of the contract claimed otherwise; the correction is recorded in its §1.)
    break is one file to repair — but procedural is what "debt" means here. **The main app
    has no test that would catch it**, which is the sharp end: the breakage surfaces in a
    different repo from the change that caused it.
-2. **A read-only role on the Medusa DB does not exist yet.** PRD § Production connection
-   strings lists only `medusajs_nmc_user`, the **owner**. Until a `select`-only role is
-   created, the only way to satisfy this design is to give the marketing app *write*
-   credentials to the subscriber database — a materially worse trade than the one accepted,
-   and a hard prerequisite rather than a nice-to-have.
+2. ~~**A read-only role on the Medusa DB does not exist yet.**~~ **RESOLVED 2026-08-01**
+   (Stage A0): `medusa_nmc_ro` exists on prod Medusa with `select` on exactly `customer`,
+   `nmc_sales_attribution` and `nmc_partner_code`, and mirrors locally. Recorded here
+   because the reversal above discards this work — the role becomes unnecessary once the
+   inflow is an endpoint.
 3. **One more credential to hold and rotate**, in one more `.env`, in a repo whose own
    history includes a live key committed by accident (TD-9). It must be the read-only
    role's, never the owner's.
@@ -311,7 +378,12 @@ draft of the contract claimed otherwise; the correction is recorded in its §1.)
    fail-closed about the mail-engine database for exactly this class of accident; the same
    thinking applies here. Tests use a fake feed; no live Medusa connection in the suite.
 
-**When to pay it down.** If a second consumer ever needs closes, or if a Medusa rename
-breaks the nightly once, the endpoint becomes the cheaper option and the contract's §2
-column list is already the spec for it. Not before — this is the right trade at today's
-scale, which is the whole reason it is written down as a trade rather than a mistake.
+**When to pay it down** *(2026-07-29 wording, superseded)*. If a second consumer ever needs
+closes, or if a Medusa rename breaks the nightly once, the endpoint becomes the cheaper
+option and the contract's §2 column list is already the spec for it. Not before — this is
+the right trade at today's scale, which is the whole reason it is written down as a trade
+rather than a mistake.
+
+*Superseded 2026-08-06: neither trigger fired. The operator elevated it on the pattern
+itself, plus the B2 precedent and the testing cost — see the status block at the top of
+this entry.*
