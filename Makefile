@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help up down migrate run console test e2e seed-contacts lint fmt nuke
+.PHONY: help up down migrate run console test e2e integration seed-contacts lint fmt nuke
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -23,11 +23,23 @@ run: ## Start the web window (sources .env)
 console: ## Operator menu over the partner/DNC CLIs (sources .env)
 	@set -a && . ./.env && set +a && PYTHONPATH=. uv run python -m jobs.console
 
-test: ## Run the test suite (fast, offline; e2e deselected)
-	uv run pytest
+test: ## Run the test suite (fast, offline; e2e+integration deselected; truncates mailengine_test, never dev)
+	@set -a && . ./.env && set +a && \
+		uv run python scripts/ensure-test-db.py && \
+		export OWNER_DATABASE_URL="$${OWNER_DATABASE_URL%/*}/mailengine_test" \
+		       READONLY_DATABASE_URL="$${READONLY_DATABASE_URL%/*}/mailengine_test" && \
+		uv run pytest
 
-e2e: ## Full-funnel journey vs the REAL Lob test env (⚠️ wipes mailengine_dev!)
-	@set -a && . ./.env && set +a && uv run pytest -m e2e tests/e2e -v
+e2e: ## Full-funnel journey vs the REAL Lob test env (truncates mailengine_test, never dev)
+	@set -a && . ./.env && set +a && \
+		uv run python scripts/ensure-test-db.py && \
+		export OWNER_DATABASE_URL="$${OWNER_DATABASE_URL%/*}/mailengine_test" \
+		       READONLY_DATABASE_URL="$${READONLY_DATABASE_URL%/*}/mailengine_test" && \
+		uv run pytest -m e2e tests/e2e -v
+
+integration: ## Read-only pins vs live cross-repo seams (skips what isn't running; STRICT=1 fails on skips)
+	@set -a && . ./.env && set +a && \
+		uv run pytest -m integration tests/integration -v $${STRICT:+--integration-strict}
 
 seed-contacts: ## Upsert founder seed addresses from config/seeds.json (idempotent)
 	@set -a && . ./.env && set +a && uv run python -m jobs.seed_cli

@@ -1,0 +1,72 @@
+# CI — the offline suite + ruff on every push/PR (decided 2026-08-07,
+# docs/coding/testing.md § Owed item 5 resolved).
+#
+# Scope is deliberately the OFFLINE tier only: no vendor secrets exist here, so
+# `e2e` (real Lob) and `integration` (live local seams) stay operator-run — the
+# release gate still requires them. pyright stays in local `make lint` (its
+# node-binary download is the flaky part CI doesn't need).
+#
+# The roles must exist before migrations run: migration 0002 grants to
+# me_user_ro, and the swap-guard tests need me_user to hold CREATEDB.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline-suite:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      OWNER_DATABASE_URL: postgresql://me_user:ci_owner_pw@localhost:5432/mailengine_test
+      READONLY_DATABASE_URL: postgresql://me_user_ro:ci_ro_pw@localhost:5432/mailengine_test
+      DROP_PASSWORD: ci-drop-password
+      # web/api.py builds Lob clients with hard os.environ[...] reads on routes
+      # the suite exercises; offline tests never place a real call, so dummies
+      # suffice (and the guard rejects anything starting with "live_").
+      LOB_API_KEY: test_ci_dummy
+      LOB_TEST_API_KEY: test_ci_dummy
+      LOB_FROM_NAME: CI Dummy
+      LOB_FROM_LINE1: 123 Test St
+      LOB_FROM_CITY: Testville
+      LOB_FROM_STATE: CA
+      LOB_FROM_ZIP: "90210"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create roles and test database
+        run: |
+          psql postgresql://postgres:postgres@localhost:5432/postgres <<'SQL'
+          create role me_user login password 'ci_owner_pw' createdb;
+          create role me_user_ro login password 'ci_ro_pw';
+          create database mailengine_test owner me_user template template0;
+          SQL
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Offline suite
+        run: uv run pytest

@@ -34,6 +34,15 @@ def _load_dotenv(path: Path) -> None:
 _load_dotenv(PROJECT_ROOT / ".env")
 
 
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--integration-strict",
+        action="store_true",
+        default=False,
+        help="integration tier: an unconfigured/unreachable skip counts as failure",
+    )
+
+
 def pytest_configure(config: pytest.Config) -> None:
     """Halt the whole session — not skip, not warn — if this is not a test environment."""
     problem = unsafe_test_environment(
