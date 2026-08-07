@@ -94,8 +94,11 @@ running DB suites by hand.
 3. **`TZ=UTC` pinning on `make test`** — specified in test-plan.md §6, never
    wired. Before flipping it, run the full suite once under `TZ=UTC` and fix
    what surfaces; do not flip blind (no-red-tests).
-4. **`PostHogFeed` and `NmcCloseFeed` integration tests** — the remaining two
-   seams from the 2026-08-07 decision, each its own 🟡 gate.
+4. ~~**`PostHogFeed`**~~ built and covered live 2026-08-07. **`NmcCloseFeed`
+   is ON HOLD (operator, 2026-08-07):** the close inflow is migrating from the
+   direct Medusa read to an HTTP endpoint (decisions.md 2026-08-06), so the
+   integration pin waits for the endpoint contract rather than pinning a seam
+   scheduled for retirement.
 5. ~~**CI**~~ — **DECIDED and built 2026-08-07**: `.github/workflows/ci.yml`
    runs ruff + the offline suite (service-container Postgres, no vendor
    secrets) on every push/PR. Deliberately offline-only — `e2e` and

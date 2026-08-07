@@ -15,6 +15,7 @@ import urllib.request
 import pytest
 
 from seams.nmc_demos import NmcDemosClient
+from seams.posthog import PostHogFeed
 
 _PROBE_TIMEOUT_SECONDS = 3.0
 
@@ -45,6 +46,28 @@ def nmc_demos(request: pytest.FixtureRequest) -> NmcDemosClient:
             f"booking-system not reachable at {url} — start it and re-run ({exc})",
         )
     return NmcDemosClient(url, key)
+
+
+@pytest.fixture(scope="session")
+def posthog_feed(request: pytest.FixtureRequest) -> PostHogFeed:
+    key = os.environ.get("POSTHOG_API_KEY", "")
+    project = os.environ.get("POSTHOG_PROJECT_ID", "")
+    if not key or not project:
+        _skip_or_fail(
+            request.config,
+            "POSTHOG_API_KEY / POSTHOG_PROJECT_ID not set in .env — "
+            "the nightly's real web-response feed is uncovered without them",
+        )
+    feed = PostHogFeed(key, project)
+    try:
+        urllib.request.urlopen(feed.host, timeout=_PROBE_TIMEOUT_SECONDS)
+    except urllib.error.HTTPError:
+        pass  # any HTTP response means the host is up; the test does the real query
+    except OSError as exc:
+        _skip_or_fail(
+            request.config, f"PostHog not reachable at {feed.host} ({exc})"
+        )
+    return feed
 
 
 def pytest_terminal_summary(terminalreporter) -> None:
