@@ -1,4 +1,19 @@
-# Current state — 2026-08-07 (later session): test architecture hardened, everything PUSHED, CI is GREEN
+# Current state — 2026-08-07 (later session): PROD RELEASED at `prod-2026-08-07`; test architecture hardened; CI GREEN
+
+**PROD RELEASE EXECUTED (end of day, operator-approved 🔴, first release
+through the new gate):** all four gates green same-day (520 offline · partner
+e2e · STRICT integration 2/2 · fresh backup `…_1237.dump` taken pre-release),
+then `mail-engine-production` fast-forwarded `16576c5` → `867176f` (14
+commits), `make migrate` applied **0011+0012 in sequence** — the flagged
+cancel-out question resolved exactly as designed: net-zero, `if exists`
+guarded, ledger tail now `…0011.sourced-attribution, 0012.drop-sourced-
+attribution`, the two columns ABSENT, contacts 100,445 / partners 3 unchanged.
+Tagged **`prod-2026-08-07`**, tag pushed. Prod checkout now carries backup.sh,
+so the production-checkout cron is INSTALLABLE (operator one-liner). The prod
+DB's collation-version warning (2.42 vs 2.43, the known cluster condition)
+surfaced during migrate — harmless here; `ALTER DATABASE … REFRESH COLLATION
+VERSION` is a separate operator decision. This is the production app for the
+sales-partner program.
 
 **End state: both repos committed and pushed** (mail-engine `main` through the
 tz-fix commit; nvermisscall `young` 847aace with the CLAUDE.md amendment), and
