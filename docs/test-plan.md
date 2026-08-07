@@ -1,5 +1,14 @@
 # Mail Engine — Fake-Driven Test Plan
 
+> **STATUS (2026-08-07): historical build spec, partially executed — not the
+> philosophy document.** The canonical statement of tiers, authority, release
+> gate, and risk rule is **`docs/coding/testing.md`**. This plan predates the
+> 2026-08-01 partner pivot: its central artifact (the `World` harness,
+> `tests/e2e/harness.py`) and the §J boundary pairs / §K data-assertions were
+> never built as specified — the partner arc took priority and much of the
+> intent landed as conventional acceptance tests instead. The scenario catalog
+> remains useful as a backlog if the mail funnel un-parks; read it as that.
+
 *Authored by the architecture layer (Fable 5) for an executor (Opus 4.8) who was not present
 for this analysis. This document is the spec for the next test build-out: a fake-driven
 end-to-end harness plus an exhaustive scenario suite that closes the lifecycle and

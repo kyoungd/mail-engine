@@ -1182,3 +1182,152 @@ gains **rule 2** ("Referrals: get the name, not the number"), which also sets th
 explicitly. If revived, the shape to build is the *inverse* of rev 5: scrub
 first, then 90 days of custody on the survivors, unsubscribed codes never
 reaching a sheet.
+
+## REVERSED: the close inflow becomes an HTTP endpoint, not a direct Medusa read (decided 2026-08-06)
+
+**Decision:** the Q10 close feed's transport moves from a read-only Postgres
+connection against the Medusa database to an **HTTP endpoint served by the main
+app**, `X-API-KEY`, on B2's pattern. This reverses the operator decision of
+2026-07-29 (§ *Partner report: design + plan + close-feed contract RATIFIED*,
+item 1). **TD-12 is elevated to the highest-priority item in the technical-debt
+register.** Not scheduled — the operator takes it when there is time; the current
+direct-DB implementation stays in place and working until then.
+
+**The operator's grounds:** direct database access to the main app's data is an
+exception to how every other seam in the system works, and the fact that this
+particular case is well isolated does not make the pattern acceptable.
+
+**Why this is not the same argument re-run.** The objection raised at the original
+review was withdrawn as mistaken — it claimed a 🔴 two-database invariant breach,
+when two connections is the *sanctioned* pattern. The decision stood on its own
+merit. Three things are new since:
+
+1. **The architecture says so explicitly.** Root `CLAUDE.md` anti-pattern #1 is
+   *"Cross-schema direct DB access → use service APIs"*; § Service Communication
+   is *"HTTP APIs with `X-API-KEY`. No cross-schema direct DB access."* Every other
+   cross-system seam obeys it.
+2. **The benefit that carried 2026-07-29 was given up three days later.** That call
+   turned on *"the main app now writes no code."* On 2026-08-01 the main app wrote
+   B2 — `GET /api/partner-demo-calls/summary`, 792 tests green — serving the
+   demo-line half of the *same partner report*. The endpoint cost is now measured,
+   not hypothetical, and it was small. Closes over SQL + demo stats over HTTP is an
+   inconsistency inside one feature.
+3. **The transport is what makes the feed untestable** (found 2026-08-06 while
+   auditing what the suite fakes). Fixtures for a database owned by another app
+   require a *writable* Medusa credential — the exact accident class `tests/guard.py`
+   is fail-closed against, with a truncate-the-subscriber-table failure mode one
+   `.env` typo away. Over HTTP the client tests like `NmcDemosClient` and
+   `PostHogFeed` already do: injected transport, offline, no credential.
+
+**Not a security finding.** `medusa_nmc_ro` is genuinely `select`-only on exactly
+three tables (verified: `create table` → *permission denied for schema public*).
+The objection is coupling and consistency.
+
+**Shape of the migration.** `CloseFeed` is a Protocol, so `jobs/close_correlation.py`,
+the `Close` dataclass, the 45-day watermark rule, the double-count guard and every
+consumer test are untouched. NMC side: one additive Medusa route, no migration,
+`nmc-close-feed-contract.md` §2's column table is already the serializer spec.
+mail-engine side: `NmcCloseFeed` becomes an HTTP client shaped like
+`seams/nmc_demos.py`; `db/medusa.py`, `MEDUSA_READONLY_URL` and the guard's Medusa
+clause fall away. Two things relocate and should be decided rather than drifted
+into — `raw_code` classification against `nmc_partner_code` moves server-side, and
+paging becomes the endpoint's job (carrying with it the keyset-boundary question in
+`NmcCloseFeed.closes()`, where the cursor advances on `created_at` alone while the
+sort is `(created_at, id)`).
+
+**Sequence:** amend `nmc-close-feed-contract.md` → build the route against the agreed
+shape → swap the client. The endpoint should not be reverse-engineered from
+`_CLOSES_SQL`.
+
+**Consequence for A0's work:** `medusa_nmc_ro` becomes unnecessary once the inflow is
+an endpoint. Recorded so the discard is deliberate rather than a surprise.
+
+## Testing philosophy gets a canonical home; the release gate exists; rigor follows risk (decided 2026-08-07)
+
+**Context.** A best-practices review found the philosophy scattered: `test-plan.md`
+was read as the philosophy document but is a partially-executed build spec predating
+the partner pivot (its `World` harness was never built); no document defined which
+suites must be green before a prod release (`make e2e` had drifted un-run); and the
+strictest machinery (mutation testing) covered the pure layers while the red-tier
+compliance predicates had only per-gate tests.
+
+**Decided:**
+
+1. **`docs/coding/testing.md` is the canonical philosophy document** — tiers, authority,
+   release gate, risk rule, owed list. `test-plan.md` carries a status banner and
+   stays as backlog for the mail funnel.
+2. **The release gate:** before any prod release, same day — `make test` green,
+   `make e2e` green, `STRICT=1 make integration` green, pending migrations read
+   with the prod plan stated. Procedural because there is no CI; whether CI should
+   exist is an open operator question recorded in testing.md.
+3. **Rigor follows risk.** First installment: the standing export-compliance
+   invariant (`tests/acceptance/test_export_compliance_invariant.py`) —
+   the violating set re-derived with independent SQL, intersected with the actual
+   export CSV over an adversarial pool including post-assignment flips. Verified by
+   manual mutant: deleting `dnc_registry = false` from export's WHERE turns both
+   tests red. Owed next: mutmut over `service/assignment.py`, fake-fidelity
+   contract tests, TZ=UTC pinning (testing.md § Owed).
+4. **`mailengine_test` is the sanctioned scratch DB** (guard already allowlisted
+   it; from `template template0`). Running DB suites against it via env override
+   preserves the canonical dev ingest — the invariant tests ran there and
+   `mailengine_dev` kept its 100,444 untouched.
+
+## SR-6 backups exist; test suites move to mailengine_test; releases get tags (decided 2026-08-07)
+
+The best-practices review of `docs/coding/` found six violations; the operator
+approved fixing them in order. What changed:
+
+1. **Backups (SR-6, was implemented nowhere):** `scripts/backup.sh` — nightly
+   custom-format `pg_dump` of `mailengine_prod`, tmp-file + `pg_restore --list`
+   verification before rename, 14-day rotation, always targets prod regardless
+   of checkout. First run taken 2026-08-07 (16M); **restore tested** into a
+   template0 scratch DB — five table counts identical to prod — then dropped.
+   Cron entry at 02:10 (operator installs; the session's crontab write was
+   permission-blocked). **Still open: an OFFSITE destination** — the local
+   `~/db-backups/` satisfies "nightly + tested", not "offsite"; picking a
+   destination is an operator decision.
+2. **`make test` / `make e2e` now run on `mailengine_test`** (auto-created from
+   template0 by `scripts/ensure-test-db.py`), so the canonical dev ingest
+   survives every run — the re-ingest ritual dies. Full suite verified: 520
+   green in 29s with `mailengine_dev` untouched at 100,444. Bare pytest runs
+   still follow `.env`.
+3. **Release tagging:** the release gate ends with `git tag prod-YYYY-MM-DD`.
+4. **Suite-growth rule amended:** grows by default; retirement is a deliberate,
+   recorded act (the absolutist "only grows" was already contradicted by the
+   `138ee8b` suite deletions).
+5. **Arrangement rule for new DB tests:** through service verbs unless the raw
+   write IS the adversarial point; legacy SQL-seed is grandfathered, not
+   precedent.
+6. **Review-standard duplication managed:** `docs/coding/` copies are
+   canonical; `.claude/commands/` copies are deployment copies re-synced by
+   whoever edits (cross-repo symlinks would break other checkouts).
+
+**Found during verification: Lob test-env asset rendering is broken today.**
+`make e2e`'s mail-funnel journey is legitimately red — today's postcard
+(psc_77c40e71914fb2bd, status `processed`) has NO assets (PDF + both thumbnails
+404 after 15+ min) while a 2026-08-02 postcard's PDF serves fine. Vendor-side;
+the frozen test is correct and unchanged. Re-run `make e2e` before relying on
+the release gate. CI remains the open question in `docs/coding/testing.md`.
+
+## CI exists: the offline tier runs on every push (decided 2026-08-07)
+
+`.github/workflows/ci.yml` — ubuntu runner, Postgres 15 service container,
+roles + `mailengine_test` created before migrations (migration 0002 grants to a
+pre-existing `me_user_ro`; the swap-guard tests need `me_user` CREATEDB), `uv
+sync`, `ruff check`, `uv run pytest` (e2e + integration deselected by addopts).
+Scope is deliberately offline-only: no vendor secrets live in CI, so `make e2e`
+and `make integration` remain operator-run and the release gate is unchanged —
+CI green alone does not clear it.
+
+Two facts the workflow encodes, found by running the suite under the exact CI
+environment (all other env blanked; 520 green in 31s):
+
+- `web/api.py` builds Lob clients with hard `os.environ[...]` reads on routes
+  the suite exercises (`/drops/run`, the approval proof screen) — CI sets seven
+  dummy `LOB_*` vars; offline tests never place a call, and the guard rejects
+  `live_` keys.
+- `DROP_PASSWORD` must be present (the web tests read it).
+
+pyright stays local-only (`make lint`) — its node-binary download is the flaky
+part CI doesn't need. First real run happens on the next push to
+`github.com/kyoungd/mail-engine`.

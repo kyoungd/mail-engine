@@ -1,4 +1,236 @@
-# Current state — 2026-08-06: partner-sourced numbers were BUILT and CUT the same day; a referral is now a territory signal, not a lead
+# Current state — 2026-08-07 (later session): the integration tier EXISTS and `NmcDemosClient` has its first test
+
+**The amendment and the first test both landed.** `marketing/CLAUDE.md` now
+carries the Rule Zero mutate/consume split and the `make integration` tier
+contract (🟢, diff shown). The 🟡 gate was approved and built:
+
+- **`tests/integration/test_nmc_demos_client.py`** — one read-only GET against
+  a live local booking-system, asserting the wire contract only (exact six
+  fields; `salesRepId` str-or-null — the silent-drift pin; the four counts
+  int()-parseable strings — the parse outside the report's `try`). An empty
+  partner list passes; content is never asserted.
+- **Tier plumbing:** `integration` marker deselected by default
+  (`addopts = "-m 'not e2e and not integration'"`), `make integration` target,
+  `tests/integration/conftest.py` with the `nmc_demos` fixture
+  (skip-if-unconfigured → skip-if-unreachable → return the real client) and a
+  terminal summary printing `covered: N / skipped: M (reasons)`.
+  `--integration-strict` (Makefile: `STRICT=1`) turns any would-be skip into a
+  failure — verified exit 1.
+- **Verified, all three paths:** skip path loud and green (exit 0), strict
+  path exit 1, and — after the operator restarted the services — the COVERED
+  path ran against live booking-system: `covered: 1 / skipped: 0`, both plain
+  and `STRICT=1`. The live window shows the rehearsal fixture exactly
+  (salesRepId '3': 7 calls / 2 unique / 0 blocked / 1 text — matches the
+  2026-08-02 setup). Default suite collects 518/521 with 3 deselected (2 e2e +
+  1 integration — offline suite untouched), ruff + pyright clean.
+  `NMC_BOOKING_URL=http://localhost:3002` + the local `NMC_API_KEY` are now in
+  dev `.env` (untracked), so `make integration` covers this seam whenever
+  booking-system is up.
+- ⚠️ Minor: the local booking-system `NMC_API_KEY` value was partially echoed
+  into session output by a sloppy masking command. Local test key, written
+  nowhere; rotate if it ever becomes load-bearing.
+
+**Then the best-practices review landed three more artifacts (same day):**
+
+- **`docs/coding/testing.md` is now the canonical philosophy document** (tiers,
+  authority, release gate, risk rule, owed list); `test-plan.md` carries a
+  status banner marking it a partially-executed historical spec (its `World`
+  harness was never built). Full reasoning: `decisions.md` 2026-08-07 entry.
+- **The release gate is defined:** prod release requires `make test` +
+  `make e2e` + `STRICT=1 make integration` green same-day, plus the migration
+  plan stated. CI-or-not is recorded as an open operator question.
+- **The export-compliance invariant exists and kills mutants:**
+  `tests/acceptance/test_export_compliance_invariant.py` (frozen) — adversarial
+  pool with every violating condition + post-assignment flips
+  (`dnc_registry` = the scrub path; raw `do_not_call` = the adversarial
+  construction proving export's own predicate, since `suppress()` would also
+  release custody); the forbidden set re-derived with independent SQL and
+  intersected with the actual CSV; second-pull re-gating pinned. **Verified by
+  manual mutant:** deleting `dnc_registry = false` from export's WHERE turned
+  both tests red; `service/assignment.py` restored byte-identical (git-diff
+  clean). One behavior note learned: the RULE path filters seeds in the WHERE,
+  so "seed" is an id-list-path shortfall cause only.
+- **The tests ran against `mailengine_test`** (guard already allowlisted it) via
+  env override — `mailengine_dev` kept its canonical 100,444 untouched, no
+  re-ingest owed. The scratch DB existed already; testing.md documents the
+  pattern. ⚠️ New acceptance files still truncate whatever DB they point at —
+  the Makefile rewire to default suites onto `mailengine_test` is NOT done.
+
+**Then the six best-practices violations were fixed (operator-approved order):**
+
+- **SR-6 backups EXIST:** `scripts/backup.sh` (verify-then-rename, 14-day
+  rotation, always targets prod); first dump taken (16M) and **restore tested**
+  (scratch DB, five counts identical, dropped). ⚠️ Cron NOT installed — the
+  session was permission-blocked; the operator runs:
+  `crontab -e` → `10 2 * * * cd /home/young/Desktop/Code/nvermisscall/marketing/mail-engine && ./scripts/backup.sh >> $HOME/db-backups/backup.log 2>&1`
+  ⚠️ OFFSITE destination still an open operator decision (local-only today).
+- **`make test`/`make e2e` now run on `mailengine_test`** (auto-created,
+  `scripts/ensure-test-db.py`) — dev survives every run; 520 green in 29s,
+  dev verified untouched at 100,444. The re-ingest ritual is dead for make
+  targets; bare pytest still follows `.env`. CLAUDE.md hazards updated.
+- **Docs:** release gate now ends in `git tag prod-YYYY-MM-DD`; suite-growth
+  rule amended (grows by default, deliberate retirement); verb-driven
+  arrangement rule for new DB tests; `docs/coding/` declared canonical for the
+  two review standards (commands = deployment copies); `architecture-review.md`
+  swapped to the mail-engine-adapted version.
+- ⚠️ **`make e2e` is RED today for a VENDOR reason:** Lob's test env stopped
+  rendering assets — today's postcard (`psc_77c40e71914fb2bd`, `processed`)
+  serves 404 for PDF + both thumbnails 15+ min after creation, while a
+  2026-08-02 postcard's PDF serves fine. Partner journey green. The frozen
+  test is correct and unchanged. **Re-run `make e2e` in a later session** —
+  it must be green before the release gate is relied on. Evidence in
+  `decisions.md` 2026-08-07 entry.
+
+**CI is DECIDED and BUILT (same day):** `.github/workflows/ci.yml` — Postgres
+15 service container, roles + `mailengine_test` created pre-migrations, ruff +
+offline suite on every push/PR. Offline-only by design (no vendor secrets);
+e2e/integration stay operator-run, release gate unchanged. Verified by running
+the suite under the EXACT CI env (everything else blanked): **520 green in
+31s** — which surfaced that `web/api.py` hard-reads seven `LOB_*` vars plus
+`DROP_PASSWORD` on routed paths; CI sets dummies. First real run: next push.
+
+Remaining owed: `PostHogFeed` + `NmcCloseFeed` integration tests · mutmut over
+`service/assignment.py` · fake-fidelity contract tests · TZ=UTC pinning ·
+offsite backup destination · e2e re-run (Lob outage above) · backup cron
+install (operator one-liner).
+
+---
+
+# Earlier — 2026-08-07: NO CODE CHANGED — the session's output is a test-policy decision and one uncovered seam
+
+**Read this first if you are restarting: nothing was written, nothing was
+committed, and the working tree is exactly where 2026-08-06 left it.** The
+session was a read of the two PRDs plus a fake-module audit, and it produced one
+operator decision and one real gap. Both are unbuilt.
+
+## The operator decision: cross-repo integration tests are REQUIRED
+
+**Operator, this session:** *"Testing is not complete unless you can test third
+parties."* Rule Zero's boundary is correct but has been read too broadly — as
+"no cross-repo tests at all" — and that over-read is what produced the gap
+below. The scope:
+
+- **Lob — deferred, and fine.** Nothing is printing while mail is parked.
+  Note that Lob is already the ONE third party with a real integration test
+  (`make e2e` hits `api.lob.com` with the test key), so the pattern being asked
+  for already exists in the repo; it was just applied to exactly one vendor.
+- **PostHog and the local NMC servers — dedicated tests owed.** These feed the
+  real nightly and are verified by nothing.
+
+**The amendment (WRITTEN to `marketing/CLAUDE.md` 2026-08-07 — Rule Zero
+mutate/consume split + the `make integration` tier contract; uncommitted):**
+
+1. **Rule Zero splits in two.** *Mutating* NMC — edit its code, run its suites,
+   start/stop/reconfigure its services, migrate or write its DBs — stays
+   forbidden, unchanged. *Consuming* NMC across a published seam — GET an
+   endpoint, SELECT through `medusa_nmc_ro` — is allowed, and for anything
+   mail-engine depends on in production, **required**. The operator starts
+   booking-system; the test detects it and uses it or skips. Starting it from a
+   marketing session is still the forbidden act.
+2. **A third tier, `make integration` / `tests/integration/`** — beside
+   `acceptance/` (frozen gates) and `unit/` (disposable). Marker deselected by
+   default, same mechanism as `e2e` (`pyproject.toml:30`).
+   - **Read-only across every boundary** (GET/SELECT only) and **truncates
+     nothing.** This is the ergonomic point: both existing tiers wipe
+     `mailengine_dev`, so today an integration check costs a re-ingest.
+   - **Skip-if-unconfigured, fail-on-drift.** Precedent exists at
+     `tests/unit/test_dnc_file_registry.py:87` (skips without the real 818
+     snapshot, pins hard with it). Unreachable ⇒ skip with a loud reason;
+     reachable-but-wrong-shape ⇒ **fail**. Keeps "no red tests, ever" intact.
+   - **The runner must print its skips** (`covered: N / skipped: M (reasons)`)
+     plus a `--strict` mode where skip counts as failure. A suite that silently
+     skips everything and reports green manufactures confidence — that is the
+     failure mode to design against.
+3. **Targets, in priority order:** `NmcDemosClient` (local booking-system
+   :3002) · `PostHogFeed` (real project) · `NmcCloseFeed` (local `medusa_nmc`
+   via `MEDUSA_READONLY_URL`).
+4. **No new secrets** — `POSTHOG_API_KEY` / `POSTHOG_PROJECT_ID`
+   (`jobs/nightly_cli.py:50`), `NMC_BOOKING_URL` / `NMC_API_KEY`, and
+   `MEDUSA_READONLY_URL` are all already `.env` vars the nightly reads. And
+   `PostHogFeed` already takes an injected `transport`
+   (`tests/unit/test_posthog.py`), so the real-transport test is a constructor
+   change, not a rewrite.
+5. **Caution on PostHog:** assert the *contract* (auth accepted, query valid,
+   whatever returns maps to valid Events) and never specific event content —
+   live data ages out and the test would rot into a flaky.
+
+## The gap that decision exposes: `NmcDemosClient` has ZERO tests
+
+The fake inventory came out clean — **`seams/fakes.py` holds 7 fakes and every
+seam Protocol has exactly one**, no Protocol uncovered, no orphan fake
+(`FakePrintApi`, `FakeResponseFeed`, `FakeSender`, `FakeVerifier`,
+`FakeDncRegistry`, `FakeCloseFeed`, `FakeDemosClient`), plus ~8 test-local
+doubles. But **every other real seam client has a mapping test that fakes only
+the transport** — `LobAddressVerifier`, `LobStatusFeed`, `PostHogFeed`,
+`FileDncRegistry`, `EmailSender`, `NmcCloseFeed`. `NmcDemosClient` has none.
+`FakeDemosClient` covers the *composer's* contract (omit the section when
+unreachable, never placeholder); nothing covers the *client's*.
+
+**The live contract currently MATCHES — this is not a live bug.**
+`booking-system/src/partner/partner-demo.controller.ts:104-111` returns exactly
+`{partners: [{partnerNumber, salesRepId: string|null, calls, uniqueProspects,
+blockedCalls, textsForwarded}]}`, all counts as strings, as the seam docstring
+claims. The alignment is held by two docstrings in two repos and nothing
+executable. booking-system's own spec pins the server side, so drift would have
+to be deliberate — but if it happened, nothing in mail-engine goes red.
+
+**Two paths `FakeDemosClient` structurally cannot reach**, because it returns
+whatever well-shaped dicts a test hands it:
+
+- **`salesRepId` is compared as a string** (`judgment/partner_report.py:155`,
+  `p.get("salesRepId") == str(sales_rep_id)`). If that field ever arrives as a
+  number, `mine` is empty ⇒ section omitted ⇒ **silently, forever, no error**.
+  A partner just stops seeing their demo line.
+- **The `try` covers the call but not the parse.** `partner_report.py:151-154`
+  guards `demos.summary()`; the `int(p["calls"])` reads at **158-161 sit outside
+  it**. A KeyError there escapes `compose()` at **line 217**, which is **not**
+  inside the per-partner isolation `try` at **220** (that wraps only
+  `sender.send`). So a shape drift would not omit one section — it would abort
+  the report step for **every** partner. 🟡 if changed: it alters the failure
+  contract, and there is a real argument for leaving it loud.
+
+**Also noted, not acted on:** the AI client is the only external dependency with
+**no seam Protocol and no shared fake** — duck-typed on `complete(prompt) -> str`
+(`judgment/composer.py:28`), so five one-method doubles exist across
+`tests/unit/test_composer.py` and `tests/acceptance/test_judgment_discipline.py`.
+Not broken; the contract just lives in five places.
+
+## Next act
+
+The `marketing/CLAUDE.md` amendment (🟢, write and show the diff), then the first
+integration test as the 🟡 gate. **Open question the operator has not answered:
+`NmcDemosClient` first (zero coverage + the silent-drift path) or `PostHogFeed`
+first (it feeds real nightly data).**
+
+## ⚠️ Fable 5 is unavailable — it runs on usage credits, not plan usage
+
+Diagnosed this session after the `/model` picker refused the switch at 100% plan
+usage remaining: **Fable 5 bills against usage credits purchased separately from
+the plan, and the balance is zero.** Plan quota and this are unrelated numbers.
+A `claude --model claude-fable-5 -p "hi"` probe appeared to succeed and was
+misread as proof of entitlement — it returned a generic greeting that proves
+nothing about which model answered; the picker's own dialog is the authority.
+
+**Consequence worth knowing before a phase boundary:** `marketing/PRD.md` §11
+plans *"Fable 5 review at phase boundaries"*, and this repo defines two subagents
+pinned to Fable 5 — `Doc Reviewer` and `Product`. Whether dispatching to them
+errors or quietly falls back to another model is **unverified**. If it falls
+back, that matters most for `Doc Reviewer`, whose entire value is being a
+fresh-context reviewer on a *different* model than the one that wrote the doc.
+Confirm before relying on it as a review gate.
+
+## Still owed from 2026-08-06 (unchanged — nothing this session touched them)
+
+1. **`make e2e` has NOT been run** since the partner-sourced back-out.
+2. **Dev DB is degraded** — killed ingest ⇒ 6m52s vs ~48s baseline. Remedy is
+   drop/recreate with **`template template0`** → `make migrate` → re-ingest.
+   Truncate + `vacuum analyze` is not sufficient.
+3. **Prod is at `0010`, dev at `0012`**; `0011`/`0012` cancel out so prod needs
+   neither — confirm how yoyo handles that skip *before* the next release.
+
+---
+
+# Previous — 2026-08-06: partner-sourced numbers were BUILT and CUT the same day; a referral is now a territory signal, not a lead
 
 **The feature shipped and was reverted within hours, and the reversal is the
 result worth keeping.** `f3ce10c` built the collected-numbers arc to
