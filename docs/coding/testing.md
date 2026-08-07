@@ -14,7 +14,8 @@ open, not silently.*
 |---|---|---|---|---|---|
 | Unit | `tests/unit/` | **Disposable** — rewrite freely | none | none (a few use the test DB) | `make test` |
 | Acceptance | `tests/acceptance/`, `tests/e2e/test_*journey*` | **Frozen phase gates** — they pin decided behavior; editing one is an escalation, not a refactor | none | truncates `mailengine_test` (never dev) | `make test` |
-| E2E | `tests/e2e/` | Frozen | real `api.lob.com` (test key) | truncates `mailengine_test` (never dev) | `make e2e` |
+| E2E | `tests/e2e/` | Frozen | none live today (partner journey fakes its three seams) | truncates `mailengine_test` (never dev) | `make e2e` |
+| E2E-mail | `tests/e2e/test_journey.py` | Frozen, **PARKED to v1.1** with direct mail | real `api.lob.com` (test key) | truncates `mailengine_test` | `make e2e-mail` (rejoins `e2e` at un-park) |
 | Integration | `tests/integration/` | Frozen | live cross-repo seams, **GET/SELECT only** | **none** — truncates nothing | `make integration` (`STRICT=1` = a skip is a failure) |
 
 - **No red tests, ever.** A test that fails for any reason — even an "expected"
@@ -58,11 +59,14 @@ testing, but they are not where the scars are.
 A prod release is a `git pull` in `mail-engine-production/` — there is no CI to
 stop a bad one, so the gate is procedural and non-optional:
 
-> **Before any prod release, same day:** `make test` green · `make e2e` green ·
-> `STRICT=1 make integration` green (booking-system up) · pending migrations
-> read and their prod plan stated (e.g. the 0011/0012 cancel-out question) ·
-> after the pull, tag it: `git tag prod-YYYY-MM-DD` — every release stays
-> identifiable and diffable.
+> **Before any prod release, same day:** `make test` green · `make e2e` green
+> (the partner journey — the live product) · `STRICT=1 make integration` green
+> (booking-system up) · pending migrations read and their prod plan stated
+> (e.g. the 0011/0012 cancel-out question) · after the pull, tag it:
+> `git tag prod-YYYY-MM-DD` — every release stays identifiable and diffable.
+>
+> `make e2e-mail` (the Lob mail funnel) is PARKED to v1.1 and re-enters the
+> gate when direct mail un-parks — do not ship a wave without it.
 
 A release without all four is the 2026-07-02 parent-repo incident waiting to
 recur here.

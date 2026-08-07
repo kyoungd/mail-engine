@@ -15,8 +15,14 @@ by CI on day one. Also: three 2026-08-05/06 leftover files (real-parser
 suppression tests, TD register, close-feed addendum) rode ahead in a
 carry-forward commit.
 
-Still operator-owed: the backup cron one-liner · offsite backup destination ·
-`make e2e` re-run once Lob's test-env asset rendering recovers.
+Still operator-owed: the backup cron one-liner · offsite backup destination.
+
+**Post-push (same day): direct marketing is VERSION 1.1** (operator decision,
+`decisions.md`). `make e2e` now runs the partner journey only (green, ~1.5s,
+touches no vendor); the Lob mail funnel moved to **`make e2e-mail`**, PARKED —
+it re-enters `e2e` and the release gate at un-park, and the Lob asset-outage
+chase is closed as out-of-scope. Release gate reworded accordingly. Also fixed:
+`make help` had always hidden `e2e` (its grep pattern lacked digits).
 
 ---
 

@@ -1331,3 +1331,21 @@ environment (all other env blanked; 520 green in 31s):
 pyright stays local-only (`make lint`) — its node-binary download is the flaky
 part CI doesn't need. First real run happens on the next push to
 `github.com/kyoungd/mail-engine`.
+
+## Direct marketing is VERSION 1.1; the Lob path leaves the gates (decided 2026-08-07)
+
+Sharpens the 2026-08-01 "mail parks" decision with a version label: direct
+marketing — waves, drops, Lob, the mail-funnel e2e — is v1.1 scope, not
+current work. Consequences applied now:
+
+- **`make e2e` runs the partner journey only** (the live product; it fakes its
+  three seams and never touches Lob — green in ~1.5s). The mail funnel moves
+  to **`make e2e-mail`**, PARKED: it re-enters `make e2e` and the release gate
+  when mail un-parks, and no wave ships without it.
+- **The Lob test-env asset outage found 2026-08-07 stops being an owed item.**
+  The vendor-side 404s (recorded in the entry above) matter at v1.1, not now;
+  the "re-run e2e when Lob recovers" chase is closed as out-of-scope.
+- Unchanged by this entry: everything the 2026-08-01 parking already covered
+  (live Lob key dark, AV gate closed, ghost wave deferred, TD-9 rotation
+  advised), and the "no red tests" rule — the parked journey is out of the
+  default run, not sitting red in it.
