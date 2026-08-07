@@ -58,6 +58,21 @@ below — subscriptions 5 codes, checked 24,212, hits 11,551, all stamped
 `registry_version 2026-08-05` (an earlier "version None" read was a
 wrong-key query, since verified).
 
+**PROD WIRING IS NOW FULLY PRODUCTION (operator-approved 🔴 .env edits,
+verified live):** connection audit confirmed the two databases were already
+right (spine = local `mailengine_prod` by design; `MEDUSA_READONLY_URL` = the
+real Render `medusajs_nmc` via `medusa_nmc_ro` — 25 customers / 3
+attributions live-checked). The two Stage-D local-era values were flipped:
+**`NMC_BOOKING_URL` → `booking-system-d4rk.onrender.com`** with the PROD
+`NMC_API_KEY` fetched from booking-system's Render env (old values kept
+commented; keyed live GET answered — salesRepId '3', 2 calls, the real prod
+demo line) and **`POSTHOG_*` → project `515952`** (384001 retired in place).
+The sender-off sync then re-ran against prod and **ingested the 9 real web
+events** (4 visit / 4 cta / 1 signup), all orphans as designed (no pieces),
+zero stage changes, no nudge (9 < the 20-orphan threshold). The production
+app now reads: its own scrubbed spine, the real Medusa closes feed, the real
+PostHog capture project, and the real booking-system demo endpoint.
+
 **End state: both repos committed and pushed** (mail-engine `main` through the
 tz-fix commit; nvermisscall `young` 847aace with the CLAUDE.md amendment), and
 **CI's second run is GREEN.** Its FIRST run went red and earned its keep
