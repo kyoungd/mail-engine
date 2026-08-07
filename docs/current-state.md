@@ -15,6 +15,28 @@ surfaced during migrate — harmless here; `ALTER DATABASE … REFRESH COLLATION
 VERSION` is a separate operator decision. This is the production app for the
 sales-partner program.
 
+**FIRST PROD SYNC EXECUTED (same day, operator-approved, sender OFF):** the
+first-ever `nightly_cli` run against `mailengine_prod` — SMTP and Lob blanked
+for the invocation, so feeds = PostHog + the close correlation
+(`MEDUSA_READONLY_URL`), zero emails possible. Result, verified: **25 events
+ingested — 9 PostHog web events + 15 REAL closes via `nmc_closes`
+(watermark stamped) + 1 recorded nudge — ALL 24 feed events orphaned,
+correctly**: prod has no pieces so mailer codes cannot attribute, and none of
+the 15 close phones matched a CSLB contractor (surface-don't-guess working as
+designed). Zero stage changes. The one nudge is the `orphan_events` roll-up
+(25 > 20) recorded to house, UNDELIVERED (sender off) — it re-fires after its
+3-day cooldown once a sender exists. Findings for the operator:
+
+1. **Prod `.env` carries the TEST Lob key uncommented** (the "commented out"
+   record is stale). Keep Lob dark in prod until mail un-parks — a Lob feed
+   pull with the test key would ingest the 170 TEST postcards' delivery
+   events into prod as orphan noise. (Deliberately blanked for this run.)
+2. **The partner roster needs grooming before Stage E:** 4 rows — `Young`
+   (email channel, operator address), `John` (no channel), and two `P-…` rows
+   created 2026-08-06 ~18:25 (origin unidentified this session; no channel).
+   `sales_rep_id` is NULL on every row including Young, contradicting the
+   Stage-D record that rep 3 was set.
+
 **End state: both repos committed and pushed** (mail-engine `main` through the
 tz-fix commit; nvermisscall `young` 847aace with the CLAUDE.md amendment), and
 **CI's second run is GREEN.** Its FIRST run went red and earned its keep
