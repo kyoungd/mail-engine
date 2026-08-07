@@ -1,4 +1,19 @@
-# Current state — 2026-08-07 (later session): PROD RELEASED at `prod-2026-08-07`; test architecture hardened; CI GREEN
+# Current state — 2026-08-07 (later session): PROD RELEASED + FIRST REAL PROD SCRUB DONE; test architecture hardened; CI GREEN
+
+**THE FIRST REAL PROD SCRUB (end of day, operator-approved 🔴, no purge):**
+pre-scrub backup `…_1408.dump` → `subscribe_area_codes add 714 760 805 818
+916` (prod `dnc_subscriptions` was empty — itself blocking every assignment)
+→ suppression_report before (all zeros) → **`dnc_refresh --snapshot
+../dnc-lists/2026-08-05` on `mailengine_prod`: checked=24,212 hits=11,551
+cleared=0 — EXACTLY the dev numbers**, another independent arrival. Per-code
+(checked / listed / dialable): 714: 4,819/2,308/**2,511** (47.9%) · 760:
+4,513/2,092/**2,421** (46.4%) · 805: 4,271/2,247/**2,024** (52.6%) · 818:
+6,023/2,628/**3,395** (43.6%) · 916: 4,586/2,276/**2,310** (49.6%) — total
+**12,661 dialable** across the five codes. All 24,212 events stamped
+`registry_version 2026-08-05`; fresh until 2026-08-26 (21-day window).
+**No contacts deleted**: non-subscribed-code contacts stay in the spine per
+the whole-universe decision — the `dnc_unsubscribed`/`dnc_stale` gates make
+them structurally unassignable.
 
 **PROD RELEASE EXECUTED (end of day, operator-approved 🔴, first release
 through the new gate):** all four gates green same-day (520 offline · partner
@@ -15,27 +30,33 @@ surfaced during migrate — harmless here; `ALTER DATABASE … REFRESH COLLATION
 VERSION` is a separate operator decision. This is the production app for the
 sales-partner program.
 
-**FIRST PROD SYNC EXECUTED (same day, operator-approved, sender OFF):** the
-first-ever `nightly_cli` run against `mailengine_prod` — SMTP and Lob blanked
-for the invocation, so feeds = PostHog + the close correlation
-(`MEDUSA_READONLY_URL`), zero emails possible. Result, verified: **25 events
-ingested — 9 PostHog web events + 15 REAL closes via `nmc_closes`
-(watermark stamped) + 1 recorded nudge — ALL 24 feed events orphaned,
-correctly**: prod has no pieces so mailer codes cannot attribute, and none of
-the 15 close phones matched a CSLB contractor (surface-don't-guess working as
-designed). Zero stage changes. The one nudge is the `orphan_events` roll-up
-(25 > 20) recorded to house, UNDELIVERED (sender off) — it re-fires after its
-3-day cooldown once a sender exists. Findings for the operator:
+**⚠️ CORRECTION — the "first prod sync" REPORTED EARLIER ACTUALLY WROTE TO
+DEV.** The session's shell cwd silently reset between calls, so the
+sender-off nightly sourced the DEV `.env`: the 25 events (9 PostHog + 15
+closes from the LOCAL Medusa mirror + 1 nudge) landed in `mailengine_dev`,
+not prod. Caught by explicit-URL cross-DB queries after the scrub; **dev has
+been cleaned back to canonical** (25 events + 1 watermark deleted, 100,444
+contacts intact). Consequences of the mix-up, corrected: the "prod .env
+carries the test Lob key" finding was DEV's .env (prod's Lob is commented
+out, correct); the partner-roster finding (4 rows, two unexplained `P-…`
+from 2026-08-06, `sales_rep_id` NULL everywhere) was verified against PROD
+and STANDS. Lesson applied: every shell call now re-`cd`s explicitly;
+verification queries name their database.
 
-1. **Prod `.env` carries the TEST Lob key uncommented** (the "commented out"
-   record is stale). Keep Lob dark in prod until mail un-parks — a Lob feed
-   pull with the test key would ingest the 170 TEST postcards' delivery
-   events into prod as orphan noise. (Deliberately blanked for this run.)
-2. **The partner roster needs grooming before Stage E:** 4 rows — `Young`
-   (email channel, operator address), `John` (no channel), and two `P-…` rows
-   created 2026-08-06 ~18:25 (origin unidentified this session; no channel).
-   `sales_rep_id` is NULL on every row including Young, contradicting the
-   Stage-D record that rep 3 was set.
+**The REAL prod sync then ran (sender off, prod-verified): zero events —
+truthfully.** Two causes, diagnosed: (1) **prod `.env` points at PostHog
+project `384001`, dev at `515952`** — dev's project is the one holding the
+real `?r=` capture events (9 in 45d), so prod's pull returns nothing.
+Which project is canonical is an OPERATOR question; if 515952, prod `.env`
+needs its POSTHOG_* values updated (red-tier env edit) and the sync re-run.
+(2) The close correlation ran against the REAL prod Medusa (25 customers,
+5 in-window, 3 attributions) and found 0 qualifying closes — plausibly
+correct (smoke-test-era customers), verify at Stage E.
+
+**PROD SCRUB EXECUTED AND VERIFIED (the real one, on the real DB):** see
+below — subscriptions 5 codes, checked 24,212, hits 11,551, all stamped
+`registry_version 2026-08-05` (an earlier "version None" read was a
+wrong-key query, since verified).
 
 **End state: both repos committed and pushed** (mail-engine `main` through the
 tz-fix commit; nvermisscall `young` 847aace with the CLAUDE.md amendment), and
