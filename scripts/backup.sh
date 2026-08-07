@@ -20,9 +20,12 @@ Nightly pg_dump of mailengine_prod (PRD SR-6).
 Run from a mail-engine checkout (needs ./.env for OWNER_DATABASE_URL).
 Each dump is written to a .tmp file, verified with pg_restore --list, then
 renamed — a truncated dump can never overwrite a good one or be mistaken for
-one. Cron example (02:10 nightly):
+one.
 
-  10 2 * * * cd /home/young/Desktop/Code/nvermisscall/marketing/mail-engine && ./scripts/backup.sh >> ~/db-backups/backup.log 2>&1
+Cron policy (operator, 2026-08-07): crons belong to the PRODUCTION checkout
+only — dev runs jobs manually or under tests. Cron example (02:10 nightly):
+
+  10 2 * * * cd /home/young/Desktop/Code/nvermisscall/marketing/mail-engine-production && ./scripts/backup.sh >> ~/db-backups/backup.log 2>&1
 
 NOTE: this is a LOCAL backup. SR-6 asks for offsite; copying $BACKUP_DIR to an
 offsite destination is a separate, operator-chosen step.

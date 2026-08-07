@@ -24,6 +24,17 @@ it re-enters `e2e` and the release gate at un-park, and the Lob asset-outage
 chase is closed as out-of-scope. Release gate reworded accordingly. Also fixed:
 `make help` had always hidden `e2e` (its grep pattern lacked digits).
 
+**The `PostHogFeed` integration test is BUILT and COVERED live (same day,
+uncommitted):** `tests/integration/test_posthog_feed.py` + the `posthog_feed`
+fixture — real auth, real HogQL against the real project, every returned row
+asserted against the canonical contract (source/type/external_id/tz-aware
+occurred_at/mailer_code present and not 'unknown'), never content; zero events
+is a pass. Configured-but-rejected (HTTP error) is deliberately a FAILURE, not
+a skip. `make integration` now covers 2/2 seams live (1.6s); the real window
+held 9 events (4 visit / 4 cta / 1 signup). Remaining seam: `NmcCloseFeed` —
+but decide first whether to pin the current SQL seam or the decided-2026-08-06
+HTTP-endpoint contract.
+
 ---
 
 # Earlier — 2026-08-07 (later session): the integration tier EXISTS and `NmcDemosClient` has its first test
@@ -89,8 +100,10 @@ contract (🟢, diff shown). The 🟡 gate was approved and built:
 - **SR-6 backups EXIST:** `scripts/backup.sh` (verify-then-rename, 14-day
   rotation, always targets prod); first dump taken (16M) and **restore tested**
   (scratch DB, five counts identical, dropped). ⚠️ Cron NOT installed — the
-  session was permission-blocked; the operator runs:
-  `crontab -e` → `10 2 * * * cd /home/young/Desktop/Code/nvermisscall/marketing/mail-engine && ./scripts/backup.sh >> $HOME/db-backups/backup.log 2>&1`
+  session was permission-blocked; the operator runs (cron policy 2026-08-07:
+  crons live in the PRODUCTION checkout only — dev runs jobs manually/under
+  tests):
+  `crontab -e` → `10 2 * * * cd /home/young/Desktop/Code/nvermisscall/marketing/mail-engine-production && ./scripts/backup.sh >> $HOME/db-backups/backup.log 2>&1`
   ⚠️ OFFSITE destination still an open operator decision (local-only today).
 - **`make test`/`make e2e` now run on `mailengine_test`** (auto-created,
   `scripts/ensure-test-db.py`) — dev survives every run; 520 green in 29s,

@@ -1349,3 +1349,17 @@ current work. Consequences applied now:
   (live Lob key dark, AV gate closed, ghost wave deferred, TD-9 rotation
   advised), and the "no red tests" rule — the parked journey is out of the
   default run, not sitting red in it.
+
+## Cron jobs belong to the production checkout only (decided 2026-08-07)
+
+Operator policy: **only production has cron jobs.** Every cron entry `cd`s into
+`mail-engine-production/`; the dev checkout never runs anything on a schedule —
+the same jobs run manually (CLIs, `make console`) or as part of tests. One
+machine, two checkouts, so this is a discipline about *which .env a scheduled
+run sources*, and it keeps scheduled writes/downloads accountable to exactly
+one environment. Applies to: the SR-6 backup (backup.sh's help updated), the
+DNC download cycle (one download per cycle into the shared ../dnc-lists/
+snapshot — both environments consume it, only prod's cron fetches it), and the
+future prod nightly (Stage E). The backup script itself targets mailengine_prod
+regardless of checkout, so the policy costs nothing there beyond the cron
+line's cd path.
