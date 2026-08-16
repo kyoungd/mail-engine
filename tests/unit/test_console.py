@@ -3,10 +3,17 @@ over existing verbs; the one load-bearing behavior of its own is the onboarding
 walk's compliance ORDER: purchase-pause before subscribe → scrub → assign."""
 
 import json
+from datetime import datetime
 
 import pytest
 
 from jobs import console
+
+
+@pytest.fixture(autouse=True)
+def _skip_login_gate(monkeypatch):
+    # The login gate has its own tests (test_nmc_admin.py); these test the menu.
+    monkeypatch.setattr(console, "_login_gate", lambda: 0)
 
 
 def _feed(monkeypatch, *answers):
@@ -150,7 +157,8 @@ def test_register_step_creates_new_when_n_chosen(monkeypatch):
     monkeypatch.setattr(
         "jobs.partners_cli.main", lambda argv: captured.setdefault("argv", argv) and 0
     )
-    _feed(monkeypatch, "n", "Steven Kim", "sk@example.com", "10", "4", "SK-01")
+    # rep id is asked FIRST since 2026-08-16 (blank = manual entry, no roster pull)
+    _feed(monkeypatch, "n", "", "Steven Kim", "sk@example.com", "10", "SK-01")
     assert console._step_register() == 0
     assert captured["argv"][:2] == ["set", "Steven Kim"]
     assert console._partner_name == "Steven Kim"
@@ -212,3 +220,63 @@ def test_help_manual_prints_and_returns_to_menu(monkeypatch, capsys):
     assert out.count("mail-engine console") >= 2  # menu re-rendered after help
 
 
+
+
+# --- menu 9: manage area-code subscriptions -----------------------------------
+
+_SUB_ROW = ("818", datetime(2026, 8, 16), 6023, 3395, 3195)
+
+
+def _subscriptions_io(monkeypatch, *answers):
+    _feed(monkeypatch, *answers)
+    monkeypatch.setattr(console, "_subscription_view", lambda: [_SUB_ROW])
+    captured = []
+    monkeypatch.setattr(
+        "jobs.subscribe_area_codes.main", lambda argv: captured.append(argv) or 0
+    )
+    return captured
+
+
+def test_subscriptions_view_lists_codes_and_returns(monkeypatch, capsys):
+    captured = _subscriptions_io(monkeypatch, "")
+    assert console._manage_subscriptions() == 0
+    out = capsys.readouterr().out
+    assert "818" in out
+    assert "2026-08-16" in out
+    assert "3195" in out
+    assert captured == []  # Enter = back, nothing dispatched
+
+
+def test_subscriptions_add_dispatches_to_the_cli(monkeypatch):
+    captured = _subscriptions_io(monkeypatch, "add", "747 805", "")
+    assert console._manage_subscriptions() == 0
+    assert captured == [["add", "747", "805"]]
+
+
+def test_subscriptions_remove_declined_dispatches_nothing(monkeypatch):
+    captured = _subscriptions_io(monkeypatch, "remove", "747", "n", "")
+    assert console._manage_subscriptions() == 0
+    assert captured == []
+
+
+def test_subscriptions_remove_confirmed_dispatches(monkeypatch):
+    captured = _subscriptions_io(monkeypatch, "remove", "747", "y", "")
+    assert console._manage_subscriptions() == 0
+    assert captured == [["remove", "747"]]
+
+
+def test_subscriptions_list_reprints_the_view(monkeypatch, capsys):
+    prompts = []
+    it = iter(["list", ""])
+    monkeypatch.setattr(
+        "builtins.input", lambda p="": prompts.append(p) or next(it)
+    )
+    monkeypatch.setattr(console, "_subscription_view", lambda: [_SUB_ROW])
+    captured = []
+    monkeypatch.setattr(
+        "jobs.subscribe_area_codes.main", lambda argv: captured.append(argv) or 0
+    )
+    assert console._manage_subscriptions() == 0
+    assert any("add/remove/list/Enter=back" in p for p in prompts)  # list is offered
+    assert capsys.readouterr().out.count("818") == 2  # view printed twice
+    assert captured == []  # list dispatches nothing

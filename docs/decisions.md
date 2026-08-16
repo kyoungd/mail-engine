@@ -1363,3 +1363,36 @@ snapshot — both environments consume it, only prod's cron fetches it), and the
 future prod nightly (Stage E). The backup script itself targets mailengine_prod
 regardless of checkout, so the policy costs nothing there beyond the cron
 line's cd path.
+
+## Console behind main-site admin login; first write through a published NMC seam (decided 2026-08-16)
+
+The operator console (`make console`) now requires a main-site admin login
+before the menu renders — email + password (getpass) → customer JWT via
+`/auth/customer/emailpass` → server-side admin probe of
+`GET /store/nmc/admin/sales-reps` (200 admits; 401 bad credentials and 403
+not-in-ADMIN_EMAILS refuse with distinct messages). The JWT lives in memory
+for the session, never on disk, never printed. New menu item 11 ("register
+main-site sales rep") creates the Medusa `nmc_sales_rep` roster row through
+that session — the Postman-free half of the registration runbook — and the
+onboarding walk offers it as step 0, carrying the created id into the
+`--sales-rep-id` default. The register step takes a rep id and pre-fills
+name/email from the roster (unknown or inactive ids refuse loudly); identity
+stays main-site-owned, copied at onboarding. Seam: `seams/nmc_admin.py`;
+config: `NMC_WEB_URL` + `NMC_PUBLISHABLE_KEY` (Medusa's public client key)
+in `.env`.
+
+**This extends the 2026-08-07 mutate/consume split.** Consuming NMC read-only
+(GET/SELECT) remains the norm; a **write** is now permitted when it goes
+through NMC's own published, authenticated admin API and is triggered
+interactively by the operator typing their admin credentials. Direct SQL into
+Medusa and unattended/scheduled writes remain forbidden.
+
+**Rejected alternatives:** Postman (admin credentials and tokens at rest in a
+third-party app — the complaint that started this); a sales-partner CRUD page
+in the NMC admin panel (scatters marketing features out of the marketing
+console, and is an NMC change besides).
+
+**Accepted trade-offs, named at approval:** the console cannot open while the
+local Medusa server is down (item 3's roster step needs it anyway), and the
+login gate is hygiene/ceremony, not a security boundary — anyone with shell
+access to `.env` can bypass the console entirely with psql or the CLIs.

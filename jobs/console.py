@@ -15,6 +15,7 @@ operator 2026-08-05; the radius derivation left the walk the same day —
 """
 
 import argparse
+import getpass
 import json
 import subprocess
 import sys
@@ -59,6 +60,68 @@ def _owned_inventory() -> list[tuple[str, int, int, int]]:
 
 _picked_code = ""  # the onboarding pick, carried into the subscribe step's default
 _partner_name = ""  # the registered partner, carried into assign/export defaults
+_admin_client = None  # the login gate's client, reused by the sales-rep item
+_admin_token = ""  # the gate's JWT — held in memory only, never printed
+_created_rep_id = ""  # last main-site rep id created, default for --sales-rep-id
+
+
+def _make_admin_client():
+    from seams.nmc_admin import NmcAdminClient
+
+    return NmcAdminClient.from_env()
+
+
+def _login_gate() -> int:
+    """The console door (operator decision 2026-08-16): a main-site admin login
+    is required before the menu renders. The gate is the server's own admin
+    check — bad password (401) and not-in-ADMIN_EMAILS (403) refuse with
+    different messages. The JWT stays in memory for the session."""
+    from seams.nmc_admin import NmcAdminError
+
+    global _admin_client, _admin_token
+    try:
+        client = _make_admin_client()
+    except NmcAdminError as exc:
+        print(f"console locked: {exc}")
+        return 1
+    email = input("admin email: ").strip()
+    password = getpass.getpass("password: ")
+    try:
+        token = client.login(email, password)
+        client.verify_admin(token)
+    except NmcAdminError as exc:
+        print(f"login refused: {exc}")
+        return 1
+    except OSError as exc:
+        print(f"main site unreachable at NMC_WEB_URL: {exc}")
+        return 1
+    _admin_client, _admin_token = client, token
+    print(f"admin verified: {email}")
+    return 0
+
+
+def _create_sales_rep_action() -> int:
+    """Register a rep on the MAIN SITE's roster (nmc_sales_rep) through its
+    admin API — the Postman-free half of the registration runbook. The returned
+    id becomes the default --sales-rep-id when registering the partner here."""
+    from seams.nmc_admin import NmcAdminError
+
+    global _created_rep_id
+    if _admin_client is None:
+        print("no admin session — restart the console and log in")
+        return 1
+    email = _ask("rep email (their toolkit login identity)")
+    if not email:
+        return 1
+    name = _ask("rep name")
+    try:
+        rep_id = _admin_client.create_sales_rep(_admin_token, email=email, name=name)
+    except NmcAdminError as exc:
+        print(f"error: {exc}")
+        return 1
+    _created_rep_id = str(rep_id)
+    print(f"main-site sales rep created: id {rep_id} ({email})")
+    return 0
 
 
 def _slug(name: str) -> str:
@@ -153,13 +216,36 @@ def _step_register() -> int:
             hours = _ask("weekly dial hours (sizes the batch)", "10")
             return main(["set", picked, "--hours", hours])
         return 0
-    name = _ask("partner name")
+    rep = _ask("main-site sales-rep id (blank = enter manually)", _created_rep_id)
+    if rep:
+        # The main site owns identity — pull name/email from the roster rather
+        # than re-typing them (operator decision 2026-08-16, "cheap and easy").
+        if _admin_client is None:
+            print("no admin session — restart the console and log in")
+            return 1
+        row = next(
+            (r for r in _admin_client.list_sales_reps(_admin_token)
+             if str(r.get("id")) == rep),
+            None,
+        )
+        if row is None:
+            print(f"no rep id {rep} on the main-site roster — create it (menu 11) first")
+            return 1
+        if row.get("status") != "active":
+            print(
+                f"rep id {rep} ({row.get('email')}) is {row.get('status')} on the "
+                "main site — reactivate it there first"
+            )
+            return 1
+        name = _ask("partner name", row.get("name") or "")
+        email = _ask("report email", row.get("email") or "")
+    else:
+        name = _ask("partner name")
+        email = _ask("report email")
     if not name:
         return 1
     _partner_name = name
-    email = _ask("report email")
     hours = _ask("weekly dial hours", "10")
-    rep = _ask("main-site sales-rep id (blank if none yet)")
     code = _ask("partner code (blank if none yet)")
     argv = ["set", name, "--hours", hours]
     if email:
@@ -228,6 +314,15 @@ def run_onboarding() -> int:
     stops at the pick; a just-purchased code ends after subscribe, because its
     file is not even provisioned yet. Either way the assign gates would refuse
     unscrubbed contacts regardless — these stops just say so up front."""
+    if (
+        _admin_client is not None
+        and input("register the partner on the MAIN SITE first? [y/N]: ").strip().lower()
+        == "y"
+    ):
+        rc = _run_step(_create_sales_rep_action)
+        if rc != 0:
+            print(f"onboarding stopped at main-site registration (exit {rc})")
+            return rc
     inventory = _owned_inventory()
     if inventory:
         print("owned codes — total / dialable / available:")
@@ -318,8 +413,64 @@ def _dnc_portal_status() -> int:
     return subprocess.run([str(_SCRIPTS / "dnc-status.py")]).returncode
 
 
-def _subscribe() -> int:
-    return _step_subscribe()
+def _subscription_view() -> list[tuple]:
+    """Per subscribed code: (code, subscribed_at, total, dialable, available) —
+    the _owned_inventory counts plus the subscription date, for menu 9's view."""
+    from db.session import transaction
+
+    with transaction() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "select s.area_code, s.subscribed_at, count(c.id), "
+                "count(c.id) filter (where not c.dnc_registry and not c.do_not_call "
+                "  and c.dnc_checked_at is not null), "
+                "count(c.id) filter (where not c.dnc_registry and not c.do_not_call "
+                "  and c.dnc_checked_at is not null and c.assignment_batch_id is null) "
+                "from dnc_subscriptions s "
+                "left join contacts c on c.phone_e164 is not null and c.is_seed = false "
+                "  and substring(c.phone_e164 from 3 for 3) = s.area_code "
+                "group by s.area_code, s.subscribed_at order by s.area_code"
+            )
+            return list(cur.fetchall())
+
+
+def _manage_subscriptions() -> int:
+    from jobs.subscribe_area_codes import main
+
+    while True:
+        rows = _subscription_view()
+        if rows:
+            print("subscriptions — subscribed / total / dialable / available:")
+            for code, at, total, dialable, available in rows:
+                print(f"  {code}   {at:%Y-%m-%d}   {total} / {dialable} / {available}")
+        else:
+            print("no area codes subscribed yet")
+        action = input("action [add/remove/list/Enter=back]: ").strip().lower()
+        if not action:
+            return 0
+        if action == "list":
+            continue  # the loop reprints the view
+        if action == "add":
+            codes = _ask("codes to add (space-separated)")
+            if not codes:
+                continue
+            print(
+                "recording is a CLAIM the SAN portal must make true — first 5 "
+                "codes free, $82/code/year beyond (procedure: "
+                "subscribe_area_codes --help)"
+            )
+            _run_step(lambda: main(["add", *codes.split()]))
+        elif action == "remove":
+            codes = _ask("codes to remove (space-separated)")
+            if not codes:
+                continue
+            print(
+                "removing makes every contact in these codes structurally "
+                "unassignable and drops them from the daily scrub "
+                "(already-assigned holdings are untouched)"
+            )
+            if input("remove? [y/N]: ").strip().lower() == "y":
+                _run_step(lambda: main(["remove", *codes.split()]))
 
 
 _MANUAL = """
@@ -348,7 +499,9 @@ ITEMS
   7  DNC daily cycle  download today's registry files + scrub anything due.
                       Give it to cron:  10 7 * * * scripts/dnc-daily.sh
   8  DNC portal       is the FTC subscription live / serving files
-  9  subscribe        record an area code purchased at the SAN portal
+  9  subscriptions    the subscription record: view codes with inventory,
+                      add (a claim the SAN portal must make true), remove
+                      (confirmed — contacts in the code become unassignable)
 
 RULES THE SYSTEM ENFORCES (no way around them, by design)
   - on the DNC registry, opted out, or tombstoned  -> never assigned
@@ -363,7 +516,8 @@ CLOCKS
   21 days  per-contact scrub recheck cadence (the daily cycle covers it)
 
 PARTNER IDENTITY (Medusa <-> here)
-  Create the roster row on the main site first; enter its sales-rep id and
+  Create the roster row on the main site first — menu 11 does it from here
+  (your admin login is the console door); enter its sales-rep id and
   partner code when registering here. Those two keys are how closes credit.
 
 MORE
@@ -386,8 +540,9 @@ ACTIONS: dict[str, tuple[str, Callable[[], int]]] = {
     "6": ("reclaim a partner's holdings", _reclaim),
     "7": ("DNC daily cycle (download + scrub)", _dnc_daily),
     "8": ("DNC portal status", _dnc_portal_status),
-    "9": ("subscribe an area code", _subscribe),
+    "9": ("manage area-code subscriptions", _manage_subscriptions),
     "10": ("help", _help),
+    "11": ("register main-site sales rep", _create_sales_rep_action),
 }
 
 
@@ -416,6 +571,10 @@ def main(argv: list[str] | None = None) -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.parse_args(argv)
+
+    rc = _login_gate()
+    if rc != 0:
+        return rc
 
     while True:
         _menu()
