@@ -29,3 +29,7 @@ docs/current-state.md
 # wrangler local dev state and its throwaway secrets
 .wrangler/
 .dev.vars
+
+# PyInstaller output from `make client`
+dist/
+build/
