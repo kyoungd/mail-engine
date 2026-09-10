@@ -18,6 +18,15 @@ HOUSE_PARTNER_ID = UUID("00000000-0000-4000-8000-000000000001")
 # 31-day safe-harbor window with margin for missed runs.
 DNC_RECHECK_DAYS = 21
 
+# A partner-supplied snapshot must reach us within this many days of the FTC's own
+# file date: the portal serves only the CURRENT file, so a genuine fresh download is
+# always fresh-dated. A wide gap means the upload is a stale download, not today's.
+SNAPSHOT_MAX_AGE_DAYS = 2
+# Refuse a file dramatically smaller than the newest accepted snapshot for the same
+# area code — the silent under-block the registry seam is written against. Applies
+# only once a prior exists; the first file for a code establishes the baseline.
+SNAPSHOT_MIN_LINE_RATIO = 0.5
+
 # The assignment gate's freshness bound (§6): a contact whose check is older than
 # the federal safe-harbor window is unassignable until the scrub catches up.
 DNC_FRESHNESS_DAYS = 31

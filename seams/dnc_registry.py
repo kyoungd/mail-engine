@@ -78,14 +78,9 @@ class FileDncRegistry:
                 with zf.open(zf.infolist()[0]) as member:
                     for lineno, raw in enumerate(member, start=1):
                         line = raw.rstrip(b"\n")
-                        if (
-                            len(line) != 11
-                            or not line.startswith(prefix)
-                            or not line[4:].isdigit()
-                        ):
+                        if not _pinned_line(line, prefix):
                             raise DncRegistryError(
-                                f"{zips[0].name} line {lineno}: {raw!r} does not "
-                                f"match the pinned format {area_code},NNNNNNN"
+                                _format_message(zips[0].name, lineno, raw, area_code)
                             )
                         number = area_code + line[4:].decode("ascii")
                         if number in candidates:
@@ -93,3 +88,37 @@ class FileDncRegistry:
         except (zipfile.BadZipFile, zlib.error, EOFError) as exc:
             raise DncRegistryError(f"{zips[0].name}: corrupt zip ({exc})") from exc
         return frozenset(hits)
+
+
+def _pinned_line(line: bytes, prefix: bytes) -> bool:
+    """The one definition of the pinned full-list format `AAA,NNNNNNN`."""
+    return len(line) == 11 and line.startswith(prefix) and line[4:].isdigit()
+
+
+def _format_message(name: str, lineno: int, raw: bytes, area_code: str) -> str:
+    return (
+        f"{name} line {lineno}: {raw!r} does not match the pinned format "
+        f"{area_code},NNNNNNN"
+    )
+
+
+def validate_and_count(zip_path: Path, area_code: str) -> int:
+    """Stream one snapshot zip asserting the pinned format on EVERY line, and return
+    the line count. The validation half of `listed()` without the intersection — used
+    by record_snapshot, which must judge a file before any contact is scrubbed against
+    it. Raises DncRegistryError on the first deviation or a corrupt archive."""
+    prefix = f"{area_code},".encode()
+    count = 0
+    try:
+        with zipfile.ZipFile(zip_path) as zf:
+            with zf.open(zf.infolist()[0]) as member:
+                for lineno, raw in enumerate(member, start=1):
+                    line = raw.rstrip(b"\n")
+                    if not _pinned_line(line, prefix):
+                        raise DncRegistryError(
+                            _format_message(zip_path.name, lineno, raw, area_code)
+                        )
+                    count += 1
+    except (zipfile.BadZipFile, zlib.error, EOFError, IndexError) as exc:
+        raise DncRegistryError(f"{zip_path.name}: corrupt zip ({exc})") from exc
+    return count
