@@ -10,11 +10,135 @@ plan, Phase 1): create the roster row on the main site first, then `set` here wi
 """
 
 import argparse
+import hashlib
+import os
+import secrets
 import sys
+from uuid import UUID
 
 from psycopg import sql
 
 from db.session import transaction
+from seams.token_registry import TokenRegistry, TokenRegistryError, WorkerTokenRegistry
+
+TOKEN_PREFIX = "nmcdnc_"
+
+
+def _token_registry() -> TokenRegistry:
+    """The edge client. Refuses rather than defaulting to a no-op: an unconfigured
+    revoke must never look like one that worked."""
+    url = os.environ.get("SNAPSHOT_INBOX_URL", "")
+    token = os.environ.get("SNAPSHOT_INBOX_TOKEN", "")
+    if not url or not token:
+        raise TokenRegistryError(
+            "SNAPSHOT_INBOX_URL and SNAPSHOT_INBOX_TOKEN are unset — the upload "
+            "Worker is not configured"
+        )
+    return WorkerTokenRegistry(url, token)
+
+
+def _active_partner(name: str) -> UUID | None:
+    with transaction() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "select id from partners where name = %s and status = 'active'",
+                (name,),
+            )
+            row = cur.fetchone()
+    return row[0] if row else None
+
+
+def _current_hash(partner_id: UUID) -> str | None:
+    with transaction() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "select api_token_hash from partners where id = %s", (partner_id,)
+            )
+            row = cur.fetchone()
+    return row[0] if row else None
+
+
+def _issue_token(name: str, *, push: bool) -> int:
+    """Mint an upload token. The DATABASE is written first and the edge second: a
+    failed push leaves a token the Worker will not honour, which is inert. (Revoke
+    reverses the order, deliberately — see _revoke_token.)"""
+    partner_id = _active_partner(name)
+    if partner_id is None:
+        print(f"no active partner named {name!r}", file=sys.stderr)
+        return 2
+
+    previous = _current_hash(partner_id)
+    token = TOKEN_PREFIX + secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+
+    with transaction() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "update partners set api_token_hash = %s, api_token_issued_at = now(), "
+                "api_token_revoked_at = null where id = %s",
+                (token_hash, partner_id),
+            )
+
+    # Printed BEFORE the edge is touched. The hash is already written, so a push
+    # that fails after minting would otherwise leave a token nobody has ever seen:
+    # the partner locked out with no recovery, and in the rotation case their
+    # previous token already killed at the edge.
+    print(f"upload token for {name} (shown ONCE, store it in the vault):")
+    print(f"  {token}", flush=True)  # ahead of any stderr that follows, when piped
+
+    if not push:
+        print(
+            "WARNING: not pushed to the upload Worker — this token will be refused "
+            "until it is published (--no-push)",
+            file=sys.stderr,
+        )
+        return 0
+
+    try:
+        registry = _token_registry()
+        if previous:
+            registry.revoke(previous)  # rotation kills the old token at the edge
+        registry.publish(token_hash, partner_id)
+    except TokenRegistryError as exc:
+        print(
+            f"token stored but NOT published to the upload Worker: {exc}\n"
+            "  - the Worker will refuse the token above until it is published\n"
+            "  - the partner's previous token may still be live at the edge\n"
+            "  - re-run `issue-token` once the Worker is reachable",
+            file=sys.stderr,
+        )
+        return 2
+    return 0
+
+
+def _revoke_token(name: str) -> int:
+    """Kill an upload token. The EDGE is cleared first and the database second —
+    the reverse of issue. A half-failure then leaves the token dead at the Worker
+    rather than alive at the Worker and revoked on paper."""
+    partner_id = _active_partner(name)
+    if partner_id is None:
+        print(f"no active partner named {name!r}", file=sys.stderr)
+        return 2
+    token_hash = _current_hash(partner_id)
+    if token_hash is None:
+        print(f"{name} has no active upload token", file=sys.stderr)
+        return 0
+
+    try:
+        _token_registry().revoke(token_hash)
+    except TokenRegistryError as exc:
+        print(f"revoke ABORTED, nothing changed: {exc}", file=sys.stderr)
+        return 2
+
+    with transaction() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "update partners set api_token_hash = null, "
+                "api_token_revoked_at = now() where id = %s",
+                (partner_id,),
+            )
+    print(f"upload token for {name} revoked")
+    return 0
 
 _EXAMPLES = """\
 examples:
@@ -81,6 +205,19 @@ def _build_parser() -> argparse.ArgumentParser:
     set_parser.add_argument("--addr-zip", dest="addr_zip")
 
     sub.add_parser("list", help="Print the partner roster")
+
+    issue_parser = sub.add_parser(
+        "issue-token", help="Mint this partner's DNC-upload token (shown once)"
+    )
+    issue_parser.add_argument("name", help="Partner name")
+    issue_parser.add_argument(
+        "--no-push", action="store_true", dest="no_push",
+        help="store locally without publishing to the upload Worker (pre-deploy only)",
+    )
+    revoke_parser = sub.add_parser(
+        "revoke-token", help="Kill this partner's DNC-upload token"
+    )
+    revoke_parser.add_argument("name", help="Partner name")
 
     status_parser = sub.add_parser(
         "status", help="Where each partner is in the assignment cycle"
@@ -213,6 +350,10 @@ def main(argv: list[str] | None = None) -> int:
         return _set(args)
     if args.command == "status":
         return _status(args.name)
+    if args.command == "issue-token":
+        return _issue_token(args.name, push=not args.no_push)
+    if args.command == "revoke-token":
+        return _revoke_token(args.name)
     return _list()
 
 

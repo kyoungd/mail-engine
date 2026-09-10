@@ -17,6 +17,7 @@ from domain.types import Event
 from seams.address_verifier import AddressVerificationError, VerificationResult
 from seams.print_api import ProofResult, SubmissionResult
 from seams.snapshot_inbox import InboxObject
+from seams.token_registry import TokenRegistryError
 
 _WEBHOOK_STATUS_TO_TYPE = {
     "delivered": "piece.delivered",
@@ -230,3 +231,26 @@ class FakeSnapshotInbox:
     def fetch(self, key: str, dest: Path) -> Path:
         dest.write_bytes(self.bodies[key])
         return dest
+
+
+class FakeTokenRegistry:
+    """Records what reached the edge, in order — the ordering between the edge and
+    the database is the property worth pinning, not just the calls themselves."""
+
+    def __init__(self, fail: bool = False) -> None:
+        self.fail = fail
+        self.calls: list[tuple[str, str]] = []
+        self.published: list[tuple[str, UUID]] = []
+        self.revoked: list[str] = []
+
+    def publish(self, token_hash: str, partner_id: UUID) -> None:
+        self.calls.append(("publish", token_hash))
+        if self.fail:
+            raise TokenRegistryError("fake registry unreachable")
+        self.published.append((token_hash, partner_id))
+
+    def revoke(self, token_hash: str) -> None:
+        self.calls.append(("revoke", token_hash))
+        if self.fail:
+            raise TokenRegistryError("fake registry unreachable")
+        self.revoked.append(token_hash)
