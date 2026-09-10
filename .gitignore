@@ -25,3 +25,7 @@ mutants/
 # test-suite guard, settled decisions) belongs in decisions.md / INSTALL.md /
 # PRD.md — which stay tracked — NOT here.
 docs/current-state.md
+
+# wrangler local dev state and its throwaway secrets
+.wrangler/
+.dev.vars

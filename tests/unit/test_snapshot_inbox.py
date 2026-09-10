@@ -89,3 +89,24 @@ def test_a_key_outside_the_dnc_prefix_is_refused(tmp_path):
             inbox.fetch(key, tmp_path / "out.zip")
 
     assert calls == []
+
+
+def test_a_truncated_listing_raises_rather_than_pulling_a_partial_set():
+    """R2 pages its listing and keys sort lexicographically, so a full page can
+    hide newer uploads forever. A partial pull that reports success is exactly the
+    silent shortfall this pipeline exists to prevent."""
+    inbox, _ = _inbox({**LISTING, "truncated": True})
+
+    with pytest.raises(InboxError):
+        inbox.pending()
+
+
+def test_a_listing_without_a_partner_id_raises():
+    """R2 omits customMetadata from list() unless explicitly included — the shape
+    a misconfigured Worker returns. Unusable, and it must say so by name."""
+    listing = {"objects": [dict(LISTING["objects"][0])]}
+    listing["objects"][0]["partner_id"] = None
+    inbox, _ = _inbox(listing)
+
+    with pytest.raises(InboxError):
+        inbox.pending()

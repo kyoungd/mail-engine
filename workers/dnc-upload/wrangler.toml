@@ -1,0 +1,22 @@
+# The DNC snapshot upload Worker (Architecture B, Phase 5b).
+#
+# It is the ONLY thing on the internet in this pipeline: partners' clients upload
+# through it, and mail-engine pulls through it. The box running mail-engine never
+# accepts an inbound connection and holds no bucket credentials.
+#
+# Deploy (Phase 5d, operator):
+#   npx wrangler r2 bucket create nmc-dnc-snapshots
+#   npx wrangler kv namespace create TOKENS      # paste the id below
+#   npx wrangler secret put ADMIN_TOKEN          # == mail-engine's SNAPSHOT_INBOX_TOKEN
+#   npx wrangler deploy
+name = "dnc-upload"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+[[r2_buckets]]
+binding = "SNAPSHOTS"
+bucket_name = "nmc-dnc-snapshots"
+
+[[kv_namespaces]]
+binding = "TOKENS"
+id = "REPLACE_AT_DEPLOY"

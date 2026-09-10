@@ -83,11 +83,25 @@ class WorkerSnapshotInbox:
 
     def pending(self) -> list[InboxObject]:
         payload = self.transport(f"{self.base_url}/pending", self._headers())
+        if payload.get("truncated"):
+            # Keys sort lexicographically, so a full listing page can hide newer
+            # uploads indefinitely. Refusing beats pulling a partial set and
+            # reporting success — the silent-shortfall class this whole pipeline
+            # is built against.
+            raise InboxError(
+                "the inbox listing was truncated — refusing a partial pull; "
+                "the bucket needs pruning or the lister needs pagination"
+            )
         objects = []
         for row in payload["objects"]:
             uploaded_at = _when(row["uploaded_at"])
             if uploaded_at is None:
                 raise InboxError(f"{row.get('key')!r}: listing has no uploaded_at")
+            if not row.get("partner_id"):
+                # A listing that cannot name its uploader is unusable — and it is
+                # the shape R2 returns when the Worker forgets to ask for
+                # customMetadata. Named error beats a TypeError at 2am.
+                raise InboxError(f"{row.get('key')!r}: listing has no partner_id")
             objects.append(
                 InboxObject(
                     key=row["key"],
