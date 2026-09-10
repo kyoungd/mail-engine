@@ -52,7 +52,9 @@ class SnapshotInbox(Protocol):
 def _default_transport(
     url: str, headers: dict[str, str], dest: Path | None = None
 ) -> Any:
-    request = urllib.request.Request(url, headers=headers)
+    request = urllib.request.Request(
+        url, headers={**headers, "User-Agent": "nmc-mail-engine/1.0"}
+    )
     with urllib.request.urlopen(request, timeout=600) as response:
         if dest is None:
             return json.loads(response.read().decode())

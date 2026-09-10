@@ -35,7 +35,10 @@ def _default_transport(
     method: str, url: str, headers: dict[str, str], body: dict[str, Any] | None = None
 ) -> Any:
     data = json.dumps(body).encode() if body is not None else None
-    request = urllib.request.Request(url, data=data, headers=headers, method=method)
+    request = urllib.request.Request(
+        url, data=data, headers={**headers, "User-Agent": "nmc-mail-engine/1.0"},
+        method=method,
+    )
     if data is not None:
         request.add_header("Content-Type", "application/json")
     with urllib.request.urlopen(request, timeout=30) as response:

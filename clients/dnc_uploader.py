@@ -183,7 +183,8 @@ class FtcPortal:
 def _default_transport(url: str, headers: dict[str, str], path: Path) -> None:
     with open(path, "rb") as handle:
         request = urllib.request.Request(
-            url, data=handle.read(), headers=headers, method="POST"
+            url, data=handle.read(),
+            headers={**headers, "User-Agent": "nmc-dnc-uploader/1.0"}, method="POST",
         )
         try:
             with urllib.request.urlopen(request, timeout=600) as response:
