@@ -224,7 +224,7 @@ def test_help_manual_prints_and_returns_to_menu(monkeypatch, capsys):
 
 # --- menu 9: manage area-code subscriptions -----------------------------------
 
-_SUB_ROW = ("818", datetime(2026, 8, 16), 6023, 3395, 3195)
+_SUB_ROW = ("818", datetime(2026, 8, 16), 6023, 3395, 3195, "NMC")
 
 
 def _subscriptions_io(monkeypatch, *answers):
@@ -248,19 +248,19 @@ def test_subscriptions_view_lists_codes_and_returns(monkeypatch, capsys):
 
 
 def test_subscriptions_add_dispatches_to_the_cli(monkeypatch):
-    captured = _subscriptions_io(monkeypatch, "add", "747 805", "")
+    captured = _subscriptions_io(monkeypatch, "add", "747 805", "", "")
     assert console._manage_subscriptions() == 0
     assert captured == [["add", "747", "805"]]
 
 
 def test_subscriptions_remove_declined_dispatches_nothing(monkeypatch):
-    captured = _subscriptions_io(monkeypatch, "remove", "747", "n", "")
+    captured = _subscriptions_io(monkeypatch, "remove", "747", "", "n", "")
     assert console._manage_subscriptions() == 0
     assert captured == []
 
 
 def test_subscriptions_remove_confirmed_dispatches(monkeypatch):
-    captured = _subscriptions_io(monkeypatch, "remove", "747", "y", "")
+    captured = _subscriptions_io(monkeypatch, "remove", "747", "", "y", "")
     assert console._manage_subscriptions() == 0
     assert captured == [["remove", "747"]]
 
@@ -280,3 +280,21 @@ def test_subscriptions_list_reprints_the_view(monkeypatch, capsys):
     assert any("add/remove/list/Enter=back" in p for p in prompts)  # list is offered
     assert capsys.readouterr().out.count("818") == 2  # view printed twice
     assert captured == []  # list dispatches nothing
+
+
+def test_subscriptions_add_for_a_partner_passes_the_holder(monkeypatch):
+    captured = _subscriptions_io(monkeypatch, "add", "747", "Jane Doe", "")
+    assert console._manage_subscriptions() == 0
+    assert captured == [["add", "747", "--holder", "Jane Doe"]]
+
+
+def test_subscriptions_remove_for_a_partner_passes_the_holder(monkeypatch):
+    captured = _subscriptions_io(monkeypatch, "remove", "747", "Jane Doe", "y", "")
+    assert console._manage_subscriptions() == 0
+    assert captured == [["remove", "747", "--holder", "Jane Doe"]]
+
+
+def test_subscriptions_view_shows_who_holds_the_san(monkeypatch, capsys):
+    _subscriptions_io(monkeypatch, "")
+    assert console._manage_subscriptions() == 0
+    assert "NMC" in capsys.readouterr().out

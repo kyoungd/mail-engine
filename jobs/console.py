@@ -414,22 +414,35 @@ def _dnc_portal_status() -> int:
 
 
 def _subscription_view() -> list[tuple]:
-    """Per subscribed code: (code, subscribed_at, total, dialable, available) —
-    the _owned_inventory counts plus the subscription date, for menu 9's view."""
+    """Per subscribed code: (code, subscribed_at, total, dialable, available,
+    holders) — the _owned_inventory counts plus the subscription date and who
+    covers it. The counts belong to the CODE; the SAN holders are an attribute of
+    it, so a code covered by both NMC and a partner is still one row."""
+    from config.params import HOUSE_PARTNER_ID
     from db.session import transaction
 
     with transaction() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "select s.area_code, s.subscribed_at, count(c.id), "
-                "count(c.id) filter (where not c.dnc_registry and not c.do_not_call "
-                "  and c.dnc_checked_at is not null), "
-                "count(c.id) filter (where not c.dnc_registry and not c.do_not_call "
-                "  and c.dnc_checked_at is not null and c.assignment_batch_id is null) "
+                # The holders come from a scalar subquery, not an aggregate over
+                # the contacts join: that join fans out one row per contact, so a
+                # plain string_agg would repeat each holder thousands of times.
+                "select s.area_code, min(s.subscribed_at), count(distinct c.id), "
+                "count(distinct c.id) filter (where not c.dnc_registry "
+                "  and not c.do_not_call and c.dnc_checked_at is not null), "
+                "count(distinct c.id) filter (where not c.dnc_registry "
+                "  and not c.do_not_call and c.dnc_checked_at is not null "
+                "  and c.assignment_batch_id is null), "
+                "(select string_agg(h.label, ', ' order by h.label) from ("
+                "   select case when s2.san_holder_id = %s then 'NMC' else p2.name end "
+                "   as label from dnc_subscriptions s2 "
+                "   join partners p2 on p2.id = s2.san_holder_id "
+                "   where s2.area_code = s.area_code) h) "
                 "from dnc_subscriptions s "
                 "left join contacts c on c.phone_e164 is not null and c.is_seed = false "
                 "  and substring(c.phone_e164 from 3 for 3) = s.area_code "
-                "group by s.area_code, s.subscribed_at order by s.area_code"
+                "group by s.area_code order by s.area_code",
+                (HOUSE_PARTNER_ID,),
             )
             return list(cur.fetchall())
 
@@ -440,9 +453,12 @@ def _manage_subscriptions() -> int:
     while True:
         rows = _subscription_view()
         if rows:
-            print("subscriptions — subscribed / total / dialable / available:")
-            for code, at, total, dialable, available in rows:
-                print(f"  {code}   {at:%Y-%m-%d}   {total} / {dialable} / {available}")
+            print("subscriptions — subscribed / total / dialable / available / SAN:")
+            for code, at, total, dialable, available, holders in rows:
+                print(
+                    f"  {code}   {at:%Y-%m-%d}   {total} / {dialable} / {available}"
+                    f"   [{holders}]"
+                )
         else:
             print("no area codes subscribed yet")
         action = input("action [add/remove/list/Enter=back]: ").strip().lower()
@@ -454,23 +470,28 @@ def _manage_subscriptions() -> int:
             codes = _ask("codes to add (space-separated)")
             if not codes:
                 continue
+            holder = _ask("whose SAN covers them [Enter = NMC's, or a partner name]")
             print(
                 "recording is a CLAIM the SAN portal must make true — first 5 "
                 "codes free, $82/code/year beyond (procedure: "
                 "subscribe_area_codes --help)"
             )
-            _run_step(lambda: main(["add", *codes.split()]))
+            argv = ["add", *codes.split()] + (["--holder", holder] if holder else [])
+            _run_step(lambda: main(argv))
         elif action == "remove":
             codes = _ask("codes to remove (space-separated)")
             if not codes:
                 continue
+            holder = _ask("whose coverage to drop [Enter = NMC's, or a partner name]")
             print(
                 "removing makes every contact in these codes structurally "
                 "unassignable and drops them from the daily scrub "
-                "(already-assigned holdings are untouched)"
+                "(already-assigned holdings are untouched). Only the named "
+                "holder's coverage goes — a partner keeps what their own SAN pays for."
             )
+            argv = ["remove", *codes.split()] + (["--holder", holder] if holder else [])
             if input("remove? [y/N]: ").strip().lower() == "y":
-                _run_step(lambda: main(["remove", *codes.split()]))
+                _run_step(lambda: main(argv))
 
 
 _MANUAL = """
