@@ -12,19 +12,38 @@ A hit sets `dnc_registry` on the row (the row IS the phone since the grain
 merge) and ends any live assignment via `set_owner`. A previously-hit number
 ABSENT from the current version clears through `clear_suppression`, keyed
 contact + version like the check event (S-9's delisting writer).
+
+TWO ENTRY POINTS (Architecture B, Phase 4):
+
+  `dnc_refresh(registry)` is the single-registry primitive — one snapshot for
+  every subscribed code. Unchanged, and pinned by the frozen S-9 suite: it is
+  what `--fake`, `--snapshot DIR`, dnc-daily.sh and the rehearsal still use, and
+  it keeps the version-keyed external_id.
+
+  `dnc_refresh_all()` is the hybrid path. NMC's own SAN and any partner SANs
+  cover an overlapping set of codes, so each code resolves to its own recorded
+  snapshot and the external_id is keyed on the SNAPSHOT — `dnc:<id>:snap:<uuid>`.
+  A date-keyed id could not tell two holders' same-day files apart, and since
+  append_event is ON CONFLICT DO NOTHING the second holder's check would vanish
+  silently while its verdict still landed. Separate namespaces, no collision
+  either way.
 """
 
 import argparse
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
+from uuid import UUID
 
 from config.params import DNC_RECHECK_DAYS, HOUSE_PARTNER_ID
 from db.session import transaction
-from seams.dnc_registry import DncRegistry
+from seams.dnc_registry import DncRegistry, DncRegistryError, FileDncRegistry
 from service.contacts import clear_suppression
 from service.custody import set_owner
 from service.ingestion import append_event
+
+LISTS_ROOT = Path(__file__).resolve().parents[2] / "dnc-lists"
 
 
 @dataclass(frozen=True)
@@ -32,6 +51,18 @@ class DncReport:
     checked: int = 0
     hits: int = 0
     cleared: int = 0
+    skips: list[tuple[str, str]] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class Coverage:
+    """One area code and the recorded snapshot that will judge it."""
+
+    area_code: str
+    snapshot_id: UUID
+    san_holder_id: UUID
+    version: str
+    directory: Path
 
 
 def _national(phone_e164: str) -> str:
@@ -39,20 +70,16 @@ def _national(phone_e164: str) -> str:
     return phone_e164.removeprefix("+1")
 
 
-def dnc_refresh(registry: DncRegistry, *, limit: int | None = None) -> DncReport:
-    """One scrub pass: re-check contacts in subscribed area codes whose
-    `dnc_checked_at` is older than the 21-day threshold (or never set),
-    assigned contacts first. Each contact commits in its own transaction, so
-    one bad row cannot roll back the rows already stamped."""
-    version = registry.version()
+def _subscribed_codes(cur) -> list[str]:
+    """DISTINCT: since the holder joined the primary key, one code can carry a row
+    per SAN holder — NMC's and a partner's — and a naive read would scrub it twice."""
+    cur.execute("select distinct area_code from dnc_subscriptions")
+    return [row[0] for row in cur.fetchall()]
 
+
+def _due(subscribed: list[str], limit: int | None) -> list[tuple]:
     with transaction() as conn:
         with conn.cursor() as cur:
-            cur.execute("select area_code from dnc_subscriptions")
-            subscribed = [r[0] for r in cur.fetchall()]
-            if not subscribed:
-                return DncReport()
-
             cur.execute(
                 "select id, phone_e164, owner_id, dnc_registry, "
                 "substring(phone_e164 from 3 for 3) as area_code "
@@ -66,33 +93,48 @@ def dnc_refresh(registry: DncRegistry, *, limit: int | None = None) -> DncReport
                 (subscribed, DNC_RECHECK_DAYS, HOUSE_PARTNER_ID)
                 + ((limit,) if limit is not None else ()),
             )
-            due = cur.fetchall()
+            return cur.fetchall()
 
-    # One listed() call per area code over OUR due numbers — the registry file
-    # streams past our set, never the reverse (decisions.md 2026-08-03). A
-    # DncRegistryError here aborts before anything is stamped.
-    by_code: dict[str, set[str]] = {}
-    for _, phone, _, _, area_code in due:
-        by_code.setdefault(area_code, set()).add(_national(phone))
-    on_registry = {
-        code: registry.listed(code, frozenset(numbers))
-        for code, numbers in by_code.items()
-    }
 
+def _group(due: list[tuple]) -> dict[str, list[tuple]]:
+    by_code: dict[str, list[tuple]] = {}
+    for row in due:
+        by_code.setdefault(row[4], []).append(row)
+    return by_code
+
+
+def _apply(
+    rows: list[tuple],
+    on_registry: frozenset[str],
+    *,
+    version: str,
+    snapshot_id: UUID | None,
+    san_holder_id: UUID | None,
+) -> tuple[int, int, int]:
+    """Scrub one area code's due contacts against an already-resolved hit set. Each
+    contact commits in its own transaction, so one bad row cannot roll back the rows
+    already stamped."""
+    payload_extra = (
+        {"snapshot_id": str(snapshot_id), "san_holder": str(san_holder_id)}
+        if snapshot_id is not None
+        else {}
+    )
+    key = f"snap:{snapshot_id}" if snapshot_id is not None else version
     checked = hits = cleared = 0
-    for contact_id, phone, owner_id, already_listed, area_code in due:
-        hit = _national(phone) in on_registry[area_code]
+
+    for contact_id, phone, owner_id, already_listed, _ in rows:
+        hit = _national(phone) in on_registry
         with transaction() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "update contacts set dnc_checked_at = now(), dnc_registry = %s "
-                    "where id = %s",
-                    (hit, contact_id),
+                    "update contacts set dnc_checked_at = now(), dnc_registry = %s, "
+                    "dnc_snapshot_id = coalesce(%s, dnc_snapshot_id) where id = %s",
+                    (hit, snapshot_id, contact_id),
                 )
                 append_event(
                     cur, "system", "contact.dnc_checked", datetime.now(UTC),
-                    {"registry_version": version, "hit": hit},
-                    external_id=f"dnc:{contact_id}:{version}",
+                    {"registry_version": version, "hit": hit, **payload_extra},
+                    external_id=f"dnc:{contact_id}:{key}",
                     contact_id=contact_id,
                 )
                 if hit and owner_id != HOUSE_PARTNER_ID:
@@ -114,10 +156,120 @@ def dnc_refresh(registry: DncRegistry, *, limit: int | None = None) -> DncReport
                 contact_id, "dnc_registry",
                 reason=f"absent from registry {version}",
                 source="system",
-                external_id=f"dnc-clear:{contact_id}:{version}",
+                external_id=f"dnc-clear:{contact_id}:{key}",
             )
             cleared += 1
+    return checked, hits, cleared
+
+
+def dnc_refresh(registry: DncRegistry, *, limit: int | None = None) -> DncReport:
+    """One scrub pass against ONE registry: re-check contacts in subscribed area
+    codes whose `dnc_checked_at` is older than the 21-day threshold (or never set),
+    assigned contacts first."""
+    version = registry.version()
+
+    with transaction() as conn:
+        with conn.cursor() as cur:
+            subscribed = _subscribed_codes(cur)
+            if not subscribed:
+                return DncReport()
+
+    due = _due(subscribed, limit)
+    by_code = _group(due)
+
+    # One listed() call per area code over OUR due numbers — the registry file
+    # streams past our set, never the reverse (decisions.md 2026-08-03). Resolved
+    # for EVERY code before any contact is stamped: a DncRegistryError here aborts
+    # the whole pass rather than leaving half the codes scrubbed.
+    on_registry = {
+        code: registry.listed(code, frozenset(_national(r[1]) for r in rows))
+        for code, rows in by_code.items()
+    }
+
+    checked = hits = cleared = 0
+    for code, rows in by_code.items():
+        c, h, cl = _apply(rows, on_registry[code], version=version,
+                          snapshot_id=None, san_holder_id=None)
+        checked, hits, cleared = checked + c, hits + h, cleared + cl
     return DncReport(checked=checked, hits=hits, cleared=cleared)
+
+
+def _coverage(codes: list[str], lists_root: Path) -> dict[str, Coverage]:
+    """The newest ACCEPTED snapshot per code, from any holder. Ties on version_date
+    break toward the most recently recorded."""
+    with transaction() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "select distinct on (area_code) area_code, id, san_holder_id, "
+                "version_date from dnc_snapshots "
+                "where status = 'accepted' and area_code = any(%s) "
+                "order by area_code, version_date desc, recorded_at desc",
+                (codes,),
+            )
+            rows = cur.fetchall()
+    return {
+        area_code: Coverage(
+            area_code=area_code,
+            snapshot_id=snapshot_id,
+            san_holder_id=holder,
+            version=version_date.isoformat(),
+            directory=lists_root / str(holder) / version_date.isoformat(),
+        )
+        for area_code, snapshot_id, holder, version_date in rows
+    }
+
+
+def _bump(snapshot_id: UUID, checked: int) -> None:
+    with transaction() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "update dnc_snapshots set checks_written = checks_written + %s "
+                "where id = %s",
+                (checked, snapshot_id),
+            )
+
+
+def dnc_refresh_all(*, lists_root: Path = LISTS_ROOT, limit: int | None = None) -> DncReport:
+    """The hybrid pass: every subscribed code against ITS OWN recorded snapshot.
+
+    A code with no accepted snapshot, or whose working copy is gone, is SKIPPED —
+    its contacts stay stale and therefore unassignable. Nobody jumps the scrub, and
+    nothing is ever scrubbed against a file we cannot read. Per-code isolation is
+    deliberate here: one partner's bad file must not stop every other code."""
+    with transaction() as conn:
+        with conn.cursor() as cur:
+            subscribed = _subscribed_codes(cur)
+            if not subscribed:
+                return DncReport()
+
+    coverage = _coverage(subscribed, lists_root)
+    by_code = _group(_due(subscribed, limit))
+
+    checked = hits = cleared = 0
+    skips: list[tuple[str, str]] = []
+    for code in subscribed:
+        cover = coverage.get(code)
+        if cover is None:
+            skips.append((code, "no_snapshot"))
+            continue
+        rows = by_code.get(code, [])
+        if not rows:
+            continue
+        try:
+            on_registry = FileDncRegistry(cover.directory).listed(
+                code, frozenset(_national(r[1]) for r in rows)
+            )
+        except DncRegistryError:
+            skips.append((code, "working_copy_missing"))
+            continue
+
+        c, h, cl = _apply(rows, on_registry, version=cover.version,
+                          snapshot_id=cover.snapshot_id,
+                          san_holder_id=cover.san_holder_id)
+        _bump(cover.snapshot_id, c)
+        checked, hits, cleared = checked + c, hits + h, cleared + cl
+
+    return DncReport(checked=checked, hits=hits, cleared=cleared, skips=skips)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -131,6 +283,7 @@ def main(argv: list[str] | None = None) -> int:
             "scripts/dnc-download.py; layout marketing/dnc-lists/<YYYY-MM-DD>/ —\n"
             "the directory name is the registry version stamped on check events).\n\n"
             "Examples:\n"
+            "  uv run python -m jobs.dnc_refresh --from-ledger   # recorded snapshots\n"
             "  uv run python -m jobs.dnc_refresh --snapshot ../dnc-lists/2026-08-05\n"
             "  uv run python -m jobs.dnc_refresh --fake v1              # empty fake registry\n"
             "  uv run python -m jobs.dnc_refresh --fake v1 --listed 8185550123\n"
@@ -153,25 +306,50 @@ def main(argv: list[str] | None = None) -> int:
         "(repeatable)",
     )
     parser.add_argument(
+        "--from-ledger", action="store_true",
+        help="scrub each subscribed code against ITS OWN newest accepted recorded "
+        "snapshot (the hybrid path; NMC + partner SANs)",
+    )
+    parser.add_argument(
+        "--lists-root", metavar="DIR", default=None,
+        help=f"with --from-ledger: where working copies live (default {LISTS_ROOT})",
+    )
+    parser.add_argument(
         "--limit", type=int, default=None,
         help="check at most N contacts this run (next N stale, assigned first)",
     )
     args = parser.parse_args(argv)
 
+    if args.from_ledger:
+        if args.snapshot is not None or args.fake is not None:
+            print(
+                "dnc_refresh: --from-ledger resolves its own snapshots; it cannot be "
+                "combined with --snapshot or --fake.",
+                file=sys.stderr,
+            )
+            return 2
+        ledger_report = dnc_refresh_all(
+            lists_root=Path(args.lists_root) if args.lists_root else LISTS_ROOT,
+            limit=args.limit,
+        )
+        print(
+            f"checked={ledger_report.checked} hits={ledger_report.hits} "
+            f"cleared={ledger_report.cleared}"
+        )
+        for area_code, reason in ledger_report.skips:
+            print(f"  SKIP  {area_code}: {reason}")
+        return 0
+
     if (args.snapshot is None) == (args.fake is None):
         print(
-            "dnc_refresh: exactly one of --snapshot DIR (real registry files) or "
-            "--fake VERSION (dev) is required.",
+            "dnc_refresh: exactly one of --snapshot DIR (real registry files), "
+            "--fake VERSION (dev), or --from-ledger is required.",
             file=sys.stderr,
         )
         return 2
 
     registry: DncRegistry
     if args.snapshot is not None:
-        from pathlib import Path
-
-        from seams.dnc_registry import FileDncRegistry
-
         registry = FileDncRegistry(Path(args.snapshot))
     else:
         from seams.fakes import FakeDncRegistry
