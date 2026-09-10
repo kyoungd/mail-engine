@@ -6,14 +6,17 @@ on the mailer code (the vendor idempotency key), and a feed can fail.
 import hashlib
 import json
 from collections.abc import Iterator
+from pathlib import Path
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
+from uuid import UUID
 
 from domain.enums import EventSource
 from domain.types import Event
 from seams.address_verifier import AddressVerificationError, VerificationResult
 from seams.print_api import ProofResult, SubmissionResult
+from seams.snapshot_inbox import InboxObject
 
 _WEBHOOK_STATUS_TO_TYPE = {
     "delivered": "piece.delivered",
@@ -190,3 +193,40 @@ class FakeDemosClient:
             raise OSError("booking-system unreachable")
         self.windows.append((from_, to))
         return list(self._partners)
+
+
+class FakeSnapshotInbox:
+    """Uploads held in memory. `add` is what a partner's client + the Worker would
+    have done; `fetch` writes the bytes wherever the job asks, so the job's file
+    handling is exercised for real."""
+
+    def __init__(self) -> None:
+        self.objects: list[InboxObject] = []
+        self.bodies: dict[str, bytes] = {}
+
+    def add(
+        self,
+        *,
+        key: str,
+        partner_id: UUID,
+        body: bytes,
+        uploaded_at: datetime,
+        claimed_fetched_at: datetime | None = None,
+    ) -> None:
+        self.objects.append(
+            InboxObject(
+                key=key,
+                partner_id=partner_id,
+                uploaded_at=uploaded_at,
+                claimed_fetched_at=claimed_fetched_at,
+                size=len(body),
+            )
+        )
+        self.bodies[key] = body
+
+    def pending(self) -> list[InboxObject]:
+        return list(self.objects)
+
+    def fetch(self, key: str, dest: Path) -> Path:
+        dest.write_bytes(self.bodies[key])
+        return dest
