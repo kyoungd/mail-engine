@@ -10,6 +10,7 @@
 #   npx wrangler secret put ADMIN_TOKEN          # == mail-engine's SNAPSHOT_INBOX_TOKEN
 #   npx wrangler deploy
 name = "dnc-upload"
+account_id = "236b6f2edc92ce662bf4cda6df9a6c3c"  # young@nevermisscall.com — never another account
 main = "src/index.js"
 compatibility_date = "2026-09-01"
 
@@ -19,4 +20,4 @@ bucket_name = "nmc-dnc-snapshots"
 
 [[kv_namespaces]]
 binding = "TOKENS"
-id = "REPLACE_AT_DEPLOY"
+id = "fe4e70898f664fe78ab52a25a32b27bc"
