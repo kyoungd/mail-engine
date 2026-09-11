@@ -1,4 +1,364 @@
-# Current state — 2026-08-07 (later session): PROD RELEASED + FIRST REAL PROD SCRUB DONE; test architecture hardened; CI GREEN
+# Current state — 2026-09-10 (later session): Architecture B is LIVE IN PRODUCTION — first real upload → pull → scrub done and oracle-verified; six releases; the manual daily run starts 2026-09-11
+
+**Everything the earlier session built is now running in production, and the
+first real pass through it is verified against an independent oracle.** Phase 5d
+deployed the Worker; migration `0013` reached prod; NMC ran its own five FTC files
+through the partner pipeline (the house row as uploader), and the scrub's 24,212
+verdicts match a separate zip parse of the client's own bytes exactly. Running it
+for real found two more defects the suites could not see — both fixed test-first
+and released the same day. Suite **615 offline green**, `make e2e` green,
+`STRICT=1 make integration` 2/2, ruff + pyright clean. Commits `1ff9a2f` →
+`b8b4378` on `main`, **all pushed**; the production checkout is at `b8b4378`.
+
+## What is live
+
+- **The upload Worker** — `https://dnc-upload.nevermisscall.workers.dev`, on the
+  NMC Cloudflare account (young@nevermisscall.com — not the operator's other
+  identities; `account_id` is pinned in `wrangler.toml` so a deploy cannot land
+  elsewhere). R2 bucket `nmc-dnc-snapshots` (private: no r2.dev URL, no API
+  tokens), KV namespace `TOKENS`, `ADMIN_TOKEN` secret == prod's
+  `SNAPSHOT_INBOX_TOKEN`. Fail-closed verified live: every route answers 401
+  without a valid token. DNS stays at GoDaddy, so the Worker uses the account's
+  `workers.dev` subdomain (`nevermisscall`); that URL is baked into every rep's
+  client, so treat it as permanent.
+- **Migration `0013` in prod** (applied 2026-09-10 23:20 UTC). The five
+  subscriptions backfilled to the house SAN; counts unchanged across it.
+- **`.env` split, on purpose:** prod carries `SNAPSHOT_INBOX_URL`/`_TOKEN`; dev's
+  are BLANK. Pointing dev at the prod Worker would publish dev token hashes into
+  prod KV and ledger prod uploads into `mailengine_dev` — and it breaks
+  `test_partner_tokens.py`, because `tests/conftest.py` loads the checkout's
+  `.env` into the environment (it did, briefly, this session).
+- **NMC's uploader** in `~/dnc-uploader-nmc/` (dir 700; ini + baked client 600),
+  kept for the daily run; house token issued 2026-09-10 18:00 PT.
+- **`scripts/daily-run.sh`** — uploader → `dnc_pull` → `dnc_refresh --from-ledger`
+  → `nightly_cli` (partner reports last), stopping at the first failed step;
+  refuses unless `.env` points at `mailengine_prod`. **Console menu 7 runs it.**
+  It replaces `scripts/dnc-daily.sh` for production: both spend the same
+  once-per-day FTC fetch, so never run both on one day.
+- **The partner report names registry removals** as an exclusion list (company +
+  number, "still on any sheet you exported before DATE"); a registry listing is
+  no longer counted as "opted out". `partner-report-design.md` §1 updated to match.
+
+## The first real run (prod, 2026-09-10)
+
+- **Upload:** the client downloaded and sent all five `2026-9-10` files.
+- **Pull:** 3 accepted + 2 re-landed (after the EXDEV fix, below); a re-run
+  skipped all five. Recorded sha256 = landed file = the client's own copy, for
+  every code.
+- **Scrub (`--from-ledger`):** `checked=24212 hits=11571 cleared=0`, 4m23s; a
+  re-run checked 0. Every contact points at its own code's snapshot;
+  `checks_written` equals each code's contact count; all 24,212 check events use
+  the snapshot-keyed external_id.
+- **Oracle:** an independent parse of the client's zips agrees per code, **0
+  violations**.
+- **What changed:** registry hits 11,551 → **11,571** (+20; zero delistings since
+  2026-08-07). Per code: 714 2,315 · 760 2,093 · 805 2,250 · 818 2,634 ·
+  916 2,279. Dialable **12,641**. Checks are fresh to ~2026-10-11; the 21-day
+  recheck comes due ~2026-10-01.
+- **One compliance action:** one of John's 200 contacts in 805 was newly listed
+  (absent from the 2026-08-05 file, present in 2026-09-10) and the scrub reclaimed
+  it at 17:00:41 PT — see that `contact.reclaimed` event; no contact data here.
+  John now holds 199. His partner row now has `channel = email` →
+  john@nevermisscall.com (it had none, so no report could reach him). **The
+  operator emailed John directly the same evening.** His last export is
+  2026-08-07, older than today's scrub.
+
+## Defects found by running it for real
+
+1. **Cloudflare error 1010.** The edge refuses Python's default
+   `User-Agent: Python-urllib/3.12` before the Worker runs — measured: same request
+   403/1010 as the default, 200 under any named agent. All three Worker-facing
+   transports (token registry, snapshot inbox, the rep's uploader) sent the
+   default; a rep would have spent the day's FTC fetch and failed every upload.
+   Fixed in `10df024` (named agents); `test_worker_user_agent.py` pins the default
+   transports, which the injected-transport unit tests never exercised.
+2. **EXDEV in `dnc_pull`.** Staging in `/tmp` (tmpfs on this box) then renaming
+   into `dnc-lists/` (ext4) cannot cross filesystems — and `record_snapshot` had
+   already committed the row, so 714 and 760 were recorded ACCEPTED with no working
+   copy, and the job never revisits a recorded object. The scrub would have
+   skipped those codes (fail-safe) and their contacts gone stale silently. Fixed in
+   `2edee45`: staging under `lists_root`, plus re-landing a missing working copy
+   only when its bytes match the recorded sha256. `test_dnc_pull_landing.py`; the
+   tests never saw EXDEV because pytest's `tmp_path` is on the same tmpfs, so it
+   was verified separately against the real ext4 disk.
+3. **Operator-side config:** two prod `.env` lines written as `KEY value` (no `=`)
+   aborted `backup.sh` under `set -e` (and would abort `dnc-daily.sh`); the
+   operator commented them out. `.env` lines must be `KEY=value` or comments.
+
+**The pattern, again:** the local Worker has no edge in front of it and the test
+temp dir shares a filesystem with the destination — each simulation hid exactly
+one real behavior. And two process slips of this session, now habits: a `&&`
+chained after `| grep` masked a crash (that second pull is what stranded 760), and
+one `make test` failure after the menu-7 edits was lost because only `tail -1` was
+kept — not reproducible in three runs including the exact parallel combination,
+and `.pytest_cache/…/lastfailed` held only stale entries. **Gate output is now
+captured to a log in full; exit codes come from the command, never a pipe.**
+
+## Releases (production checkout; each with the gate same-day and a fresh backup)
+
+| Tag | Commit | What |
+|---|---|---|
+| `prod-2026-09-10` | `1d9bc8a` | migration 0013 + the Architecture B code + runbook + deployed `wrangler.toml` |
+| `prod-2026-09-10.2` | `10df024` | named User-Agent (the 1010 fix) |
+| `prod-2026-09-10.3` | `2edee45` | `dnc_pull` landing fix |
+| `prod-2026-09-10.4` | `f200a88` | `scripts/daily-run.sh` |
+| `prod-2026-09-10.5` | `0db1d24` | console menu 7 → `daily-run.sh` |
+| `prod-2026-09-10.6` | `b8b4378` | partner report names registry removals |
+
+Six local prod dumps from 2026-09-10 in `~/db-backups/`; the 14-day rotation
+removed the August ones. Still **no offsite copy**.
+
+## Decided (operator, this session — in their words)
+
+- **The daily run goes manual for a week, then cron:** "I will run it manually
+  for a week. And than cron."
+- **Menu 7 runs `daily-run.sh`.**
+- **The report names each registry removal:** "We need to give them a list to
+  exclude. name the numbers and company."
+
+## The queue
+
+- **From 2026-09-11: the manual daily run** — `./scripts/daily-run.sh` (or menu 7)
+  in the production checkout after ~7 AM PT. Its first nightly sends John's first
+  report (heartbeat due, plus the exclusion list). Check each step's output.
+- **After the manual week: cron** — the line is in `daily-run.sh --help`.
+- **John's fresh export** — his 2026-08-07 sheet predates today's scrub.
+- **Docs owed, each on the operator's OK:** runbook corrections (the `workers.dev`
+  URL rather than DNS, the two fixes above, the exit-code discipline); a
+  `decisions.md` entry for Architecture B — that file's latest DNC entry
+  (2026-08-01) still reads "partner-held SANs REJECTED".
+- **Counsel Q4** (does the partner paying the $82 change NMC's §310.8 posture) —
+  unanswered; the retention numbers wait on it too.
+- **A Windows build host** for reps' `.exe`; **the retention sweep** (R2 keeps
+  every upload — ~18 MB/day per uploader against a 10 GB free tier); **offsite
+  backup**.
+- **Small:** `~/dnc-uploader-nmc/uploaded/` holds the five 2026-09-10 zips
+  (duplicates of R2 and `dnc-lists/`); dev still carries the morning rehearsal's
+  extra subscriptions (714/760/805/916) and a token hash on its house row; the
+  2026-08-16 section's "two unexplained `P-…` rows in prod" is stale — prod now
+  has three partners and neither of those rows.
+- Carried: the test-hygiene item below; `nightly.py` still calls the
+  single-registry `dnc_refresh` (the ledger scrub runs from `daily-run.sh`);
+  `NmcCloseFeed` integration test; backup cron.
+
+---
+
+# Earlier — 2026-09-10 (earlier session): partner-supplied DNC snapshots (Architecture B) — Phases 1-5c BUILT, dev-only; only the 🔴 deploy (5d) remains
+
+**The operator's partner asked for reps to bring their own DNC. The answer was
+Architecture B, and everything but the deployment now exists.** Every 🟡 gate
+shown → approved → RED → GREEN; two 🔴 gates (the migration, its amendment)
+approved explicitly. Suite **604 offline green** (was 538), `make e2e` green,
+Worker smoke 12/12, ruff + pyright clean. Commits `bf0017e` · `6032b9b` ·
+`81e01ab` · `ede7683` · `0eb03d2` · `2a06ae8` · `6ff91a3` on `main`,
+**not pushed**.
+
+## What was decided (operator, this session)
+
+- **Architecture B**: a partner downloads the FTC full list under their OWN SAN
+  on their own machine and uploads it; NMC keeps its own SAN and codes, and not
+  every partner will supply files — so an area code may be covered by NMC, by a
+  partner, by both, or by nobody.
+- **A single global DNC verdict per phone**, with provenance recorded — not a
+  per-holder verdict table.
+- **Partners run a client that POSTs**, authenticated by a per-rep token.
+- **Cloudflare Worker + R2 binding**, both directions. Verified against the docs
+  before choosing: R2 API tokens have four permission levels, **no write-only
+  tier and no prefix scoping**, so the narrowest static token a rep could hold
+  would let them read and delete every other rep's uploads. Temporary
+  credentials do scope to a prefix but are short-lived and need a server to mint
+  them. The Worker holds the binding; nobody else holds credentials.
+- **Token map in Cloudflare KV**, pushed from the box through the Worker's admin
+  endpoint — the Worker cannot reach Postgres, which is the point.
+
+**Still NOT settled, and it is the one that matters**: 16 CFR §310.8 attaches the
+access fee to the SELLER. NMC is the seller whoever holds the SAN, so Architecture
+B changes *who does the work*, not the legal posture — what it trades is a weaker
+audit trail for the partner paying the $82. That is counsel **Q4**
+(`docs/counsel-memo-dnc-b2b.md`), unanswered. Retention numbers below are
+placeholders pending the same review.
+
+## What exists
+
+- **Migration `0013`** (DEV-ONLY, prod stays at 0012): `dnc_subscriptions` gains
+  `san_holder_id` with the PK becoming `(area_code, san_holder_id)` — NMC's own
+  SAN is modelled as the HOUSE partner row, so the default IS the backfill;
+  `partners` gains `san_number` + hashed-token columns; `dnc_snapshots` records
+  every upload, accepted OR rejected; `contacts.dnc_snapshot_id` is the
+  verdict→file link.
+- **`service/dnc_snapshots.py`** — `record_snapshot()`. Identity is parsed from
+  the FTC's own filename, never accepted from the caller. Six checks: filename
+  shape, unseen guid, unseen bytes, freshness vs the file date, the pinned line
+  format, and a line-count floor against the prior snapshot for that code. **A
+  rejection is RECORDED, never raised** — `transaction()` rolls back on any
+  exception, so a verb that threw would destroy the row that is the evidence.
+- **`jobs/dnc_pull.py` + `seams/snapshot_inbox.py`** — pull from the Worker,
+  judge once (`object_key` is the ledger), land accepted files in
+  `dnc-lists/<partner>/<version_date>/`.
+- **`jobs/dnc_refresh.py`** — `dnc_refresh(registry)` UNCHANGED (the frozen S-9
+  suite passes untouched, which is the proof); `dnc_refresh_all()` resolves a
+  snapshot per code, isolates failures per code, and keys the external_id on the
+  snapshot.
+- **`jobs/partners_cli.py`** — `issue-token` / `revoke-token`.
+- **`workers/dnc-upload/`** — the Worker, and `smoke.sh` (12 assertions against
+  `wrangler dev --local`). `wrangler.toml` carries `id = "REPLACE_AT_DEPLOY"`.
+- **`clients/dnc_uploader.py`** — the rep's program: one file, stdlib only,
+  download and upload separately retryable, a CRC failure never sent. Their FTC
+  credentials stay in `dnc-uploader.ini` on their machine; the token and Worker
+  URL are baked at build time.
+- **`scripts/build_client.py` + `make client PARTNER="…"`** — one build per rep:
+  issue a token, bake it in, run PyInstaller. Rebuilding ROTATES the token (only
+  the hash is stored, so a previous one can never be recovered).
+  ⚠️ **PyInstaller does not cross-compile** — the `.exe` must be built on
+  Windows or under wine. A logistics item for every onboarding and rotation.
+
+## Defects found, and what found them
+
+Three bugs reached green suites and were caught by running the real thing. Worth
+reading as a pattern, not three anecdotes:
+
+1. **`subscribe_area_codes add` was BROKEN by 0013** (`on conflict (area_code)`
+   matched no constraint once the holder joined the PK) and `make e2e` was RED —
+   one of the three release gates. 578 offline tests said nothing, because that
+   CLI had **no offline coverage at all**; only the deselected e2e journey
+   touched it.
+2. **`_subscription_view`'s SQL had never executed under test.**
+   `test_console.py` monkeypatches it. Its first version used
+   `string_agg(distinct … order by …)`, which Postgres rejects outright, and the
+   contacts join would have repeated each holder thousands of times.
+3. **R2's `list()` omits `customMetadata` unless asked**, so every object would
+   have returned `partner_id: null` and `dnc_pull` would have died on
+   `UUID(None)` the first real run.
+
+Also, before it shipped: `issue-token` printed the token AFTER the edge push, so
+a failed push left the row holding a hash nobody had ever seen.
+
+**The pattern: a fake or a mock returns whatever shape you tell it to.** Where a
+seam is faked, something has to run the real thing at least once.
+
+**So each layer was run for real once, and each run found something.** The
+Worker smoke found (3). The client's real transport against the real Worker
+confirmed the whole chain — and surfaced that the Worker emits `…753Z` where the
+seam's tests used `+00:00` (3.12 parses both; now confirmed rather than assumed).
+A real PyInstaller binary was built and run to see the two messages a rep will
+actually meet. ⚠️ While testing that binary the session made a failed login
+against the FTC portal using the REAL Organization ID with a wrong password —
+careless, the negative test did not need the real id. `scripts/dnc-status.py`
+confirmed the account is unharmed (LIVE, five codes, today's files available).
+
+## The queue
+
+- **5d** (🔴) — the only phase left: bucket, KV namespace, `ADMIN_TOKEN`
+  (== mail-engine's `SNAPSHOT_INBOX_TOKEN`), DNS, deploy, then fill the two
+  `.env` vars. Nothing can push a token or pull a snapshot until this exists,
+  and `make client` refuses without `SNAPSHOT_INBOX_URL`.
+- **A Windows build host** for the client `.exe` — needed before a rep can be
+  onboarded, independent of 5d.
+- **Retention sweep** — `checks_written` and `object_deleted_at` are in the
+  schema and written; the monthly sweep that uses them is unbuilt. Placeholder
+  policy: 4 years for snapshots that backed a verdict, 90 days for those that
+  backed none, **rows forever**, and always keep the newest per (code, holder).
+- **Prod release of 0013** — the gates are green now, so this is available
+  whenever wanted. `jobs/nightly.py` still calls `dnc_refresh(registry)`;
+  rewiring it to `--from-ledger` belongs with 5d, since until then there are no
+  recorded snapshots to resolve.
+- **Test hygiene** (🟢) — `test_subscribe_area_codes.py` and
+  `test_dnc_refresh_snapshots.py` create partner rows that survive `clean_db`
+  (which deliberately does not truncate `partners`). They pass today; they are
+  one assertion away from a false green, which is exactly how
+  `test_partner_tokens.py` first failed.
+- Carried from before: backup cron one-liner · offsite backup destination ·
+  the `NmcCloseFeed` integration test (SQL seam vs HTTP contract, undecided).
+
+---
+
+# Previous — 2026-08-16: the console is the front door — admin login gate, main-site rep registration, subscription management; RELEASED to prod same day
+
+**The session's arc: onboarding partner #2 ("Yandex Kwon") exposed every seam
+in the runbook, and each got a feature.** All operator-approved 🟡 gates
+(tests shown → approved → RED → GREEN), committed `ec1efb6`, pushed, and
+released to prod the same day. Suite **538 offline green**, ruff + pyright
+clean.
+
+**The console is behind a main-site admin login (operator decision, recorded
+in `decisions.md` 2026-08-16 — read that entry before touching this area):**
+
+- `make console` now prompts email + password (getpass), authenticates via
+  `POST /auth/customer/emailpass`, and verifies admin-ness with the server's
+  own check (`GET /store/nmc/admin/sales-reps`; 401 bad credentials vs 403
+  not-in-ADMIN_EMAILS stay distinct). Failure never renders the menu; the
+  JWT lives in memory only. **This is hygiene, not a security boundary** —
+  shell access to `.env` bypasses the console entirely; the operator accepted
+  that and the Medusa-must-be-up consequence explicitly.
+- **`seams/nmc_admin.py` (NEW) is the first WRITE through a published NMC
+  seam** — the decisions entry extends the 2026-08-07 mutate/consume split:
+  writes are allowed when they go through NMC's own published, authenticated
+  admin API, triggered interactively by the operator's credentials. Direct
+  SQL into Medusa and unattended writes stay forbidden.
+- **Menu 11 registers a main-site sales rep** (`nmc_sales_rep` roster row) —
+  Postman is retired for this act. The register step now asks for the rep id
+  FIRST and pre-fills name/email from the roster (unknown or inactive ids
+  refuse loudly; blank id keeps the manual path). Rejected on the way here:
+  removing mail-engine's `partners` table in favor of main-site ids — it is
+  the custody spine (owner FK, house row, batches), not a contact-info copy.
+- **Menu 9 is now "manage area-code subscriptions"** — view (code, subscribed
+  date, total / dialable / available), `add` (prints the SAN-claim reminder),
+  `remove` (states the unassignability consequence, requires y/N — the
+  declined path is test-pinned to dispatch nothing), `list`. Thin dispatch to
+  the existing `subscribe_area_codes` verbs; the walk's subscribe step is
+  untouched.
+- **Config: `NMC_WEB_URL` + `NMC_PUBLISHABLE_KEY` in `.env`** (set in dev,
+  untracked). ⚠️ **The PROD checkout's `.env` does NOT have them** — the prod
+  console refuses at the door ("console locked") until the operator adds
+  them pointing at the PROD Medusa (`website-4zds.onrender.com` + the prod
+  storefront's pk_…) — a red-tier env edit, deliberately left to the operator.
+- 18 new tests: `tests/unit/test_nmc_admin.py` (seam mapping, 401-vs-403,
+  id-as-string, console gate, prefill) + the subscription-menu pins in
+  `test_console.py`. Existing console tests got a login-gate stub fixture;
+  one register test's input feed updated to the new prompt order
+  (assertions untouched).
+
+**PROD RELEASED same day (the gate, all green):** 538 offline · partner e2e ·
+`STRICT=1 make integration` 2/2 covered 0 skipped · migration plan: NONE (no
+new migrations; prod ledger stays 0012, `make migrate` confirmed "already
+migrated") · fresh backup `…_1656.dump` (17M) pre-release · prod checkout
+fast-forwarded `867176f` → `ec1efb6` · tagged **`prod-2026-08-16`**, pushed.
+Code-only release; prod DB untouched. The collation warning (2.42/2.43)
+surfaced as usual — still harmless, still the operator's call.
+
+**Partner #2 onboarding state (dev): built to the doorstep of assignment.**
+
+- Main-site roster row EXISTS: **rep id 47, "Yandex Kwon", kyoungd@yahoo.com**
+  on LOCAL Medusa (created via the admin API — the Postman run that motivated
+  the console features).
+- **Dev `dnc_subscriptions` had been wiped** (a re-ingest since 2026-08-07) —
+  the walk's purchase pause fired for 818 despite real ownership; answered
+  truthfully `y`, 818 re-recorded.
+- **Menu 7 (daily cycle) ran for real from dev** — sanctioned manual use per
+  the cron policy: snapshot **`../dnc-lists/2026-08-16/`** downloaded (all 5
+  files; a re-run same day correctly refused with the portal's once-per-day
+  NOTEs and still scrubbed), 818 scrubbed: **6,023 checked / 2,630 on
+  registry (43.7%) / 3,393 dialable, all available**, stamped
+  `registry_version 2026-08-16` — fresh to 2026-09-06. Baseline drift from
+  2026-08-05: +2 newly listed.
+- **NOT done: the mail-engine partner row, the 200-contact assignment, the
+  export.** Next act is menu 3: pick 818 (now owned with inventory), `n` →
+  rep id 47 → accept prefills → assign 200 → export.
+- **Dev roster carries the two unexplained `P-…` rows** (P-a875a9c0,
+  P-22c273ee, 2026-08-06, everything null) — the same shape as the STANDING
+  prod finding from 2026-08-07. Left in place, cause still unknown; deactivate
+  via `partners_cli set <name> --status inactive` if the picker clutter
+  bothers.
+
+**Also noted:** the marketing CLAUDE.md commit-trailer names Opus 5; commits
+now ship under Fable 5 (`ec1efb6` used the truthful trailer). Offered fix,
+not yet taken. Still operator-owed from before: backup cron one-liner ·
+offsite backup destination · `NmcCloseFeed` integration test (pin SQL seam
+vs HTTP contract — undecided).
+
+---
+
+# Previous — 2026-08-07 (later session): PROD RELEASED + FIRST REAL PROD SCRUB DONE; test architecture hardened; CI GREEN
 
 **THE FIRST REAL PROD SCRUB (end of day, operator-approved 🔴, no purge):**
 pre-scrub backup `…_1408.dump` → `subscribe_area_codes add 714 760 805 818

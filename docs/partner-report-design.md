@@ -63,7 +63,8 @@ All fields are spine queries; sources named so the composer is mechanical.
 | **Headline: earliest expiry across all live batches** — *N days left* | min(`expires_at`) over the partner's unexpired batches (O2, 2026-07-29: a partner routinely holds two or three, and latest-batch-only would hide the clock that matters) |
 | One line per live batch: assigned N contacts on DATE, expires DATE | `assignment_batches` (0009) |
 | Contacts currently yours: N | `contacts` where `owner_id = partner` and not suppressed/reclaimed/expired |
-| Removed since last report: N opted out, N reclaimed, N expired | ownership events + suppression flags since last report date |
+| Removed since last report: N opted out, N reclaimed, N expired — shown only when one is non-zero; registry listings are not counted here | ownership events + suppression flags since last report date |
+| **Now on the national Do Not Call registry — removed from your list, do not call:** one line per number, `- COMPANY, (AAA) NNN-NNNN`, then "These numbers are still on any sheet you exported before DATE." (operator decision 2026-09-10: "give them a list to exclude — name the numbers and company") | `contact.reclaimed` events with reason `dnc_registry` since the last report; DATE is the latest one |
 | Your last export was generated DATE (N days ago) | `partners.last_export_at`, stamped by `export_batch` — **new column, see R1** (review 2026-07-29: S-2 puts the timestamp in a *column of the emitted CSV*, which persists nothing, so this line had no readable source) |
 | **→ If any removals: "Re-pull your sheet before your next calling session."** | derived from the removal counts |
 
