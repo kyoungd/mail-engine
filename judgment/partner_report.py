@@ -22,12 +22,19 @@ _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 _LA = ZoneInfo("America/Los_Angeles")  # DISPLAYED dates only — never window math
 
 # Voice-blocking suppression reasons — the "opted out" bucket of the removal line
-# (S-6's reclaim reasons; other reclaims render as "reclaimed").
-_OPT_OUT_REASONS = ("do_not_call", "opt_out", "dnc_registry")
+# (S-6's reclaim reasons; other reclaims render as "reclaimed"). A registry listing
+# is not an opt-out: it gets its own bucket and is named, not counted (2026-09-10).
+_OPT_OUT_REASONS = ("do_not_call", "opt_out")
+_REGISTRY_REASON = "dnc_registry"
 
 
 def _day(dt: datetime) -> str:
     return dt.astimezone(_LA).strftime("%Y-%m-%d")
+
+
+def _phone(e164: str) -> str:
+    national = e164.removeprefix("+1")
+    return f"({national[:3]}) {national[3:6]}-{national[6:]}"
 
 
 def _removals(cur, partner_id: UUID, since: datetime) -> dict[str, int]:
@@ -38,15 +45,36 @@ def _removals(cur, partner_id: UUID, since: datetime) -> dict[str, int]:
         "group by 1, 2",
         (str(partner_id), since),
     )
-    counts = {"opted_out": 0, "reclaimed": 0, "expired": 0}
+    counts = {"opted_out": 0, "reclaimed": 0, "expired": 0, "registry": 0}
     for etype, reason, n in cur.fetchall():
         if etype == "contact.assignment_expired":
             counts["expired"] += n
+        elif reason == _REGISTRY_REASON:
+            counts["registry"] += n
         elif reason in _OPT_OUT_REASONS:
             counts["opted_out"] += n
         else:
             counts["reclaimed"] += n
     return counts
+
+
+def _registry_removals(
+    cur, partner_id: UUID, since: datetime
+) -> tuple[list[tuple[str, str]], datetime]:
+    """The exclusion list: each number the scrub took back from this partner
+    because it is on the national registry — (company, phone) — and when the
+    latest one left, since every sheet exported before then still carries it."""
+    cur.execute(
+        "select coalesce(c.business_name, c.contact_name, 'Business Owner'), "
+        "c.phone_e164, e.occurred_at "
+        "from events e join contacts c on c.id = e.contact_id "
+        "where e.type = 'contact.reclaimed' and e.payload->>'reason' = %s "
+        "and e.payload->>'previous_owner_id' = %s and e.occurred_at > %s "
+        "order by 1, 2",
+        (_REGISTRY_REASON, str(partner_id), since),
+    )
+    rows = cur.fetchall()
+    return [(name, phone) for name, phone, _ in rows], max(r[2] for r in rows)
 
 
 def _should_send(cur, partner_id: UUID, last_report_at: datetime | None,
@@ -96,10 +124,20 @@ def _holdings_section(cur, partner_id: UUID, since: datetime,
                 f"expires {_day(expires_at)}"
             )
     lines.append(f"Contacts currently yours: {holding}")
-    if any(removals.values()):
+    if removals["opted_out"] or removals["reclaimed"] or removals["expired"]:
         lines.append(
             f"Removed since your last report: {removals['opted_out']} opted out, "
             f"{removals['reclaimed']} reclaimed, {removals['expired']} expired"
+        )
+    if removals["registry"]:
+        listed, latest = _registry_removals(cur, partner_id, since)
+        lines.append(
+            "Now on the national Do Not Call registry — removed from your list, "
+            "do not call:"
+        )
+        lines.extend(f"- {name}, {_phone(phone)}" for name, phone in listed)
+        lines.append(
+            f"These numbers are still on any sheet you exported before {_day(latest)}."
         )
     if last_export_at is not None:
         age = max((now - last_export_at).days, 0)
