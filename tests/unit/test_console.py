@@ -298,3 +298,19 @@ def test_subscriptions_view_shows_who_holds_the_san(monkeypatch, capsys):
     _subscriptions_io(monkeypatch, "")
     assert console._manage_subscriptions() == 0
     assert "NMC" in capsys.readouterr().out
+
+
+def test_menu_7_runs_the_production_daily_run(monkeypatch):
+    """Menu 7 is scripts/daily-run.sh (2026-09-10): the old dnc-daily.sh spends the
+    same once-per-day FTC fetch the new run's uploader needs, so the console must
+    never reach it."""
+    calls = []
+
+    class _Done:
+        returncode = 0
+
+    monkeypatch.setattr(
+        console.subprocess, "run", lambda argv, **kw: calls.append(argv) or _Done()
+    )
+    assert console.ACTIONS["7"][1]() == 0
+    assert len(calls) == 1 and calls[0][0].endswith("/daily-run.sh")

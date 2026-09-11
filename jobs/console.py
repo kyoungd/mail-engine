@@ -406,7 +406,7 @@ def _reclaim() -> int:
 
 
 def _dnc_daily() -> int:
-    return subprocess.run([str(_SCRIPTS / "dnc-daily.sh")]).returncode
+    return subprocess.run([str(_SCRIPTS / "daily-run.sh")]).returncode
 
 
 def _dnc_portal_status() -> int:
@@ -517,8 +517,8 @@ ITEMS
   5  export leads     regenerate a partner's FULL working CSV. The re-pull
                       rule: an old sheet is a liability, dial only the newest.
   6  reclaim          return ALL of a partner's holdings to the pool
-  7  DNC daily cycle  download today's registry files + scrub anything due.
-                      Give it to cron:  10 7 * * * scripts/dnc-daily.sh
+  7  DNC daily cycle  scripts/daily-run.sh: NMC's upload, pull, scrub, nightly.
+                      Production only. Give it to cron:  10 7 * * * scripts/daily-run.sh
   8  DNC portal       is the FTC subscription live / serving files
   9  subscriptions    the subscription record: view codes with inventory,
                       add (a claim the SAN portal must make true), remove
@@ -559,7 +559,7 @@ ACTIONS: dict[str, tuple[str, Callable[[], int]]] = {
     "4": ("assign a batch", _assign),
     "5": ("export leads", _export),
     "6": ("reclaim a partner's holdings", _reclaim),
-    "7": ("DNC daily cycle (download + scrub)", _dnc_daily),
+    "7": ("DNC daily cycle (daily-run.sh: upload, pull, scrub, nightly)", _dnc_daily),
     "8": ("DNC portal status", _dnc_portal_status),
     "9": ("manage area-code subscriptions", _manage_subscriptions),
     "10": ("help", _help),
