@@ -14,6 +14,7 @@ import hashlib
 import os
 import secrets
 import sys
+from pathlib import Path
 from uuid import UUID
 
 from psycopg import sql
@@ -58,10 +59,24 @@ def _current_hash(partner_id: UUID) -> str | None:
     return row[0] if row else None
 
 
-def _issue_token(name: str, *, push: bool) -> int:
+def _issue_token(name: str, *, push: bool, ini: Path | None = None) -> int:
     """Mint an upload token. The DATABASE is written first and the edge second: a
     failed push leaves a token the Worker will not honour, which is inert. (Revoke
-    reverses the order, deliberately — see _revoke_token.)"""
+    reverses the order, deliberately — see _revoke_token.)
+
+    With `ini`, also write the rep's dnc-uploader.ini — [nmc] token filled, [ftc]
+    left for the rep. Refused BEFORE anything is minted when the file exists (it may
+    hold someone's FTC login, and a refusal after minting would have rotated a working
+    token away), and written only once the edge has the token."""
+    if ini is not None:
+        if ini.exists():
+            print(f"{ini} already exists — refusing to overwrite it; nothing issued",
+                  file=sys.stderr)
+            return 2
+        if not push:
+            print("--ini needs a published token — drop --no-push; nothing issued",
+                  file=sys.stderr)
+            return 2
     partner_id = _active_partner(name)
     if partner_id is None:
         print(f"no active partner named {name!r}", file=sys.stderr)
@@ -108,6 +123,12 @@ def _issue_token(name: str, *, push: bool) -> int:
             file=sys.stderr,
         )
         return 2
+    if ini is not None:
+        fd = os.open(ini, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w") as handle:
+            handle.write(f"[ftc]\norg_id =\npassword =\n\n[nmc]\ntoken = {token}\n")
+        print(f"wrote {ini} — send it to the rep; they fill in [ftc] with their own "
+              "FTC login")
     return 0
 
 
@@ -213,6 +234,10 @@ def _build_parser() -> argparse.ArgumentParser:
     issue_parser.add_argument(
         "--no-push", action="store_true", dest="no_push",
         help="store locally without publishing to the upload Worker (pre-deploy only)",
+    )
+    issue_parser.add_argument(
+        "--ini", metavar="FILE", default=None,
+        help="also write the rep's dnc-uploader.ini with this token (never overwrites)",
     )
     revoke_parser = sub.add_parser(
         "revoke-token", help="Kill this partner's DNC-upload token"
@@ -351,7 +376,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "status":
         return _status(args.name)
     if args.command == "issue-token":
-        return _issue_token(args.name, push=not args.no_push)
+        return _issue_token(
+            args.name, push=not args.no_push, ini=Path(args.ini) if args.ini else None
+        )
     if args.command == "revoke-token":
         return _revoke_token(args.name)
     return _list()

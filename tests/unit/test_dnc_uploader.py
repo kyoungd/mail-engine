@@ -141,20 +141,42 @@ def test_a_crc_failure_is_never_uploaded(tmp_path):
 
 def test_missing_config_refuses_with_a_message_a_salesperson_can_act_on(tmp_path):
     ini = tmp_path / "dnc-uploader.ini"
-    ini.write_text("[ftc]\norg_id = \npassword = \n")
+    ini.write_text(f"[ftc]\norg_id = \npassword = \n[nmc]\ntoken = {TOKEN}\n")
 
     with pytest.raises(ConfigError) as caught:
-        load_config(ini, token=TOKEN, upload_url=URL)
+        load_config(ini)
 
     message = str(caught.value)
     assert "dnc-uploader.ini" in message
     assert "org_id" in message and "password" in message
 
 
-def test_an_unbuilt_binary_says_so_rather_than_failing_at_the_worker(tmp_path):
-    """A build that forgot to bake the token would otherwise 401 in the field."""
+def _ini(tmp_path: Path, nmc: str) -> Path:
     ini = tmp_path / "dnc-uploader.ini"
-    ini.write_text("[ftc]\norg_id = 10337886-60999\npassword = secret\n")
+    ini.write_text(f"[ftc]\norg_id = 10337886-60999\npassword = secret\n{nmc}")
+    return ini
 
-    with pytest.raises(ConfigError):
-        load_config(ini, token="", upload_url=URL)
+
+def test_the_token_comes_from_the_ini_and_the_worker_url_is_built_in(tmp_path):
+    """One universal build (2026-09-11): nothing per-rep is compiled in."""
+    config = load_config(_ini(tmp_path, f"[nmc]\ntoken = {TOKEN}\n"))
+
+    assert config.token == TOKEN
+    assert config.upload_url == "https://dnc-upload.nevermisscall.workers.dev"
+    assert (config.org_id, config.password, config.work_dir) == (
+        "10337886-60999", "secret", tmp_path)
+
+
+def test_an_ini_url_overrides_the_built_in_worker(tmp_path):
+    config = load_config(_ini(tmp_path, f"[nmc]\ntoken = {TOKEN}\nurl = {URL}/\n"))
+
+    assert config.upload_url == URL  # local testing against `wrangler dev`
+
+
+def test_an_ini_without_a_token_says_where_to_get_one(tmp_path):
+    """Otherwise the first sign of a missing token is a 401 in the field."""
+    with pytest.raises(ConfigError) as caught:
+        load_config(_ini(tmp_path, ""))
+
+    message = str(caught.value)
+    assert "token" in message and "NeverMissCall" in message

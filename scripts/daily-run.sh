@@ -9,7 +9,7 @@ set -euo pipefail
 
 ENGINE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CLIENT_DIR="${NMC_CLIENT_DIR:-$HOME/dnc-uploader-nmc}"
-CLIENT="$CLIENT_DIR/dnc-uploader-young.py"
+CLIENT="$ENGINE_DIR/clients/dnc_uploader.py"
 INI="$CLIENT_DIR/dnc-uploader.ini"
 
 usage() {
@@ -29,10 +29,10 @@ scrub skips contacts checked in the last 21 days, and the nightly dedupes.
 Refuses unless .env points at mailengine_prod — this is production's run
 (cron policy 2026-08-07: crons live in the production checkout only).
 
-Needs NMC's uploader in $CLIENT_DIR (override: NMC_CLIENT_DIR):
-  dnc-uploader-young.py   baked with the house row's upload token
-  dnc-uploader.ini        NMC's FTC Organization ID + Downloader password
-  (docs/dnc-uploader-runbook.md, Part C steps C1-C3)
+Needs NMC's dnc-uploader.ini in $CLIENT_DIR (override: NMC_CLIENT_DIR):
+  [ftc]  NMC's FTC Organization ID + Downloader password
+  [nmc]  the house row's upload token
+  (step 1 runs the repo's own clients/dnc_uploader.py — one client for everyone)
 
 Cron example (after the manual week; 7:10 AM, once the portal's files exist):
   10 7 * * * $ENGINE_DIR/scripts/daily-run.sh >> ~/daily-run.log 2>&1
@@ -54,7 +54,7 @@ if [ "$db" != "mailengine_prod" ]; then
   exit 2
 fi
 for f in "$CLIENT" "$INI"; do
-  [ -f "$f" ] || { echo "daily-run: missing $f — set up NMC's uploader first (runbook C1-C3)" >&2; exit 2; }
+  [ -f "$f" ] || { echo "daily-run: missing $f — set up NMC's dnc-uploader.ini first" >&2; exit 2; }
 done
 
 step() { echo; echo "=== $(date -Is)  $*"; }

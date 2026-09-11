@@ -13,8 +13,8 @@ day, so a failed upload must never cost the rep that fetch: files stay on disk
 until an upload succeeds, and a file already on disk is never fetched again.
 
 The rep's FTC credentials live in dnc-uploader.ini beside this program and never
-leave their machine. The upload token and Worker URL are baked in at build time,
-one build per rep.
+leave their machine; the upload token NeverMissCall issued them sits in the same
+file. One build serves every rep — nothing per-rep is compiled in.
 """
 
 import argparse
@@ -32,9 +32,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-# Replaced at build time — one build per rep.
-BAKED_TOKEN = ""
-BAKED_UPLOAD_URL = ""
+UPLOAD_URL = "https://dnc-upload.nevermisscall.workers.dev"
 
 ENDPOINT = "https://telemarketing.donotcall.gov/DownloadSvc/DownloadSvc.asmx"
 NS = "https://telemarketing.donotcall.gov/DownloadSvc/"
@@ -71,18 +69,14 @@ class Report:
     skipped: int = 0
 
 
-def load_config(ini_path: Path, *, token: str, upload_url: str) -> Config:
-    if not token or not upload_url:
-        raise ConfigError(
-            "This copy was not set up for a specific rep (no upload token). "
-            "Ask NeverMissCall for your own copy — do not share one."
-        )
+def load_config(ini_path: Path) -> Config:
     parser = configparser.ConfigParser()
     if not ini_path.exists():
         raise ConfigError(
             f"{ini_path.name} is missing. Create it next to this program with:\n"
             "  [ftc]\n  org_id = your Organization ID\n  password = your "
-            "Downloader password"
+            "Downloader password\n  [nmc]\n  token = the upload token "
+            "NeverMissCall sent you"
         )
     parser.read(ini_path)
     org_id = parser.get("ftc", "org_id", fallback="").strip()
@@ -94,11 +88,18 @@ def load_config(ini_path: Path, *, token: str, upload_url: str) -> Config:
             "Organization ID and Downloader password from your "
             "telemarketing.donotcall.gov account."
         )
+    token = parser.get("nmc", "token", fallback="").strip()
+    if not token:
+        raise ConfigError(
+            f"{ini_path.name} has no upload token. Ask NeverMissCall for your own "
+            "[nmc] token — do not share one."
+        )
+    url = parser.get("nmc", "url", fallback="").strip().rstrip("/")
     return Config(
         org_id=org_id,
         password=password,
         token=token,
-        upload_url=upload_url.rstrip("/"),
+        upload_url=url or UPLOAD_URL,
         work_dir=ini_path.parent,
     )
 
@@ -257,11 +258,14 @@ def main(argv: list[str] | None = None) -> int:
             "Run this once a day. It is safe to run again at any time: files\n"
             "already downloaded are never downloaded twice, and anything that\n"
             "failed to send is sent on the next run.\n\n"
-            "Setup: put your Organization ID and Downloader password in\n"
-            "dnc-uploader.ini, next to this program:\n"
+            "Setup: NeverMissCall sends you dnc-uploader.ini with your upload\n"
+            "token filled in. Put it next to this program and add your own\n"
+            "Organization ID and Downloader password:\n"
             "  [ftc]\n"
-            "  org_id = 10337886-60999\n"
-            "  password = your downloader password\n"
+            "  org_id = your Organization ID\n"
+            "  password = your Downloader password\n"
+            "  [nmc]\n"
+            "  token = (already filled in by NeverMissCall)\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -274,7 +278,7 @@ def main(argv: list[str] | None = None) -> int:
     here = Path(sys.argv[0]).resolve().parent
     ini = Path(args.config) if args.config else here / "dnc-uploader.ini"
     try:
-        config = load_config(ini, token=BAKED_TOKEN, upload_url=BAKED_UPLOAD_URL)
+        config = load_config(ini)
     except ConfigError as exc:
         print(f"Setup needed:\n{exc}")
         return 2
