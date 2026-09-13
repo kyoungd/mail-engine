@@ -517,8 +517,8 @@ ITEMS
   5  export leads     regenerate a partner's FULL working CSV. The re-pull
                       rule: an old sheet is a liability, dial only the newest.
   6  reclaim          return ALL of a partner's holdings to the pool
-  7  DNC daily cycle  scripts/daily-run.sh: NMC's upload, pull, scrub, nightly.
-                      Production only. Give it to cron:  10 7 * * * scripts/daily-run.sh
+  7  DNC daily cycle  scripts/daily-run.sh: pull, scrub, nightly — run the upload first.
+                      Production only. Give it to cron:  40 7 * * * scripts/daily-run.sh
   8  DNC portal       is the FTC subscription live / serving files
   9  subscriptions    the subscription record: view codes with inventory,
                       add (a claim the SAN portal must make true), remove
@@ -526,7 +526,7 @@ ITEMS
 
 RULES THE SYSTEM ENFORCES (no way around them, by design)
   - on the DNC registry, opted out, or tombstoned  -> never assigned
-  - DNC check older than 31 days                   -> never assigned
+  - DNC check, or the list behind it, over 31 days -> never assigned
   - area code not subscribed                       -> never assigned
   - every refusal is counted and NAMED in the assign receipt (shortfalls)
 
@@ -559,7 +559,7 @@ ACTIONS: dict[str, tuple[str, Callable[[], int]]] = {
     "4": ("assign a batch", _assign),
     "5": ("export leads", _export),
     "6": ("reclaim a partner's holdings", _reclaim),
-    "7": ("DNC daily cycle (daily-run.sh: upload, pull, scrub, nightly)", _dnc_daily),
+    "7": ("DNC daily cycle (daily-run.sh: pull, scrub, nightly)", _dnc_daily),
     "8": ("DNC portal status", _dnc_portal_status),
     "9": ("manage area-code subscriptions", _manage_subscriptions),
     "10": ("help", _help),
