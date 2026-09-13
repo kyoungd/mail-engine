@@ -461,6 +461,34 @@ decision this design wants rather than a silent gap.
    "were we compliant on the day of that call?" is answerable from history rather than
    asserted.
 
+### Amendment (2026-09-13): freshness is the list's age, not the check's
+
+Item 3's guarantee — "the 31-day rule cannot be broken by forgetting to run
+something" — held while every scrub used a same-day download. Architecture B
+(partner-supplied snapshots, 2026-09-10) broke it: the scrub judges each code
+against its newest accepted snapshot of any age and stamps `dnc_checked_at` with
+the time of the check, so a code whose uploads stopped kept passing item 1's
+filter on an ever-older list, and S-9's staleness nudge (which read check age)
+never fired.
+
+The safe harbor counts the list: a registry version "obtained from the Commission
+no more than thirty-one (31) days prior to the date any call is made"
+(§ 310.4(b)(3)(iv)). So, from `d440dae`:
+
+1. Item 1's filter adds: the verdict's snapshot — `contacts.dnc_snapshot_id` →
+   `dnc_snapshots.version_date`, written by `record_snapshot` from the FTC's own
+   filename, never from the uploader — is ≤ 31 days old, counted on the UTC date
+   (ahead of every US zone, so an error is strict). Export applies the same test.
+   A contact with no linked snapshot (the legacy single-registry path) keeps the
+   check-age rule.
+2. S-9's staleness nudge reads, per code, the older of the newest check and the
+   newest accepted snapshot.
+
+Item 3 holds again, now for uploads as well as the scrub: a code whose uploads
+stop drains once its list passes 31 days, loudly. Under Architecture B, S-9's
+"downloads the current registry files" reads "consumes the snapshots uploaded to
+the Worker" (`scripts/daily-run.sh` since `6579cc0`).
+
 ### Calling hours
 
 The TSR restricts outbound telemarketing calls to **8:00 a.m.–9:00 p.m. in the called

@@ -81,49 +81,70 @@ rep …`, exit 2. Delete `dist/` afterwards.
    checkout and `mailengine_dev` in place of production.
 7. Tear down: stop the Worker, delete the ini, the baked source and the token.
 
-## Part B — compile the rep's `.exe` (Windows)
+## Part B — the universal `.exe`, and setting up a rep
 
-PyInstaller does not cross-compile: a Linux build cannot run on a rep's Windows
-laptop. So the token is issued and baked on the box, and only the packaging
-happens on Windows. (`make client PARTNER=…` does issue + bake + package in one
-go on ONE machine — use it only when that machine is the rep's platform.)
+**One build serves every rep** (2026-09-11) — nothing per-rep is compiled in. What
+is per-person lives in `dnc-uploader.ini` beside the program: `[ftc]` the owner's
+own FTC login (never sent to NMC) and `[nmc]` the upload token NMC issued. The
+Worker URL is built in. PyInstaller does not cross-compile, so the `.exe` is built
+on Windows — once, and again only when `clients/dnc_uploader.py` changes.
 
-**B1. Issue the token** (production checkout, after 5d):
-
-```bash
-cd …/marketing/mail-engine-production && set -a && . ./.env && set +a
-uv run python -m jobs.partners_cli issue-token "<Partner>"
-```
-
-Store the printed token in the vault. The partner must be an active row.
-
-**B2. Bake** (same shell):
-
-```bash
-uv run python scripts/build_client.py --partner "<Partner>" \
-    --token <token> --url "$SNAPSHOT_INBOX_URL" --bake-only
-```
-
-→ `dist/dnc-uploader-<slug>.py` (slug = the name lowercased, non-alphanumerics → `-`).
-
-**B3. Move the baked `.py` to the Windows machine** over a private channel.
-
-**B4. Package on Windows** (Python 3.12+ from python.org; PyInstaller pinned to the
-repo's dev version):
+**B1. Build the `.exe`** (any Windows machine, once). Python 3.12+ from python.org,
+with the `py` launcher. Copy `clients/dnc_uploader.py` from the repo — it holds no
+secrets.
 
 ```bat
 py -m pip install pyinstaller==6.22.2
-py -m PyInstaller --onefile --clean --name dnc-uploader-<slug> dnc-uploader-<slug>.py
+py -m PyInstaller --onefile --clean --name dnc-uploader dnc_uploader.py
 ```
 
-→ `dist\dnc-uploader-<slug>.exe`. These are the flags `build_client.py` uses.
+→ `dist\dnc-uploader.exe`. Delete `build\` and the `.spec` file afterwards.
 
-**B5. Smoke the `.exe` without touching the FTC:** run it from an empty folder —
-expect `Setup needed: … dnc-uploader.ini is missing`, exit 2.
+**B2. Smoke it without touching the FTC.** Run it from an empty folder — expect
+`Setup needed:` / `dnc-uploader.ini is missing`, exit 2. The `.exe` is unsigned, so
+Windows may show an unknown-publisher (SmartScreen) warning the first time.
 
-**B6. Ship and clean up.** Send the rep the `.exe` plus an ini template with the
-password left blank (`[ftc]` / `org_id = …` / `password =`). Delete the baked
-`.py` and the `build\` directory from both machines.
+**B3. Issue the rep's token and write their ini** (production checkout, on the box):
+
+```bash
+cd …/marketing/mail-engine-production && set -a && . ./.env && set +a
+PYTHONPATH=. uv run python -m jobs.partners_cli issue-token "<Partner>" \
+    --ini <private-dir>/dnc-uploader.ini
+```
+
+The partner must be an active row. The ini is written 0600 with `[nmc] token`
+filled and `[ftc]` blank — and only once the Worker has the token. An existing
+file is never overwritten (nothing is issued), and `--ini` refuses `--no-push`.
+**Issuing ROTATES the partner's token**: any ini they already hold stops working.
+
+**B4. Record their codes against their SAN** (same shell) — the scrub only covers
+subscribed codes:
+`PYTHONPATH=. uv run python -m jobs.subscribe_area_codes add <codes> --holder "<Partner>"`
+
+**B5. Ship.** Send the rep `dnc-uploader.exe` (shareable) and their ini (private
+channel — it carries their token). They add their own `org_id` and `password` under
+`[ftc]`, keep both files in one folder, and run it once a day after ~7 AM PT — the
+upload must reach the Worker within two days of the FTC file date. Delete your copy
+of their ini.
+
+**B6. Confirm their first run.** Their uploads appear in the Worker's `/pending`
+under their partner id; the next `daily-run.sh` pull judges them — read
+`dnc_snapshots.reject_reason` for any rejection.
+
+Notes:
+
+- **NMC's own uploader is the same program, run as its own step.** On the box:
+  `python3 clients/dnc_uploader.py --config ~/dnc-uploader-nmc/dnc-uploader.ini`
+  (the house token in `[nmc]`); on Windows, the same `.exe` with a copy of that
+  ini. Either way it runs BEFORE `daily-run.sh`, which since 2026-09-13 only
+  pulls, scrubs and runs the nightly. The FTC offers each file once per day per
+  account: a second run the same day gets "already downloaded" notes and exits 0
+  with nothing to do — so run exactly one of the two uploaders on a given day.
+- **Only a rep with their own SAN uploads.** A partner without one is covered by
+  NMC's SAN and works from pre-scrubbed exports.
+- **Never pair a rep's ini with someone else's FTC login** — the ledger would record
+  NMC's files as the rep's SAN, and a same-day tie would let them win coverage.
+- **The first Windows run is unverified** as of 2026-09-11 — check it closely.
 
 ## Part C — first production run (NMC as its own uploader)
 

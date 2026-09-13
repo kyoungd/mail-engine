@@ -1396,3 +1396,40 @@ console, and is an NMC change besides).
 local Medusa server is down (item 3's roster step needs it anyway), and the
 login gate is hygiene/ceremony, not a security boundary — anyone with shell
 access to `.env` can bypass the console entirely with psql or the CLIs.
+
+## DNC files: reps keep their own SAN and upload; the daily run consumes the inbox (decided 2026-09-13)
+
+**Decision (operator, in their words):** "Keep reps uploading. We'll have to
+convert it to service so it can run on the background once it is working. Later
+project." And: "daily-run.sh should assume that the daily DNC data has been
+uploaded to the CloudFlare."
+
+**What it means.** A rep works CA data — "They can accept the area code that we
+have, or they can venture into new area code if they are willing to purchase the
+DNC." A rep in NMC's five codes (714/760/805/818/916) needs no SAN and no
+uploader. A rep who buys a new code does so on their own SAN and uploads that
+code's FTC file through the Worker; the pull records it against their partner row
+and the scrub uses it. "Sales partner will pay. And we may or may not reimburse
+them. Depends on our deal with them." The daily run (`scripts/daily-run.sh`) is
+pull → scrub → nightly; every upload, NMC's included, is a separate step.
+
+**Alternatives laid out and declined (2026-09-13):**
+- *NMC holds the only SAN* and buys any new code at $82, the rep repaying per the
+  deal — the FTC's documented model (Q&A for Telemarketers & Sellers, Q21: a
+  telemarketer "may access the Registry on behalf of the Seller … if the
+  Telemarketer is authorized by the Seller to use the Seller's SAN").
+- *NMC runs the uploader holding reps' FTC credentials* — advised against: each
+  login certifies in the account holder's name, and NMC would hold third parties'
+  federal-portal passwords.
+
+**Relation to 2026-08-01.** For area codes a rep buys, this supersedes that
+entry's "Partner-held DNC subscriptions REJECTED". That entry's legal reasoning —
+§310.8 attaches the fee to the SELLER, so a partner dialing under only their own
+SAN "violates for both parties at once" — is exactly counsel Q4, unanswered.
+Codes on NMC's own SAN are unaffected.
+
+**Consequences, built the same day:** freshness counts the list's age, not the
+check's (`d440dae`) — a code whose uploads stop drains at 31 days of list age
+rather than exporting on a stale list; `daily-run.sh` split (`6579cc0`). **Later
+project:** the uploader as a background service (first fix the silent handling of
+"invalid" portal replies).

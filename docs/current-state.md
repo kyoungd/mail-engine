@@ -1,4 +1,182 @@
-# Current state — 2026-09-10 (later session): Architecture B is LIVE IN PRODUCTION — first real upload → pull → scrub done and oracle-verified; six releases; the manual daily run starts 2026-09-11
+# Current state — 2026-09-13: the DNC gate counts the LIST's age; daily-run.sh consumes the inbox; first real upload by the universal client ✅ (`prod-2026-09-13`, `prod-2026-09-13.2`)
+
+**Two releases, one real run.** Suite **627 offline green**, `make e2e` green,
+`STRICT=1 make integration` 2/2, ruff + pyright clean. Commits `d440dae` ·
+`6579cc0` on `main`, **pushed**; the production checkout is at `6579cc0`, tagged
+`prod-2026-09-13.2`. No migrations (prod stays at 0013). Backups
+`mailengine_prod-2026-09-13_1213.dump` and `…_1327.dump`.
+
+## Found: freshness measured the check, not the list (fixed — `d440dae`, `prod-2026-09-13`)
+
+16 CFR 310.4(b)(3)(iv) (verified via Cornell LII; eCFR blocks automated fetches):
+a registry version "obtained from the Commission no more than thirty-one (31) days
+prior to the date any call is made". The scrub judged each code against its newest
+accepted snapshot of ANY age and stamped `dnc_checked_at = now()`; assign, export
+and `dnc_version_alert` all read that stamp. A code whose uploads stopped would
+keep exporting on an ever-older list, and nothing fired — already true for any
+partner-covered code under Architecture B, and about to be true for NMC's own
+codes once the upload left `daily-run.sh`. Not live: no rep covers a code, and
+every prod list was ≤3 days old.
+
+- Gate (`service/assignment.py`, assign + export): `dnc_fresh` also requires the
+  verdict's snapshot (`contacts.dnc_snapshot_id → version_date`) ≤31 days old on
+  the UTC date. Contacts with no linked snapshot keep the check-age rule.
+- Alert: a code's age is the older of its newest check and its newest ACCEPTED
+  snapshot.
+- Tests: new frozen gate `tests/acceptance/test_dnc_list_age.py` (reproduction
+  through the real pull → scrub → assign; the 31/32-day wall under UTC+14 and
+  UTC-11 sessions; the alert); the export invariant amended (operator-approved)
+  with a stale-list member and the list-age clause. RED 7 → GREEN; four manual
+  mutants each caught, files restored byte-identical.
+- Prod, read-only before and after the release: all 24,212 subscribed-code
+  contacts link a snapshot; dialable **12,641** under both rules; the new alert
+  → 0 hits.
+
+## daily-run.sh consumes the inbox (`6579cc0`, `prod-2026-09-13.2`)
+
+Operator: "daily-run.sh should assume that the daily DNC data has been uploaded
+to the CloudFlare." The run is pull → scrub → nightly (1/3–3/3); the uploader step
+and its ini/client prerequisite are gone; `--help` gives NMC's upload command and
+a two-line cron (upload 7:10, run 7:40); console menu 7 follows. Frozen gate
+`tests/acceptance/test_daily_run_steps.py` runs the real script with recording
+stubs for `uv`/`python3`.
+
+**The daily routine is two commands** (production checkout, after ~7 AM PT):
+`python3 clients/dnc_uploader.py --config ~/dnc-uploader-nmc/dnc-uploader.ini`,
+then `./scripts/daily-run.sh` (menu 7). A day without the upload is safe: a code
+drains only once its list passes 31 days, and the alert fires past 24.
+
+## The universal client's first real upload (2026-09-13, on `prod-2026-09-13`)
+
+- No daily run on 2026-09-12 — no 9-12 files anywhere.
+- Uploader 12:35 PT: `downloaded 5, sent 5`, exit 0 (the FTC serves files on a
+  Sunday).
+- `daily-run.sh` 12:37 (still the 4-step version): its uploader step got the
+  portal's once-per-day notes and exited 0; pull `accepted=5 rejected=0
+  skipped=10`; scrub `checked=0`; nightly complete — 0 events ingested, 0 nudges,
+  no digest; John's report not due (last sent 09-11).
+- Verified read-only: client copy = landed file = ledger sha256 for all five;
+  line growth +87…+146 per code since 09-11; all credited to the house row.
+- Still unproven for a rep: the Windows `.exe`, and an upload under a rep's own
+  token (only the house row has ever uploaded).
+
+## Decided (operator, this session — in their words)
+
+- **Reps keep uploading:** "Keep reps uploading. We'll have to convert it to
+  service so it can run on the background once it is working. Later project."
+  Declined: NMC holding the only SAN; NMC running the uploader with reps' FTC
+  credentials. (`decisions.md` 2026-09-13.)
+- **Rep territory:** "Rep will work with our data which means they will
+  represent California. They can accept the area code that we have, or they can
+  venture into new area code if they are willing to purchase the DNC."
+- **Who pays:** "Sales partner will pay. And we may or may not reimburse them.
+  Depends on our deal with them." Counsel Q4 (does that satisfy §310.8 for NMC as
+  seller) stays open; the memo's Q4 is rewritten for it.
+- **The split:** `daily-run.sh` assumes the upload has happened (above).
+
+## The queue
+
+- **Daily from 2026-09-14:** upload, then `daily-run.sh`. Scrub rechecks come due
+  ~2026-10-01.
+- **Windows `.exe`:** build (runbook Part B), then run it with NMC's ini one
+  morning BEFORE `daily-run.sh` — tests the exact artifact a rep receives.
+- **Before the uploader becomes a background service:** the client drops portal
+  replies starting "invalid" without a word (`clients/dnc_uploader.py:166`); if
+  the portal ever sends one, an unattended run reports "downloaded 0" and exits 0.
+  Reply shape unverified. A rep's cadence floor is ~every 10 days (31 − 21).
+- **Counsel Q4** — the memo's Q4 rewritten for partner-bought codes.
+- **Runbook:** the owed pass over its stale parts (status, the token hazards,
+  A1/A3/A4, Part C, the "DNS" prerequisite).
+- Carried: cron after the manual week; offsite backup; retention sweep; John's
+  fresh export. The unexplained `make test` failure of 2026-09-10 did not recur
+  in 8 runs today, every result as predicted.
+
+---
+
+# Previous — 2026-09-11: day 1 of the manual daily run ✅; one universal uploader released (`prod-2026-09-11`)
+
+**The daily run worked end to end on its first day, and the uploader became one
+program for everyone.** Suite **615 offline green**, `make e2e` green,
+`STRICT=1 make integration` 2/2, ruff + pyright clean (gate output now logged in
+full). Commits `e91897b` (docs) · `1af406a` (universal uploader) on `main`,
+**pushed**; the production checkout is at `1af406a`, tagged `prod-2026-09-11`.
+
+## Day 1 of the manual daily run (2026-09-11, 10:11–10:12 PT, exit 0)
+
+- **Uploader:** downloaded and sent all five `2026-9-11` files.
+- **Pull:** 5 accepted — each code's file grew 28–83 lines over 2026-09-10 — and
+  yesterday's 5 skipped as already recorded; landed files match the client's
+  copies.
+- **Scrub:** `checked=0`, no skips — nothing is due until the 21-day recheck
+  (~2026-10-01); each code now resolves to the 2026-09-11 snapshot.
+- **Nightly:** John's first-ever partner report sent at 10:12:54 (stamped only
+  after a successful send) with the registry exclusion list; Young-partner due but
+  empty, so nothing sent. The founder digest carried one nudge —
+  `batch_checkpoint`: John's 2026-08-07 batch is past day 30 with no observable
+  activity. **Inbox delivery of both is unconfirmed** — the operator to check.
+
+## One universal uploader (`1af406a`, operator: "yes, go with it")
+
+The operator asked why credentials seemed to be needed to build the `.exe` — they
+never were; the FTC login was already read from `dnc-uploader.ini`. What was
+compiled in was NMC's upload token, one build per rep: a Windows build per rep and
+per rotation, for no security (a PyInstaller binary unpacks in seconds). Now:
+
+- **`clients/dnc_uploader.py`** reads `[ftc]` (the owner's FTC login) and `[nmc]`
+  (`token`, optional `url`) from the ini; the Worker URL is a constant. One `.exe`
+  for everyone; rebuilt only when the client changes.
+- **`partners_cli issue-token NAME --ini FILE`** writes a rep's ini (0600, token
+  filled, `[ftc]` blank) — refused before anything is minted if the file exists or
+  with `--no-push`, and written only after the Worker has the token.
+- **`daily-run.sh`** runs the repo's client directly with
+  `~/dnc-uploader-nmc/dnc-uploader.ini`, which now holds `[ftc]` + `[nmc]` (the
+  existing house token moved in at release — verified against prod's house hash;
+  no new token issued). The old per-rep prepared file is deleted.
+- **Retired:** `scripts/build_client.py`, `tests/unit/test_build_client.py`,
+  `make client`. New tests: 3 in `test_dnc_uploader.py`,
+  `tests/acceptance/test_partner_token_ini.py` (2).
+
+**Release `prod-2026-09-11`:** backup `mailengine_prod-2026-09-11_1246.dump`,
+fast-forward (no migration), tag. The production checkout's local prod-only
+`current-state.md` (the 2026-08-16 record) blocked the fast-forward and was saved
+first — `marketing/mail-engine-production-current-state-2026-08-16.md` (identical)
+plus `stash@{0}` in that checkout; the July copy and its stash are untouched.
+
+## Learned: the FTC portal hides a file for the rest of the day once fetched
+
+The live check after the release predicted "already had 5" and got "already had
+0": after a same-day download, `GetURLS` returns notes ("File was already
+downloaded Today. Only one download allowed per day per file") instead of URLs. So
+a second uploader run the same day exits 0 with nothing to do. **This corrects a
+claim made this session** that a second run would stop `daily-run.sh` at step 1 —
+it does not, so the operator's Windows `.exe` can be NMC's daily uploader as long
+as it runs before `daily-run.sh`. It also means the live check proved the login
+and the moved ini, **not the Worker upload**: the 2026-09-12 run is the new
+client's first real upload — check its step 1.
+
+## Decided (operator, this session — in their words)
+
+- **No daily re-scrub of assigned contacts:** "No. I don't want to complicate.
+  leave it."
+- **One universal `.exe`:** "yes, go with it."
+
+## The queue
+
+- **Daily run, 2026-09-12 onward** (`./scripts/daily-run.sh` or menu 7, after ~7 AM
+  PT) — watch step 1, the repo client's first real upload.
+- **Windows `.exe`:** build once (runbook Part B); the operator runs it with a copy
+  of NMC's ini. John's ini (`issue-token John --ini …`) waits on his own SAN.
+- **Runbook:** Part B rewritten for the universal build; the rest of the file
+  (status, the two token hazards, A1's test list, A3, A4 step 5, Part C C1–C4 and
+  C9, the "DNS" prerequisite) still describes the retired per-rep build — proposal
+  owed.
+- Carried: cron after the manual week; `decisions.md` Architecture B entry; counsel
+  Q4; offsite backup; retention sweep; John's fresh export (not confirmed); watch
+  for the unexplained `make test` failure of 2026-09-10.
+
+---
+
+# Previous — 2026-09-10 (later session): Architecture B is LIVE IN PRODUCTION — first real upload → pull → scrub done and oracle-verified; six releases; the manual daily run starts 2026-09-11
 
 **Everything the earlier session built is now running in production, and the
 first real pass through it is verified against an independent oracle.** Phase 5d
