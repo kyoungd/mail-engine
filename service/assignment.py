@@ -120,7 +120,9 @@ def _rule_clauses(rule: dict) -> tuple[list, list]:
 _CANDIDATE_COLS = sql.SQL(
     "c.id, c.phone_e164, c.assignment_batch_id, c.owner_id, c.stage_snapshot::text, "
     "c.do_not_call, c.dnc_registry, c.is_seed, c.dnc_checked_at, "
-    "(c.dnc_checked_at is not null and c.dnc_checked_at >= now() - make_interval(days => %s)) "
+    "(c.dnc_checked_at is not null and c.dnc_checked_at >= now() - make_interval(days => %s) "
+    "  and (c.dnc_snapshot_id is null or (select s.version_date from dnc_snapshots s "
+    "  where s.id = c.dnc_snapshot_id) >= (now() at time zone 'UTC')::date - %s)) "
     "  as dnc_fresh, "
     "(c.phone_e164 is not null and substring(c.phone_e164 from 3 for 3) in "
     "  (select area_code from dnc_subscriptions)) as area_subscribed, "
@@ -254,7 +256,7 @@ def assign_batch(
                         "select {cols} from contacts c where {where} "
                         "order by c.id for update of c"
                     ).format(cols=_CANDIDATE_COLS, where=where),
-                    [DNC_FRESHNESS_DAYS, *rule_params],
+                    [DNC_FRESHNESS_DAYS, DNC_FRESHNESS_DAYS, *rule_params],
                 )
             else:
                 cur.execute(
@@ -262,7 +264,7 @@ def assign_batch(
                         "select {cols} from contacts c where c.id = any(%s) "
                         "order by c.id for update of c"
                     ).format(cols=_CANDIDATE_COLS),
-                    [DNC_FRESHNESS_DAYS, [*contact_ids]],
+                    [DNC_FRESHNESS_DAYS, DNC_FRESHNESS_DAYS, [*contact_ids]],
                 )
 
             assigned: list[UUID] = []
@@ -324,13 +326,15 @@ def export_batch(partner_id: UUID) -> ExportResult:
                 "c.addr_line1, c.addr_line2, c.addr_city, c.addr_state, c.addr_zip, "
                 "b.expires_at, "
                 "(c.dnc_checked_at is not null and c.dnc_checked_at >= now() - "
-                " make_interval(days => %s)) as dnc_fresh "
+                " make_interval(days => %s) and (c.dnc_snapshot_id is null or "
+                " (select s.version_date from dnc_snapshots s where s.id = c.dnc_snapshot_id)"
+                " >= (now() at time zone 'UTC')::date - %s)) as dnc_fresh "
                 "from contacts c join assignment_batches b "
                 "  on b.id = c.assignment_batch_id "
                 "where c.owner_id = %s "
                 "and c.do_not_call = false and c.dnc_registry = false "
                 "order by c.id",
-                (DNC_FRESHNESS_DAYS, partner_id),
+                (DNC_FRESHNESS_DAYS, DNC_FRESHNESS_DAYS, partner_id),
             )
             rows = cur.fetchall()
             cur.execute(

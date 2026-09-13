@@ -7,8 +7,10 @@ drain-not-stale failure mode).
 PER CODE, not global (Architecture B, Phase 4). The rule used to read one
 `max(occurred_at)` over every check event, which under hybrid coverage is dominated
 by whichever code is scrubbed most often: NMC's own daily codes would mask a
-partner's dead one indefinitely. Freshness is read from `contacts.dnc_checked_at`
-grouped by area code — the column the scrub stamps, already indexed for it.
+partner's dead one indefinitely. A code's age is the OLDER of two: its newest
+`contacts.dnc_checked_at` (a dead scrub) and its newest accepted snapshot's
+`version_date` (dead uploads — the scrub keeps stamping fresh checks against an old
+list, so check age alone never sees it; 16 CFR 310.4(b)(3)(iv) counts the list's age).
 
 One hit carrying every stale code, not one hit per code: this is a single operator
 action ("the scrub is broken"), and one nudge per area code would eat the budget.
@@ -41,10 +43,21 @@ class _Rule:
         )
         newest = dict(cur.fetchall())
 
+        cur.execute(
+            "select distinct on (area_code) area_code, version_date from dnc_snapshots "
+            "where status = 'accepted' and area_code = any(%s) "
+            "order by area_code, version_date desc",
+            (subscribed,),
+        )
+        newest_list = dict(cur.fetchall())
+
         stale = []
         for area_code in sorted(subscribed):
             checked = newest.get(area_code)
+            listed = newest_list.get(area_code)
             age = None if checked is None else (as_of - checked.date()).days
+            if age is not None and listed is not None:
+                age = max(age, (as_of - listed).days)
             if age is None or age > params.dnc_version_alert_days:
                 stale.append({"area_code": area_code, "age_days": age})
 

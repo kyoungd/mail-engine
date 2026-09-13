@@ -27,8 +27,9 @@ SNAPSHOT_MAX_AGE_DAYS = 2
 # only once a prior exists; the first file for a code establishes the baseline.
 SNAPSHOT_MIN_LINE_RATIO = 0.5
 
-# The assignment gate's freshness bound (§6): a contact whose check is older than
-# the federal safe-harbor window is unassignable until the scrub catches up.
+# The assignment gate's freshness bound (§6): a contact whose check — or the list
+# behind its verdict, counted on the UTC date — is older than the federal
+# safe-harbor window is unassignable until the scrub catches up.
 DNC_FRESHNESS_DAYS = 31
 
 # Batch sizing (§5): ~1.5 contacts worked per dial-hour × 8 weeks of capacity,

@@ -31,6 +31,19 @@ from tests.factories import new_contact
 
 FRESH = datetime.now(UTC)
 STALE = FRESH - timedelta(days=DNC_FRESHNESS_DAYS + 5)
+OLD_LIST = FRESH.date() - timedelta(days=DNC_FRESHNESS_DAYS + 9)
+
+
+def _snapshot(cur, list_date) -> UUID:
+    cur.execute(
+        "insert into dnc_snapshots (area_code, san_holder_id, version_date, file_guid, "
+        "sha256, object_key, uploaded_at, status) "
+        "values ('818', %s, %s, %s, %s, %s, now(), 'accepted') returning id",
+        (HOUSE_PARTNER_ID, list_date, uuid4().hex, uuid4().hex, f"dnc/inv/{uuid4().hex}"),
+    )
+    row = cur.fetchone()
+    assert row is not None
+    return row[0]
 
 
 def _mk_partner(cur, name: str) -> UUID:
@@ -80,6 +93,10 @@ def _adversarial_pool(cur) -> dict[str, UUID]:
             cur, phone_e164="+13105550013", dnc_checked_at=FRESH
         ),
         "stale": new_contact(cur, phone_e164="+18185550014", dnc_checked_at=STALE),
+        "stale_list": new_contact(
+            cur, phone_e164="+18185550018", dnc_checked_at=FRESH,
+            dnc_snapshot_id=_snapshot(cur, OLD_LIST),
+        ),
         "unchecked": new_contact(cur, phone_e164="+18185550015"),
         "no_phone": new_contact(cur),
         "won": new_contact(
@@ -105,12 +122,14 @@ def _forbidden_phones(cur) -> set[str]:
         "  or c.stage_snapshot::text not in ('prospect', 'in_sequence', 'lost')"
         "  or c.dnc_checked_at is null"
         "  or c.dnc_checked_at < now() - make_interval(days => %s)"
+        "  or exists (select 1 from dnc_snapshots s where s.id = c.dnc_snapshot_id"
+        "             and s.version_date < (now() at time zone 'UTC')::date - %s)"
         "  or substring(c.phone_e164 from 3 for 3) not in"
         "     (select area_code from dnc_subscriptions)"
         "  or exists (select 1 from suppression_tombstones t"
         "             where t.phone_e164 = c.phone_e164 and t.channel = 'voice')"
         ")",
-        (DNC_FRESHNESS_DAYS,),
+        (DNC_FRESHNESS_DAYS, DNC_FRESHNESS_DAYS),
     )
     return {r[0] for r in cur.fetchall()}
 
@@ -123,12 +142,17 @@ def _exported_phones(result) -> set[str]:
 def test_no_export_ever_contains_a_forbidden_number(clean_db, owner_conn):
     with owner_conn.cursor() as cur:
         pool = _adversarial_pool(cur)
+        pool["flip_list"] = new_contact(
+            cur, phone_e164="+18185550005", dnc_checked_at=FRESH,
+            dnc_snapshot_id=_snapshot(cur, FRESH.date()),
+        )
         partner_id = _mk_partner(cur, "Invariant-partner")
     owner_conn.commit()
 
     report = assign_batch(partner_id, "inv-key-1", actor="test", count=50)
 
-    clean_ids = {pool[k] for k in ("clean", "flip_listed", "flip_optout", "flip_stale")}
+    clean_ids = {pool[k] for k in ("clean", "flip_listed", "flip_optout", "flip_stale",
+                                   "flip_list")}
     assert set(report.assigned) == clean_ids
     # the rule path filters seeds in the WHERE (`c.is_seed = false`), so a seed
     # never reaches _gate — it must appear NOWHERE, not under a "seed" cause
@@ -140,7 +164,7 @@ def test_no_export_ever_contains_a_forbidden_number(clean_db, owner_conn):
     all_shortfall_ids = {c for ids in report.shortfall.values() for c in ids}
     assert pool["seed"] not in all_shortfall_ids | set(report.assigned)
     assert report.shortfall["dnc_stale"] == sorted(
-        [pool["stale"], pool["unchecked"]], key=str
+        [pool["stale"], pool["unchecked"], pool["stale_list"]], key=str
     )
 
     with owner_conn.cursor() as cur:
@@ -156,18 +180,26 @@ def test_no_export_ever_contains_a_forbidden_number(clean_db, owner_conn):
             "update contacts set dnc_checked_at = %s where id = %s",
             (STALE, pool["flip_stale"]),
         )
+        cur.execute(   # time passes: the list its verdict rests on is now past the wall
+            "update dnc_snapshots set version_date = %s where id = "
+            "(select dnc_snapshot_id from contacts where id = %s)",
+            (OLD_LIST, pool["flip_list"]),
+        )
     owner_conn.commit()
 
     result = export_batch(partner_id)
     exported = _exported_phones(result)
 
     assert exported == {"+18185550001"}
-    assert result.shortfall == {"dnc_stale": [pool["flip_stale"]]}
+    assert result.shortfall == {
+        "dnc_stale": sorted([pool["flip_stale"], pool["flip_list"]], key=str)
+    }
 
     with owner_conn.cursor() as cur:
         forbidden = _forbidden_phones(cur)
     assert exported & forbidden == set()
     assert "+18185550002" in forbidden and "+18185550003" in forbidden
+    assert "+18185550005" in forbidden and "+18185550018" in forbidden
 
     _rm_partner(owner_conn, partner_id)
 
