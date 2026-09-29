@@ -1,104 +1,219 @@
-# PRD — Direct Mail AI (Mail Engine)
+# PRD — contact-engine
 
-*Internal tooling for NeverMissCall. Version 1.0, July 2026.*
-*Companion documents: product description, architecture overview, data document (`direct-mail-ai-data.md`), service contract, judgment job, code layout, implementation plan. This PRD is the consolidated statement of what and why; the companions carry the how.*
+*Internal tooling for NeverMissCall. Version 2.0, September 2026. Replaces the Direct
+Mail AI (Mail Engine) PRD, v1.0, July 2026.*
+*The name changed; the folders, the repository (`kyoungd/mail-engine`), and the
+databases keep their old names. Work happens on the `contact-engine` branch; production
+stays on `main` until the upgrade is complete.*
+
+**Sources.** This PRD is the consolidated statement of what and why. It adds no
+decision. Every rule points to its number in the decision record,
+`nvermisscall/docs/active/sales-partner-dialer-decisions.md` (the only source of
+decisions). The companions carry the detail:
+
+| Document | What it is |
+|---|---|
+| [`contact-engine/00-purpose.md`](contact-engine/00-purpose.md) | The six jobs, in plain words |
+| [`contact-engine/00-interface.md`](contact-engine/00-interface.md) | What is exposed, at a high level. Not the contract. |
+| [`contact-engine/00-overview.md`](contact-engine/00-overview.md) | The parts, what each needs, how each is done |
+| [`contact-engine/00-foundation.md`](contact-engine/00-foundation.md) | Part 0. Approved 2026-09-29. |
+| [`contact-engine/handoff.md`](contact-engine/handoff.md) | What was handed to this project |
 
 ---
 
 ## 1. Problem
 
-NeverMissCall is in a 60-day information-buying marketing phase. The direct mail channel (CSLB-list postcards, 3-drop cadence, ~500-piece waves) generates data across disconnected systems — print/delivery at Lob, web response in PostHog, phone response in NeverMissCall itself — with no spine joining them. Without that join: response rates have no reliable denominator, creative experiments produce no readable signal, responders slip through follow-up gaps, and new customers churn silently between signup and activation. The scarce resource is founder hours; the current alternative is manual tracking that consumes them or a CRM whose complexity solves coordination problems a two-person operation doesn't have.
+NeverMissCall is adding a sales-partner dialer: reps call service businesses from an
+Android app. Every such call has to be lawful and fair between reps: the number checked
+against the DNC file for its area code and against every "don't call me again", placed
+inside the calling hours where the business is, held by one rep only, and recorded. Reps
+also bring their own numbers, which must pass the same checks. Today the contact data,
+the DNC check, and the holding of batches live in mail-engine, which was built around
+direct mail, is reachable from nowhere outside the operator's machine, and has no rule
+for when a contact is called again.
 
 ## 2. Product thesis
 
-A campaign operating system where a contact database is the spine, mail executes out of it via print API, response signals feed back into it automatically, and AI operates on top as analyst and briefing officer. Facts flow in once at the source; what flows out is judgments — rendered views, push nudges, prose answers. No CRM: state writes itself from instrumented channels, and software watches the pipeline and taps the right founder on the shoulder ("AI instead of CRM").
+One service holds every business a rep might call and answers one question for the
+dialer: **who may this rep call right now, and what do we know about them?**
+
+```
+The app  ──►  the dialer's backend  ──►  contact-engine
+(screens)     (who is the rep?)          (everything about a contact)
+```
+
+The app is thin and the server decides everything (1.6). contact-engine does every
+contact service (1.2): intake, DNC filtering, time zone, assignment, the calling rule,
+and answering the dialer and the website. It holds both NMC's contacts and each rep's
+own, with their memos and call history (1.3). It sends no message of any kind (1.7) and
+nobody logs in to it (1.8).
 
 ## 3. Goals
 
-1. **Attribution**: every response — web or phone — joins to a specific piece, variant, wave, and cost. Response rate, cost-per-response, and cost-per-customer are queries, not spreadsheets.
-2. **Experiment legibility**: every creative variant carries a hypothesis; every wave produces a plain-language readout grading it. The 60-day phase's success metric is learning-per-hour.
-3. **Zero dropped responders**: a contact who responds enters a watched pipeline; going quiet triggers a founder nudge, never silence.
-4. **Activation completion**: signed-up customers are tracked to first-captured-lead; stalls surface as the highest-priority alarm.
-5. **Founder-hour efficiency**: no manual data entry beyond 30-second voice notes; no dashboard patrol; total system interaction measured in minutes per day.
+1. **No unlawful call.** A number that is unchecked, on a DNC file, checked too long
+   ago, or not covered cannot be called (4.1, 4.2). "Don't call me again" blocks the
+   number for every rep at once (4.3).
+2. **Calls at the right hour.** The business's zone is known before the first call, and
+   the rep is warned outside the calling window (5.1–5.4).
+3. **One rep per number.** No two reps ever hold the same number (6.1); a sold business
+   is out of reach of everyone but the rep who sold it (6.5).
+4. **A calling rule the rep does not have to track.** The server says what is due, ends
+   a sequence at its limit, and rests the contact (7.1–7.4).
+5. **Every call recorded.** Timed by the server's clock (7.6), never recorded twice
+   (7.7), kept per 8.8.
 
 ## 4. Non-goals
 
-- Not a CRM, not sales-stage machinery, not multi-seat pipeline management.
-- Not a marketing automation platform, BI tool, or dashboard suite.
-- Not autonomous: nothing prints without human approval; AI drafts and briefs, never decides.
-- Does not extend into post-handoff sales conversations or customer-lifecycle communication (covered by NeverMissCall's own push-based architecture).
-- No cold outbound SMS to the purchased list, ever (compliance bright line: mail is the cold channel, SMS is the warm reply channel).
+- **Not a mail system.** The mail code is removed on the branch (2.3).
+- **Not a sender.** No email, report, alert, or SMS. The website composes and sends any
+  report and raises every alert from what contact-engine reports (1.7).
+- **Not a roster, and not something anyone logs in to.** A rep is added or removed on
+  the website's roster; the dialer makes the rep known to contact-engine (1.8).
+- **Not the judge of commissions.** The website is.
+- **No export to a sheet for a rep on the app** (6.6). The export stays for the operator
+  and for a rep not yet on the app.
+- **No DNC files or numbers on them given out** (4.5).
+- **No calling past a DNC block**, for any reason, until the operator turns it on (§10,
+  put off 09-28).
 
 ## 5. Users
 
-Two founders. Young (technical, owns mail channel) — primary operator: composes waves, approves drops, reads analyses, receives mail/activation nudges. Sales partner (non-technical, owns affiliate referrals) — receives pipeline nudges for owned contacts, uses pipeline and timeline views. No other users; no auth machinery beyond audit attribution.
+contact-engine has no human users of its own. It is asked by:
+
+| Asker | For whom | Asks about |
+|---|---|---|
+| The dialer's backend (in `website/`) | A rep, on the app | Their lists, cards, calls, memos |
+| The website | A rep, on Call Control | Adding numbers, their settings, their lists |
+| The website | An admin | Keeping it running |
+| The website | Itself | The state of the jobs, to raise alerts |
+
+It trusts the asker to have checked who the rep or admin is (`00-interface.md` §1). The
+operator also runs it from the command line and the console (`make console`), for
+loading NMC's lists, DNC uploads, and the daily cycle.
 
 ## 6. Functional requirements
 
-**FR-1 List intake.** Bulk-load purchased lists through one intake adapter per source format (CSLB contractor list; county FBN feeds, starting with CA — other states will arrive in other formats): filter to live records, dedupe on an adapter-prefixed per-list key, E.164 phone normalization, segment assignment. The spine never learns a vendor's columns. Intake is **resolve-then-insert onto a two-table grain** (`ingest-contact-migration.md`, approved 2026-07-27): immutable per-source **intake tables** hold the raw rows; business-grain **contacts** (phone-unique by construction) are resolved per the source's identity rule (CSLB: same phone ⇒ same contact; FBN: per filing) via a pinned source registry — an unrecognized source fails loud. Address standardization (USPS-canonical form + delivery point, via the print vendor's verification API) is stamped on intake rows by the `verify_addresses` job (nightly), not at load; it supersedes the earlier "NCOA/CASS address validation" phrasing. Intake report with counts.
+One requirement per job; each job is one part, designed and built in order (2.2).
 
-**FR-2 Creative variants.** Variants stored with required one-line hypothesis and creative payload. A variant without a hypothesis cannot exist.
+**FR-1 Intake (part 1).** Numbers come in through two doors: a list NMC loads (command
+line only), and a number a rep adds — one at a time in the app or on the website, or a
+file on the website (3.1). How the rep got the number is recorded, with the
+confirmation they gave (3.2). A number that is already NMC's and held by nobody stays
+NMC's, and the rep holds it; a number another rep holds is refused (3.3, 6.1). One
+number, one contact. Open: what expanding NMC's list covers (1.10, 9.6); how NMC's and
+a rep's own are told apart, and which parts of the 2026-08-06 partner-sourcing decision
+stand (`handoff.md` §4).
 
-**FR-3 Wave lifecycle.** Draft (audience as stored, reviewable rule) → preview (resolved count, breakdown, cost estimate, sample) → human approval (recorded who/when) → scheduled execution → sent. Cancel valid until execution. Approval renders exactly what will fire; execution halts on drift from the approved preview.
+**FR-2 DNC filtering (part 2).** Every number, NMC's and a rep's alike, is checked
+against the DNC file for its area code and against every "don't call me again".
+Unchecked, failed, or not covered: no call (4.1). A check is good through day 31; day
+32 is stale (4.2). "Don't call me again" blocks the number for every rep at once (4.3);
+the rep who reported it can undo it within 24 hours with a written reason, with no
+admin step (4.4). DNC files stay files, uploaded as today (4.5). The rep is told an area
+code is not covered only after the check (4.6). Open: 9.8–9.11, 9.16.
 
-**FR-4 Drop execution.** Approved waves fire through print API (Lob; PostGrid-swappable seam): one piece per contact per wave — enforced at audience resolution plus mailer-code idempotency (the former DB constraint was retired by the grain migration, which relaxed it for merged history; `ingest-contact-migration.md` §2.3) — and at most one piece per verified delivery point per wave (audience-resolution dedupe; undeliverable primary addresses excluded, both counts reported in preview). Unique per-piece mailer code driving QR/`?r=` tracking and campaign phone attribution, cost recorded per piece, delivery status from webhooks. Resumable and idempotent on the mailer code.
+**FR-3 Time zone (part 3).** No zone is assumed: area code first, the state as a
+cross-check; when more than one zone is possible, the hours safe in every one (5.1). No
+zone known: the rep says where the business is before the first call (5.2). The window
+is 9 AM to 7 PM the business's time, the same for every rep, changeable by an admin
+(5.3). Outside it is a warning; the rep confirms and the confirmation is recorded (5.4).
+A holding rep can fill in or narrow a zone; an admin can set any (5.5). Open: 9.16.
 
-**FR-5 Response capture.** Nightly sync of web response (PostHog) and phone response (NeverMissCall campaign line under dedicated "nevermisscall" vertical config — the product dogfooding itself as first-contact demo). Real-time Lob delivery webhooks. All inflows land as append-only canonical events (closed taxonomy); idempotent under replay.
+**FR-4 Assignment (part 4).** One rep per number (6.1). Get more numbers: the rep picks
+a region and nothing else; the batch is drawn in proportion from the region's area
+codes, at random; batch size and the refill point are admin settings (6.2). NMC's
+contacts go back after 90 days, counted per contact, never one in Got a callback or
+Follow up; a rep's own are never taken back (6.3). A new holder sees the history of
+NMC's contacts, not of a rep's own (6.4). Once sold, a business is out of reach of
+everyone but the rep who sold it (6.5). Open: 9.0–9.3, 9.12, 9.13.
 
-**FR-6 Attribution.** Identity resolution by strict precedence (mailer code → thread continuity → exact phone); never fuzzy-matched; unmatched events stored and surfaced weekly rather than guessed.
+**FR-5 Calling rule (part 5).** Four settings per rep, fixed choices: voicemails 1/2/3
+(default 2), calls 3/5/8 (default 5), days between calls 3/5/7 (default 3), rest
+1/3/6 months (default 3) (7.1). A sequence ends at whichever limit comes first, then the
+contact rests; after the rest the rep restarts or closes it (7.2). The rep changes the
+settings on the website; the app only shows them (7.3). Stopping at the limit is
+automatic; a pause is the rep's request (7.4). The lists: Calls received, Got a
+callback, Follow up, Never called, All due retries, Waiting, Limit reached, Closed
+(7.5, 7.11). The server's clock times every call (7.6) and works out whether a call
+happened (7.8). A request that succeeded is never done twice; a success is remembered
+for 90 days (7.7). A call with no outcome is cleared by an admin; nothing closes on a
+timer (7.9). A rep can undo their own Signed up or Wrong number within 24 hours with a
+written reason (7.10). The record of calls and memos is never edited. Open: 9.4, 9.14.
 
-**FR-7 Derived state.** Contact stage, response status, and suppression derived from the event stream by versioned pure functions; recomputable over full history after definition changes. Human-authored facts (do_not_mail, do_not_text, founder-set next actions) survive recomputation.
-
-**FR-8 Suppression & compliance.** Opt-outs honored instantly, permanently, irreversibly. STOP handling on SMS. CCPA deletion = contact hard-delete + event anonymization (identity severed, aggregates preserved).
-
-**FR-9 Human residue capture.** Voice note / text → AI-structured event on the right contact. The only manual inflow; friction ceiling 30 seconds.
-
-**FR-10 Judgment job.** Nightly, after sync and recompute: deterministic rules detect conditions (quiet responder, hot response, demo no-show, activation stall/partial, returned mail, wave anomaly, pending approval, orphan events, aging-out), AI composes 30-second action briefs (template fallback — delivery never depends on the model). Discipline: 5-nudge daily budget with priority overflow, per-contact cooldown, expiry not escalation, one morning digest per founder via NMC's own sending, silence as valid output. Nudges logged as events; the job grades itself monthly.
-
-**FR-11 Web UI.** Thin window over service verbs (v1: every founder-initiated verb is fronted; one verb per route, no logic in the web layer): wave index + composer (draft, preview, cancel), approval queue (preview + approve button — approval remains the gate before any drop), variant catalog (create requires hypothesis), contact search + timeline with founder actions (note, next action, lost, suppress-with-confirm), list intake (CSV upload + report), orphan queue (view + resolve pass), pipeline view, activation board, due nudges. No analysis features. Execution stays job-only: `execute_wave`, `sync`, `recompute`, and the nightly are never routed — dropping mail is a job, not an HTTP call.
-
-**FR-12 Conversational analysis.** Ad-hoc questions answered by AI (Claude Code) via SQL through a read-only role against retained raw history. Post-wave learnings memo quoting variant hypotheses against results. Recurring questions graduate to fixed UI panels; novel ones never require new UI.
-
-**FR-13 Wave readout.** After each wave: segments, variants, timing vs. response and cost-per-response, in prose, grading the stated hypotheses.
+**FR-6 Context support (part 6).** The only way in from outside; built last and
+thinnest. The dialer asks directly (1.4). It gives the rep's lists and counts, the
+contact card, the next contact to call, search among the rep's own contacts, call
+history and memos, and the answer to **"may I call this contact now?"** — yes with the
+number to dial, or no with the reason. It gives the list of known callers so the phone
+recognizes who is calling, and records calls received and the rep's choice for each
+(8.3, 8.4). It accepts "make a rep known" and "a rep is deactivated" (1.8). For the
+website it reports the state: the last run of each job and whether it succeeded, the
+age of each DNC file, calls open too long, checks near 31 days (1.7). Paths, fields,
+and status codes are part 6's design. Open: 9.5, 9.7, 9.17.
 
 ## 7. System requirements
 
-- **SR-1** Postgres 15+ spine; six tables per the data document; events append-only, retained indefinitely.
-- **SR-2** Single typed service layer is the only write path (UI, jobs, AI, founders included); reads may bypass via read-only role.
-- **SR-3** Dependency rule: `web`/`jobs` → `service` → `derivation`/`resolution` → `domain`; vendor SDKs confined to seam modules; NMC consumed through the same feed contract as third parties.
-- **SR-4** All writes idempotent; sync jobs replay-safe via `(source, external_id)`.
-- **SR-5** Runs on existing Docker/VPS infrastructure; nightly cadence sufficient for all non-webhook flows.
-- **SR-6** Nightly offsite backups; restore tested before wave 1.
+- **SR-1** Postgres 15+. Events and the record of calls and memos are append-only. The
+  existing tables are left alone on the branch (2.3); new tables arrive with the part
+  that first needs them (2.8).
+- **SR-2** A single typed service layer is the only write path; reads may use the
+  read-only role.
+- **SR-3** Dependency rule: `jobs` and the part-6 interface → `service` →
+  `derivation`/`resolution` → `domain`. `service/` does not import `jobs/`.
+- **SR-4** Every write is idempotent; a blocked request changes nothing about the
+  contact (7.7).
+- **SR-5** The export's compliance predicates (`service/assignment.py`) and the
+  suppression and tombstone machinery are kept and remain the gate on any number
+  reaching a rep.
+- **SR-6** Hosted on Render (1.5), after part 6. Not deployed until the upgrade is
+  complete (2.9). Only the production checkout runs cron.
+- **SR-7** Records are kept per 8.8: "don't call me again" permanently; calls, with the
+  check at the time and any calling-hours confirmation, 5 years; nothing deleted
+  automatically in the first version.
+- **SR-8** Nightly offsite backups.
 
-## 8. Success metrics (60-day phase)
+## 8. Done means
 
-- 100% of pieces carry working attribution; ≥95% of response events auto-attributed (orphans < 5%).
-- Every wave produces a readout answering its stated hypotheses; zero waves fired without one.
-- Zero responders aged out without a nudge having fired; median founder response to hot_response nudge < 1 business day.
-- Zero activation stalls undetected past STALL_DAYS.
-- Founder system-admin time (excluding actual selling) < 15 min/day; manual data entry limited to voice notes.
-- Nudge channel stays trusted: budget rarely binding, no muting behavior; ≥ half of nudges lead to founder action within expiry (else rules get re-graded).
+Each part defines its own "done" in its design (overview §3). The upgrade is done when:
+
+- Parts 0 to 6 are each designed, reviewed by a fresh reader, approved, and built.
+- `make test` and `make lint` pass on the branch.
+- The dialer's backend can ask every question in `00-interface.md` §2 and get an answer.
+- No path exists by which a number that fails FR-2 is offered to a rep as callable.
+- It runs on Render, and the branch replaces `main` in production.
+
+No numeric success metric has been decided.
 
 ## 9. Risks
 
-- **Attribution leakage** (calls from unlisted numbers, shared devices) → orphan-event queue makes leakage visible and bounded rather than silent; accept imperfection, measure it.
-- **Nudge fatigue** → discipline mechanics (budget, cooldown, expiry) are requirements, not options; monthly self-grading catches drift.
-- **Voice-note discipline decay** → the one human dependency; if notes stop, AI reasons over gaps. Mitigation: 30-second friction ceiling and nudge-visible gaps ("demo held yesterday, no note").
-- **Compliance misstep on SMS** → structural mitigation: no code path exists for cold outbound SMS to list contacts.
-- **Scope creep toward CRM/BI** → non-goals section is the contract; UI adds a panel only when a question recurs every wave.
-- **Single-vendor print dependency** → PrintApi seam; PostGrid is a one-file fallback.
+- **An unlawful call.** Mitigation: FR-2 is the gate on every call, for every source;
+  unchecked means no call; the compliance predicates stay 🔴. The 31 days and the
+  calling hours are to be verified against 16 CFR § 310.4 before building (9.16).
+- **A wrong zone.** Mitigation: nothing assumed; the narrowest safe window when in
+  doubt; the rep must say where before a first call (5.1, 5.2).
+- **Two reps on one number.** Mitigation: one number, one contact, one rep (6.1).
+- **A rep's own number leaking into another rep's batch.** Open (9.13).
+- **Losing a working feature while removing mail.** Mitigation: every removal step in
+  part 0 leaves the suite green; production stays on `main` (`00-foundation.md`).
+- **Split disks on Render.** The DNC fetch job and the reader may not share a disk
+  (9.11).
 
 ## 10. Dependencies
 
-Lob account + test environment; PostHog project with `?r=` capture live; NMC campaign line with "nevermisscall" vertical config (script variant for ad-responders, booking to founders' calendar); CSLB list in hand; NMC SMS/email sending path reusable for digests.
+The website's roster and login (1.8, 1.9); the dialer's backend in `website/`; the
+`nmc-dialer-app` repository (8.1); the FTC DNC download and upload flow as it runs
+today (4.5); a Render account (1.5).
 
 ## 11. Milestones
 
-Per the implementation plan: Phase 0 skeleton → 1 truth machinery → 2 contract verbs → 3 seams & jobs → 4 judgment → 5 surfaces → 6 ghost wave (~10 real pieces to founder addresses; end-to-end pass is the go/no-go for wave 1). Build sized at roughly two weeks part-time via Claude Code (Fable 5 review at phase boundaries, Opus 4.8 execution). Hard deadline: operational before wave 1 drops; the ghost wave is the immovable quality gate.
+In order, one at a time (2.2; overview §3): Part 0 Foundation → 1 Intake → 2 DNC
+filtering → 3 Time zone → 4 Assignment → 5 Calling rule → 6 Context support → hosting
+on Render. Each part is designed, checked against the code, put to the operator one
+question at a time, reviewed by a fresh reader, and approved before the next begins.
+The dialer waits for contact-engine (2.1).
 
 ## 12. Open questions
 
-1. ~~Lob vs. PostGrid final call~~ — **DECIDED 2026-07-11: Lob** (see docs/decisions.md; chosen on API fit at price parity after verified quotes from Stannp/Poplar; PostGrid remains the named fallback, re-quote at >5k pieces/month).
-2. `hot_response` same-day delivery vs. morning digest only — start digest-only; promote if wave-1 response latency data says hours matter.
-3. Partner's nudge channel (SMS vs. email) — his preference, ask him.
-4. Whether affiliate-referred prospects enter this system's pipeline view from day one or only post-response — leaning day-one with `owner=partner`, confirm with him before wave 1.
+The not-settled list is the decision record's §9. Each waits for its part; none is
+decided by this PRD. The largest is **9.0, the 90 days against the rest** (parts 4 and
+5).
