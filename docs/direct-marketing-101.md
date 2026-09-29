@@ -185,15 +185,15 @@ at drop time:
 ```html
 <!-- from creative/w1-6x9-loss-math/back.html -->
 <p><strong>See it work on your own phone:</strong><br>getnevermisscall.com/?r={{mailer_code}}</p>
-<p><strong>Call or text (888) 853-8575</strong></p>       <!-- the campaign phone line -->
+<p><strong>Call (805) 947-3256</strong></p>       <!-- the campaign phone line -->
 <p>Code: {{mailer_code}}</p>                                <!-- human-readable fallback -->
 ```
 
 - `getnevermisscall.com/?r={{mailer_code}}` — the **landing URL**; the `?r=` param is the
   mailer code PostHog captures (step 9). A QR encoding this same URL goes on the card.
-- **(888) 853-8575** — the NMC campaign phone line (dedicated "nevermisscall" vertical:
-  the product dogfooding itself as the first-contact demo). Calls/texts here become phone
-  response events.
+- **(805) 947-3256** — the public sales contact (operator update, 2026-09-12).
+  Use "Call" in new creative; SMS/AI handling and phone-response attribution on
+  this number are not established by the contact update.
 - `Code: {{mailer_code}}` — printed so a caller can read it aloud if the QR/URL is missed.
 
 **Creating and freezing.** `POST /variants` (or `/variants` form) with `name`,
@@ -378,9 +378,10 @@ all carrying the mailer code:
    sentinel (organic traffic) stays in PostHog to measure uncoded lift but never reaches
    the spine (it would flood the orphan queue).
 
-2. **Phone (call or text the campaign line).** (888) 853-8575 is a dedicated NMC line under
-   the "nevermisscall" vertical. Inbound calls/texts become `call.inbound` / `sms.inbound`
-   events; NMC's own conversation carries thread identity for attribution.
+2. **Phone (call the public sales contact).** Publish **(805) 947-3256** on new
+   materials. The existing AI line at (888) 853-8575 is a separate operational
+   record. Phone-response attribution remains deferred; publishing the 805
+   number does not connect it to `call.inbound` / `sms.inbound` events.
 
 3. **Delivery signal (Lob → us).** Real-time Lob **webhooks** (`POST /webhooks/lob`,
    HMAC-verified, fail-closed) report physical status: `postcard.processed_for_delivery` →

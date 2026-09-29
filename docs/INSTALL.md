@@ -94,7 +94,7 @@ are proposed — they're finalized when each client is built.)*
 
 | Collect | What it is | Where to get it |
 |---------|-----------|-----------------|
-| Campaign **phone number** | the number printed on the postcards — **(888) 853-8575** (changed 2026-07-14 from 866-9044: that number is NMC's reserved full-life TEST CALLER — its Twilio `sms_url` must stay empty, so it can never answer campaign responders. 853-8575 is the live sales-AI line, TFV-approved) | your NMC / Twilio number |
+| Campaign **phone number** | **Call (805) 947-3256** for new public sales materials (operator update, 2026-09-12). Replaces the published 888-853-8575 contact; revise via NEW variants, not mailed/frozen history. SMS/AI routing on 805 is not established by this copy change. Never print 866-9044: it is the reserved test caller and its Twilio `sms_url` must stay empty. | operator-designated public sales contact |
 | **"nevermisscall" vertical config** | the NMC config that runs the campaign line (ad-responder script, booking to the founders' calendar) | configured inside NMC |
 | NMC **response API access** | credential to pull calls/SMS/bookings nightly | your NMC deployment |
 

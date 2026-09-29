@@ -23,8 +23,11 @@ exactly what the DB holds; nothing here is read by the app.
 - **`{{mailer_code}}` must appear in the tracking URL** — it is the entire
   attribution chain: `getnevermisscall.com/?r={{mailer_code}}` (note: the
   **getnevermisscall.com** domain — the main product site does not capture `?r=`).
-- Campaign phone line: **(888) 853-8575** (the NMC sales AI line — Q&A, books a
-  sales call, texts the buy link). ⚠️ Changed from (888) 866-9044 on 2026-07-14:
+- Public sales contact for new creative: **Call (805) 947-3256** (operator
+  update, 2026-09-12). Existing variants with (888) 853-8575 need a NEW variant
+  before reuse; preserve mailed/frozen variants. Do not promise SMS or AI
+  handling on the 805 number without verifying its setup.
+  History: the previous campaign number changed from (888) 866-9044 on 2026-07-14:
   that number is the main repo's reserved full-life TEST CALLER whose Twilio
   `sms_url` must stay EMPTY — wiring it live for the campaign broke the daily
   cycle test (the "set-then-recur" webhook mystery), and clearing it for the test
