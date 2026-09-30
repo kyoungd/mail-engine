@@ -2,7 +2,18 @@
 
 **Status:** APPROVED by the operator, 2026-09-30, at revision 18 (offered "Approve now",
 "One focused review", or "Read it first"; chose approve now). Approval does not start the
-build: its plan and tests come first, under the red-tier gate (§8). Not built. History: Revision 16 was approved after fifteen
+build: its plan and tests come first, under the red-tier gate (§8). **BUILT 2026-09-30:**
+under an approved build plan and an approved test gate, `0015.dnc-filtering.sql`,
+`service/dnc.py`, `jobs/dnc_admin_cli.py`, and changes to `service/assignment.py`,
+`service/rep_intake.py`, `service/contacts.py`, `jobs/dnc_refresh.py`; gate
+`tests/acceptance/test_dnc_filtering.py` plus one test in
+`test_export_compliance_invariant.py`. One gate test's harness was corrected with the
+operator's approval (its lock hook re-ran inside its own worker thread); no assertion
+changed. Mutation checks: each path's removal failed the gate, except the gate's
+locked-read column, which the second read after the locks duplicates. §8's migration check
+ran on the 2026-09-13 production backup in a scratch database: every existing table
+unchanged; the backfill found nothing to convert (no flag, tombstone, or qualifying event).
+History: Revision 16 was approved after fifteen
 reviews; the operator then questioned why the design took so long and asked for a
 simpler approach. This revision keeps every approved rule and answer and replaces the
 machinery underneath: **one record of "don't call me again", keyed by phone**, written by

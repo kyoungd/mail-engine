@@ -38,9 +38,11 @@ from uuid import UUID
 
 from config.params import DNC_RECHECK_DAYS, HOUSE_PARTNER_ID
 from db.session import transaction
+from domain.errors import ValidationError
 from seams.dnc_registry import DncRegistry, DncRegistryError, FileDncRegistry
 from service.contacts import clear_suppression
 from service.custody import set_owner
+from service.dnc import record_scrub_run
 from service.ingestion import append_event
 
 LISTS_ROOT = Path(__file__).resolve().parents[2] / "dnc-lists"
@@ -169,10 +171,25 @@ def _apply(
     return checked, hits, cleared
 
 
+# The single-registry scrub stamps every code against one file, whatever its area
+# code; it runs only on these databases (part 2 §4.8).
+SINGLE_REGISTRY_DATABASES = frozenset({"mailengine_dev", "mailengine_test"})
+
+
 def dnc_refresh(registry: DncRegistry, *, limit: int | None = None) -> DncReport:
     """One scrub pass against ONE registry: re-check contacts in subscribed area
     codes whose `dnc_checked_at` is older than the 21-day threshold (or never set),
     assigned contacts first."""
+    with transaction() as conn:
+        with conn.cursor() as cur:
+            cur.execute("select current_database()")
+            found = cur.fetchone()
+            if found is None or found[0] not in SINGLE_REGISTRY_DATABASES:
+                raise ValidationError(
+                    "not_a_dev_database",
+                    "the single-registry scrub runs only on a dev database",
+                )
+
     version = registry.version()
 
     with transaction() as conn:
@@ -245,9 +262,13 @@ def dnc_refresh_all(*, lists_root: Path = LISTS_ROOT, limit: int | None = None) 
     deliberate here: one partner's bad file must not stop every other code."""
     with transaction() as conn:
         with conn.cursor() as cur:
+            cur.execute("select now()")
+            started = cur.fetchone()
+            assert started is not None
             subscribed = _subscribed_codes(cur)
-            if not subscribed:
-                return DncReport()
+    if not subscribed:
+        record_scrub_run(started[0], limit is not None)
+        return DncReport()
 
     coverage = _coverage(subscribed, lists_root)
     by_code = _group(_due(subscribed, limit))
@@ -276,6 +297,7 @@ def dnc_refresh_all(*, lists_root: Path = LISTS_ROOT, limit: int | None = None) 
         _bump(cover.snapshot_id, c)
         checked, hits, cleared = checked + c, hits + h, cleared + cl
 
+    record_scrub_run(started[0], limit is not None)
     return DncReport(checked=checked, hits=hits, cleared=cleared, skips=skips)
 
 

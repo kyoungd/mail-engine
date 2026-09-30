@@ -30,6 +30,7 @@ from config.params import (
 from db.session import transaction
 from domain.errors import ValidationError
 from service.custody import set_owner
+from service.dnc import BLOCKED_SQL, LINK_FRESH_SQL, LIVE_ROW_SQL
 
 # The rule keys assignment accepts (S-1): the wave grammar's selection keys.
 # NOT `stage` (the pool gates own stage), NOT `limit` (`count` owns it), NOT
@@ -121,20 +122,20 @@ _CANDIDATE_COLS = sql.SQL(
     "c.id, c.phone_e164, c.assignment_batch_id, c.owner_id, c.stage_snapshot::text, "
     "c.do_not_call, c.dnc_registry, c.is_seed, c.dnc_checked_at, "
     "(c.dnc_checked_at is not null and c.dnc_checked_at >= now() - make_interval(days => %s) "
-    "  and (c.dnc_snapshot_id is null or (select s.version_date from dnc_snapshots s "
-    "  where s.id = c.dnc_snapshot_id) >= (now() at time zone 'UTC')::date - %s)) "
-    "  as dnc_fresh, "
+    "  and {link}) as dnc_fresh, "
     "(c.phone_e164 is not null and substring(c.phone_e164 from 3 for 3) in "
     "  (select area_code from dnc_subscriptions)) as area_subscribed, "
     "exists (select 1 from suppression_tombstones t "
-    "  where t.phone_e164 = c.phone_e164 and t.channel = 'voice') as tombstoned"
-)
+    "  where t.phone_e164 = c.phone_e164 and t.channel = 'voice') as tombstoned, "
+    "{live} as blocked_row"
+).format(link=LINK_FRESH_SQL, live=LIVE_ROW_SQL)
 
 
-def _gate(row) -> str | None:
-    """First failing gate → shortfall cause; None → assignable."""
+def _gate(row, live_phones: frozenset[str] = frozenset()) -> str | None:
+    """First failing gate → shortfall cause; None → assignable. `live_phones` is the
+    second read of blocked phones, taken after the row locks (part 2 §4.4)."""
     (_id, phone, batch_ptr, owner_id, stage, do_not_call, dnc_registry, is_seed,
-     _checked_at, dnc_fresh, area_subscribed, tombstoned) = row
+     _checked_at, dnc_fresh, area_subscribed, tombstoned, blocked_row) = row
     if is_seed:
         return "seed"
     if phone is None:
@@ -147,7 +148,7 @@ def _gate(row) -> str | None:
         return "mid_funnel"
     if stage not in _ASSIGNABLE_STAGES:
         return "mid_funnel"
-    if do_not_call:
+    if do_not_call or blocked_row or phone in live_phones:
         return "voice_suppressed"
     if dnc_registry:
         return "dnc_registry"
@@ -267,10 +268,19 @@ def assign_batch(
                     [DNC_FRESHNESS_DAYS, DNC_FRESHNESS_DAYS, [*contact_ids]],
                 )
 
+            rows = cur.fetchall()
+            # A report locks the contact without updating it, so the locked re-read
+            # above cannot see a block that landed while this waited: read again.
+            cur.execute(
+                "select phone_e164 from dnc_numbers where blocked and phone_e164 = any(%s)",
+                ([r[1] for r in rows if r[1]],),
+            )
+            live_phones = frozenset(r[0] for r in cur.fetchall())
+
             assigned: list[UUID] = []
             shortfall: dict[str, list[UUID]] = {}
-            for row in cur.fetchall():
-                cause = _gate(row)
+            for row in rows:
+                cause = _gate(row, live_phones)
                 if cause is None and (count is None or len(assigned) < count):
                     assigned.append(row[0])
                 elif cause is not None:
@@ -322,18 +332,20 @@ def export_batch(partner_id: UUID) -> ExportResult:
             if cur.fetchone() is None:
                 raise ValidationError("no_partner", f"no partner {partner_id}")
             cur.execute(
-                "select c.id, c.business_name, c.contact_name, c.phone_e164, "
-                "c.addr_line1, c.addr_line2, c.addr_city, c.addr_state, c.addr_zip, "
-                "b.expires_at, "
-                "(c.dnc_checked_at is not null and c.dnc_checked_at >= now() - "
-                " make_interval(days => %s) and (c.dnc_snapshot_id is null or "
-                " (select s.version_date from dnc_snapshots s where s.id = c.dnc_snapshot_id)"
-                " >= (now() at time zone 'UTC')::date - %s)) as dnc_fresh "
-                "from contacts c join assignment_batches b "
-                "  on b.id = c.assignment_batch_id "
-                "where c.owner_id = %s "
-                "and c.do_not_call = false and c.dnc_registry = false "
-                "order by c.id",
+                sql.SQL(
+                    "select c.id, c.business_name, c.contact_name, c.phone_e164, "
+                    "c.addr_line1, c.addr_line2, c.addr_city, c.addr_state, c.addr_zip, "
+                    "b.expires_at, "
+                    "(c.dnc_checked_at is not null and c.dnc_checked_at >= now() - "
+                    " make_interval(days => %s) and {link}) as dnc_fresh "
+                    "from contacts c join assignment_batches b "
+                    "  on b.id = c.assignment_batch_id "
+                    "where c.owner_id = %s "
+                    "and not {blocked} and c.dnc_registry = false "
+                    "and substring(c.phone_e164 from 3 for 3) in "
+                    "  (select area_code from dnc_subscriptions) "
+                    "order by c.id"
+                ).format(link=LINK_FRESH_SQL, blocked=BLOCKED_SQL),
                 (DNC_FRESHNESS_DAYS, DNC_FRESHNESS_DAYS, partner_id),
             )
             rows = cur.fetchall()

@@ -43,8 +43,10 @@ def valid_phone(raw: str | None) -> str | None:
     return e164
 
 
-def _event_phone(payload: dict) -> str | None:
-    """The matcher's rule (resolution/matcher.py:63)."""
+def _event_phone(payload) -> str | None:
+    """The matcher's rule (resolution/matcher.py:63); a non-object carries no phone."""
+    if not isinstance(payload, dict):
+        return None
     return payload.get("phone_e164") or to_e164(payload.get("phone"))
 
 
@@ -87,10 +89,13 @@ def _judge(cur, rep: UUID, phone: str, unmatched_opt_outs, unmatched_sales):
     )
     contact = cur.fetchone()
     cur.execute(
-        "select 1 from suppression_tombstones where phone_e164 = %s and channel = 'voice'",
-        (phone,),
+        "select exists (select 1 from suppression_tombstones "
+        "  where phone_e164 = %s and channel = 'voice') "
+        "or exists (select 1 from dnc_numbers where phone_e164 = %s and blocked)",
+        (phone, phone),
     )
-    voice_tombstone = cur.fetchone() is not None
+    found = cur.fetchone()
+    voice_tombstone = found is not None and found[0]
 
     if contact is None:
         if voice_tombstone or phone in unmatched_opt_outs:

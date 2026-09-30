@@ -230,3 +230,84 @@ def test_a_second_pull_regates_from_scratch(clean_db, owner_conn):
     assert second == first - {"+18185550002"}
 
     _rm_partner(owner_conn, partner_id)
+
+
+# --- part 2 (docs/contact-engine/02-dnc-filtering.md §4.4): every path that blocks ------
+#
+# Each contact is assigned CLEAN, then blocked by one path of §4.2 — a block present
+# before assignment would be refused by the gate and prove nothing about the export.
+# The oracle below is written independently of service/dnc.py: it reads the tables.
+
+
+def _blocked_phones(cur) -> set[str]:
+    """Phones the program may not dial for "don't call me again", re-derived from the
+    record and the two legacy columns the export has always read."""
+    cur.execute(
+        "select phone_e164 from dnc_numbers where blocked "
+        "union select phone_e164 from suppression_tombstones where channel = 'voice' "
+        "  and phone_e164 is not null "
+        "union select phone_e164 from contacts where do_not_call and phone_e164 is not null"
+    )
+    return {r[0] for r in cur.fetchall()}
+
+
+def test_every_blocking_path_after_assignment_keeps_the_number_off_the_sheet(
+    clean_db, owner_conn
+):
+    from service import dnc
+    from service.ingestion import ingest_event
+
+    with owner_conn.cursor() as cur:
+        for code in ("818", "213"):
+            cur.execute(
+                "insert into dnc_subscriptions (area_code, subscribed_at) "
+                "values (%s, now()) on conflict do nothing",
+                (code,),
+            )
+        ids = {
+            name: new_contact(cur, phone_e164=phone, dnc_checked_at=FRESH)
+            for name, phone in [
+                ("clean", "+18185550101"),
+                ("admin", "+18185550102"),
+                ("opt_out", "+18185550103"),
+                ("no_reason", "+18185550104"),
+                ("no_channel", "+18185550105"),
+                ("carried", "+18185550106"),
+                ("tombstone", "+18185550107"),
+                ("unsubscribed", "+12135550108"),
+            ]
+        }
+        partner_id = _mk_partner(cur, "Invariant-blocks")
+    owner_conn.commit()
+
+    report = assign_batch(partner_id, "inv-key-3", actor="test", count=50)
+    assert set(report.assigned) == set(ids.values())
+
+    at = datetime.now(UTC)
+    dnc.record_do_not_call_request("+18185550102", "young", "email", at)
+    ingest_event("human", "contact.opt_out", at, {"reason": "phone"},
+                 contact_id=ids["opt_out"])
+    ingest_event("human", "contact.opt_out", at, {}, contact_id=ids["no_reason"])
+    ingest_event("human", "contact.suppressed", at, {"reason": "x"},
+                 contact_id=ids["no_channel"])
+    ingest_event("human", "contact.opt_out", at, {"phone": "(818) 555-0106"})
+    with owner_conn.cursor() as cur:
+        cur.execute(
+            "insert into suppression_tombstones (phone_e164, channel, reason) "
+            "values ('+18185550107', 'voice', 'asked')"
+        )
+        cur.execute("delete from dnc_subscriptions where area_code = '213'")
+    owner_conn.commit()
+
+    result = export_batch(partner_id)
+    exported = _exported_phones(result)
+
+    assert exported == {"+18185550101"}
+    assert result.shortfall == {}
+    with owner_conn.cursor() as cur:
+        blocked = _blocked_phones(cur)
+    assert exported & blocked == set()
+    assert blocked >= {"+18185550102", "+18185550103", "+18185550104", "+18185550105",
+                       "+18185550106", "+18185550107"}
+
+    _rm_partner(owner_conn, partner_id)

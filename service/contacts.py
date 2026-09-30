@@ -263,6 +263,7 @@ def _resolve_group(
                 cur.execute(
                     "update contacts set do_not_mail = true where id = %s", (found[0],)
                 )
+            _block_voice(cur, phone, found[0], tomb_channels)
             return found[0], None
 
     winner = pick_winner(group)
@@ -294,7 +295,17 @@ def _resolve_group(
     )
     row = cur.fetchone()
     assert row is not None
+    _block_voice(cur, phone, row[0], tomb_channels)
     return row[0], winner["list_key"]
+
+
+def _block_voice(cur, phone: str | None, contact_id: UUID, tomb_channels: set[str]) -> None:
+    """Part 2 §4.2: door A applying a voice tombstone turns the phone's row on."""
+    if phone and "voice" in tomb_channels:
+        cur.execute(
+            "select dnc_block(%s, 'intake', 'load_list', %s, null, null, now())",
+            (phone, contact_id),
+        )
 
 
 def _seed_key(name: str) -> str:
