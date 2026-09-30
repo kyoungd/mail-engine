@@ -1,6 +1,6 @@
 # contact-engine Upgrade — Part 2: DNC filtering
 
-**Status:** DRAFT, revision 7, 2026-09-30. Revision 1 did not pass its review (the status
+**Status:** DRAFT, revision 8, 2026-09-30. Revision 1 did not pass its review (the status
 missed event-only opt-outs; a report on a contact the rep no longer held was thrown
 away; the UTC-date claim was false for the check's age — question 3 re-asked; the
 export did not refuse what the status refuses). Revision 2 did not pass (the gate would
@@ -13,11 +13,14 @@ reports in a table only the verbs write. Revision 4 did not pass (an undo could 
 block recorded with a future time). Revision 5 did not pass (a retried undo could clear a
 later report; two tests could not show what they claimed). Revision 6 did not pass (the
 single-registry scrub was said to err toward stale; it can read `clear` on an old list or
-none — question 5 closes it). This revision corrects that and the minor findings. Not yet re-reviewed, not approved. Nothing is built.
+none — question 5 closes it). Revision 7 did not pass (the refusal keyed on the name
+`mailengine_prod`, which hosting does not guarantee, and its test would have connected to
+production): the refusal is now an allowlist of dev and test databases. This revision
+corrects that and the minor findings. Not yet re-reviewed, not approved. Nothing is built.
 **Part of:** [the upgrade](00-overview.md). Decisions are in the decision record,
 `nvermisscall/docs/active/sales-partner-dialer-decisions.md`, named here by number
 ("decision 4.1"); sections of this document are named "§4.1".
-**Checked against:** the `contact-engine` branch at `2e8f451` (parts 0 and 1 built). A
+**Checked against:** the `contact-engine` branch at `8945eea` (parts 0 and 1 built). A
 statement about the code carries its file and line.
 
 ---
@@ -57,10 +60,10 @@ Open items it settles: 9.8, 9.9, 9.10, 9.11, and the DNC half of 9.16.
 | The daily scrub checks contacts in subscribed area codes never checked or checked over 21 days ago, rep-held first; a hit sets `dnc_registry` and takes the contact back to the house; a delisting clears it | `jobs/dnc_refresh.py:80-96`, `:106-169`; `config/params.py:19` |
 | The daily run is pull → scrub → nightly; its scrub is `dnc_refresh_all` (`--from-ledger`), which links each checked contact to its snapshot. The single-registry `dnc_refresh` (`--fake`, `--snapshot`, `scripts/dnc-daily.sh`, and `run_nightly` when handed a registry) stamps a fresh check, writes no new link and keeps any earlier one (`coalesce`): the linked list may be newer or older than the one it judged against, `--fake` judges against none, and a contact with no link is judged on its stamp alone | `scripts/daily-run.sh`; `jobs/dnc_refresh.py:137-139`, `:172-200`, `:239-278`; `jobs/nightly.py:19-24` |
 | In production every contact in a subscribed code links a snapshot (24,212 of 24,212 on 2026-09-13) | git history of `docs/current-state.md` at `4b6d5b9` |
-| Area codes nobody subscribes to are never scrubbed; their contacts keep `dnc_checked_at` null. `subscribe_area_codes remove` deletes a subscription outright | `jobs/dnc_refresh.py:80-96`; `jobs/subscribe_area_codes.py:114-118` |
+| Area codes nobody subscribes to are never scrubbed; their contacts keep `dnc_checked_at` null. `subscribe_area_codes remove` deletes one holder's subscription row; the code stays covered while another holder's row remains | `jobs/dnc_refresh.py:80-96`; `jobs/subscribe_area_codes.py:113-118`; migration `0013` |
 | Freshness, in the gate and in the export: the check `>= now() − make_interval(days => 31)`, and, when the contact links a snapshot, its `version_date >= (UTC date) − 31`. No session sets a time zone, so the first follows the server's zone across a daylight-saving change (743 or 745 hours in a Pacific session) | `service/assignment.py:120-131`, `:328-331`; `config/params.py:33`; `db/session.py` |
 | The gate's causes, in order: seed, no phone, `already_assigned` (held by anyone, or in a batch), `won`, mid-funnel (any non-assignable stage, `suppressed` included), `voice_suppressed` (`do_not_call`), `dnc_registry`, `tombstoned` (a voice tombstone), `dnc_unsubscribed`, `dnc_stale`. `tombstoned` is pinned by frozen tests | `service/assignment.py:42-43`, `:134-160`; `tests/acceptance/test_partner_assignment.py:243`; `tests/acceptance/test_export_compliance_invariant.py:160-163` |
-| The export drops `do_not_call` and `dnc_registry` contacts silently, and reports a stale or never-checked contact as a `dnc_stale` shortfall. It does not read the subscription, tombstones, or opt-out events. The frozen invariant pins the shortfall as exactly `{dnc_stale: …}` | `service/assignment.py:324-338`; `tests/acceptance/test_export_compliance_invariant.py:194-196` |
+| The export drops `do_not_call` and `dnc_registry` contacts silently, and reports a stale or never-checked contact as a `dnc_stale` shortfall. It does not read the subscription, tombstones, or opt-out events. The frozen invariant pins the shortfall as exactly `{dnc_stale: …}` | `service/assignment.py:324-338`, `:351-356`; `tests/acceptance/test_export_compliance_invariant.py:194-196` |
 | The frozen export invariant changes `dnc_registry`, `do_not_call`, the check's age and the list's age after assignment; never the subscription, a tombstone, or an event. Its oracle reads no events | `tests/acceptance/test_export_compliance_invariant.py:117-134`, `:170-187` |
 | "Don't call me again" can exist with no flag and no tombstone: a pre-`0010` `contact.opt_out`, one recorded by `ingest_event`, an unmatched one carrying the phone, a voice `contact.suppressed` recorded without the flag. Part 1's intake counts all but the last; `is_suppressed` reads `contact.opt_out` whose reason is not `do_not_mail` (a missing reason included) | `derivation/rules.py:66-79`; `service/rep_intake.py` `_judge`; `tests/acceptance/test_suppression_split.py:489` (an event-only opt-out) |
 | `ingest_event` accepts any taxonomy type from any valid source, with any payload, `contact.suppressed` and `contact.suppression_cleared` included. An event's `source` is one of `lob`, `posthog`, `nmc`, `human`, `system`, so nothing in an event can show which verb wrote it | `service/ingestion.py:94-115`; `domain/taxonomy.py`; `domain/enums.py:36-41` |
@@ -69,6 +72,7 @@ Open items it settles: 9.8, 9.9, 9.10, 9.11, and the DNC half of 9.16.
 | Tombstones have an `id`, phone, list key, channel, reason, time; nothing links one to the event that wrote it | migration `0010` |
 | Door A makes a contact with `do_not_call` set when a voice tombstone matches its phone **or its list key** — so a contact re-ingested after a hard delete can carry the flag with no tombstone for its phone. It stores any number `to_e164` accepts. Door B refuses a number with a voice tombstone for the phone | `service/contacts.py:139`, `:152-168`, `:290-292`; `service/rep_intake.py` |
 | `clean_db` truncates a fixed list of tables | `tests/conftest.py:108-116` |
+| The test guard refuses any database not on an allowlist of test databases (`mailengine_dev`, `mailengine_test`) — fail-closed | `tests/guard.py:16`, `:40` |
 | `contacts.created_at` defaults to the database's `now()` | migration `0001` |
 | The DNC files are read by the pull (to judge each upload) and the scrub (from local working copies). The pull re-lands an accepted file whose copy is missing, for objects the upload Worker still lists as pending; a truncated listing is refused | `jobs/dnc_pull.py:60-81`, `:92-111`; `seams/snapshot_inbox.py:86-96` |
 | The 31 days were checked against 16 CFR 310.4(b)(3)(iv) on 2026-09-13: "obtained from the Commission no more than thirty-one (31) days prior to the date any call is made" | git history of `docs/current-state.md` at `4b6d5b9` |
@@ -105,7 +109,9 @@ instant, handed in (the clock rule, part 1 §4.6). The first that applies:
 - an unmatched `contact.opt_out` event carrying the phone (the matcher's rule, part 1
   §4.2).
 
-`dnc_status` refuses a naive `at` (`bad_time`) and an unknown contact (`no_contact`).
+`dnc_status` refuses a naive `at` (`bad_time`) and an unknown contact (`no_contact`). A
+check stamped after `at` does not count for `at`: the contact reads `not_checked` for that
+moment.
 **Every form of the voice block, and `dnc_registry`, is read as currently recorded,
 whatever its recorded time** — a block recorded with a future time blocks now. Only
 freshness (the check's age, the list's age) and row 3's run lookup use the moment `at`:
@@ -123,12 +129,15 @@ function, not a SQL copy of it, normalizes them.
   unmatched voice `contact.suppressed` carrying the phone is read by neither (§6).
 - **Row 6's "list behind it"** is the contact's linked snapshot. The daily run's scrub
   always links the list it judged against. The single-registry scrub does not (§3), so it
-  **refuses to run on the production database** (answer 5, §4.10); in production every
-  checked contact's link is the list of its verdict.
+  **runs only on a known dev or test database** (answer 5, §4.10); wherever production is
+  hosted and whatever it is named, every checked contact's link is the list of its
+  verdict.
 - **Row 3 is decision 4.6** (answer 1). "Came in" is the later of `contacts.created_at`
   and the newest `intake_rep.added_at` for the contact, compared with the run's start. So
   a contact a rep claims from NMC's list reads `not_checked` until the next run, like a
-  new one — the rep learns only after the check.
+  new one — the rep learns only after the check. `added_at` is the caller's `at` and the
+  run's start the database's clock; a skew between them can move a claim to
+  `not_covered` a run early — harmless, both refuse.
 - **Which SAN covers a code is not asked here.** A code any holder subscribes to counts
   as covered for every rep, as today (§6).
 
@@ -160,7 +169,8 @@ contact row and an explicit moment. Three readers:
   contact refused for the voice block, `dnc_registry`, or an unsubscribed code is
   dropped silently, as `do_not_call` and `dnc_registry` are today; a stale or
   never-checked one is in the shortfall as `dnc_stale`, as today. Today's export misses
-  an unsubscribed code, a tombstone with no flag, and an event-only opt-out (§3);
+  an unsubscribed code, a tombstone with no flag (by phone or list key), an event-only
+  opt-out, an unmatched opt-out, and a flagless voice `contact.suppressed` (§3);
   decision 6.6 keeps the export for the operator and for reps not on the app.
 
 The frozen export invariant keeps every assertion and gains **new test functions**, with
@@ -179,7 +189,8 @@ A new table `dnc_runs` (§10), written by one verb, `record_scrub_run(started_at
 limited)` in `service/dnc.py` — `service/` stays the only write path.
 `dnc_refresh_all`, the daily run's scrub, reads its start from the database's `now()` when
 it begins — the database's clock, because row 3 compares it with `contacts.created_at`,
-which the database stamps; a job is the outermost layer and may read a clock and calls the verb when it finishes; no row when it raises; a row when
+which the database stamps (a job is the outermost layer and may read a clock). It calls
+the verb when it finishes; no row when it raises; a row when
 nothing is subscribed. The single-registry `dnc_refresh` records nothing: it is not the
 daily run.
 
@@ -200,7 +211,7 @@ leave the number callable.
 | The call | Result |
 |---|---|
 | `at` has no time zone | refused `bad_time` |
-| No contact has the id | refused `no_contact` |
+| No contact has the id | refused `no_contact` (§6) |
 | The contact has no phone | refused `no_phone` |
 | The rep is unknown, or is the house (the house uses §4.7) | refused `bad_rep` |
 | This rep already has a live report on the contact (a retry) | `blocked`, that report's id; nothing new written |
@@ -256,8 +267,9 @@ nothing to delete); a `contact.suppression_cleared` event, `occurred_at = at`, p
 `{channel: voice, reason, undone_by: <rep>}`; the `dnc_reports` row is marked undone
 (`undone_at`, the event). The events keep the whole history.
 
-A second request — another rep's report, an admin's, or this rep's after an undo — writes
-its own report row and tombstone, so the first rep's undo is refused `still_blocked` (decision 4.3). A forged
+A second request — another rep's report, or an admin's — writes its own report row and
+tombstone, so the first rep's undo is refused `still_blocked` (decision 4.3). A report made
+after an undo is a new report; re-sending the old undo is refused `nothing_to_undo`. A forged
 event can neither make a report (it has no `dnc_reports` row, so it blocks) nor clear
 one (clear events are never read).
 
@@ -266,9 +278,9 @@ it. `clear_suppression` still refuses `voice`, and no `unsuppress` verb appears,
 frozen tests at `test_suppression_split.py:200` and `test_contacts.py:139` stand. The
 build updates, as part of the approved tests and plan (§8): `suppress()`'s docstring
 ("Permanent by design"), `clear_suppression`'s docstring ("the single public write
-path" — the undo is a second writer), and the suppression matrix header in
-`test_suppression_split.py` — its module docstring and the matrix-row comment at `:164`
-("do_not_call … permanent") — each to name the one exception — a rep's own report,
+path" — the undo is a second writer), and the suppression matrix comment in
+`test_suppression_split.py` — the matrix-row comment at `:164` ("do_not_call …
+permanent") — each to name the one exception — a rep's own report,
 undone within 24 hours.
 
 After an undo, part 1's intake no longer refuses the number: the flag is false, the
@@ -313,14 +325,19 @@ contacts go stale.
 The 31 days stand as checked on 2026-09-13 (§3); §4.2 keeps both counts strict. The
 calling-hours half of 9.16 is part 3's.
 
-### 4.10 The single-registry scrub refuses production (answer 5)
+### 4.10 The single-registry scrub runs only on dev and test databases (answer 5)
 
 `dnc_refresh` — the single-registry scrub, reached by `--fake`, `--snapshot`,
-`scripts/dnc-daily.sh`, and `run_nightly` when handed a registry — refuses to run when
-the database it is connected to is `mailengine_prod` (it reads `current_database()`),
-as `daily-run.sh` refuses the opposite. Production scrubs only through `dnc_refresh_all`,
-which links every verdict to the list it came from. Dev, the tests, and the e2e journey
-keep using `--fake`.
+`scripts/dnc-daily.sh`, and `run_nightly` when handed a registry — reads
+`current_database()` before its first write and runs only when the name is on an
+allowlist of dev and test databases (`mailengine_dev`, `mailengine_test`); on any other
+it raises. This is answer 5 made fail-closed, as `tests/guard.py` is: production cannot
+slip past it by being hosted under another name. Production scrubs only through
+`dnc_refresh_all`, which links every verdict to the list it came from. Dev, the tests,
+and the e2e journey keep using `--fake`.
+
+The allowlist is one module-level name, so the test can replace it and prove the refusal
+without ever connecting to production (§7).
 
 ## 5. Part 1's hand-offs
 
@@ -340,6 +357,9 @@ Gaps are not questions (decision 2.9).
 | The age of each area code's DNC file, for alerts (interface job 2) | Part 6, over `dnc_snapshots` and `dnc_runs` |
 | A rep's own contact is taken back to the house on a DNC hit (`jobs/dnc_refresh.py:147-153`) and by `suppress(voice)` | Part 4 (decision 6.3) |
 | A retried undo of a report already undone gets `nothing_to_undo`, not its first answer; a report re-sent after its undo is recorded again | Part 6 (decision 7.7) |
+| Two reps report the same contact: the first's undo is refused while the second's report is live, and the second's undo is refused because the flag was already set. It stays blocked with no undo — safe, narrower than decision 4.4 reads | Left: the design's answer (§9) |
+| A report queued on a phone (decision 8.7) whose contact has since been hard-deleted is refused `no_contact` | When a hard delete is built (FR-8): it must route such a report to §4.7's record by phone |
+| A sheet passes the 31-day check when it is pulled; a rep not on the app may dial from it later, past 31 days | Left: the export's rule "re-pull before each session" (`service/assignment.py:311-317`); reps on the app are checked at every call (part 5) |
 | Which SAN's subscription covers a code for which rep | Counsel (memo Q4); part 4 if it changes who may be given a code |
 | An unmatched voice `contact.suppressed` carrying a phone is read by nothing | Left: no caller writes one today; `ingest_event` would accept one, and part 6's intake of events must not |
 | The console's inventory counts do not read the voice block | Left: an operator view, not a path to a call |
@@ -357,7 +377,7 @@ for the locking tests to pause at — as part 1's `rep_intake._before_insert`.
 
 | Test | Checks |
 |---|---|
-| The voice block, each form, in each reader | `do_not_call`; a voice tombstone; an opt-out event with a reason, and with none; an unmatched opt-out under `phone_e164`, and as `(818) 555-0123` under `phone`; a flagless voice `contact.suppressed`; a bare `dnc_reports` row with no flag, tombstone, or event — each gives `do_not_call` in `dnc_status`, a refusal by the gate (`voice_suppressed`, or `tombstoned` for a tombstone), and absence from the export |
+| The voice block, each form, in each reader | `do_not_call`; a voice tombstone; an opt-out event with a reason, and with none; an unmatched opt-out under `phone_e164`, and as `(818) 555-0123` under `phone`; a voice tombstone on one of the contact's list keys but not its phone; a flagless voice `contact.suppressed`; a bare `dnc_reports` row with no flag, and `event_id` / `tombstone_id` that point at nothing (no foreign keys) — each gives `do_not_call` in `dnc_status`, a refusal by the gate (`voice_suppressed`, or `tombstoned` for a tombstone), and absence from the export |
 | Forgery | A real report R, plus an ingested `contact.suppressed` voice event carrying `reported_by`: undo R → `still_blocked`. An ingested `contact.suppression_cleared` naming anything clears nothing |
 | The flag set before the report | `do_not_call` set directly on a contact with no tombstone for its phone or any of its list keys, no opt-out, no report — asserted before the report is made → report → undo: `still_blocked`, still `do_not_call`. This is the only rule that refuses it |
 | A future time | A flagless opt-out recorded with an `occurred_at` a day ahead: `do_not_call` now, in the status, the gate and the export |
@@ -370,11 +390,11 @@ for the locking tests to pause at — as part 1's `rep_intake._before_insert`.
 | The gate | Every existing cause name and order unchanged; an event-only opt-out on a released contact → `voice_suppressed` before any recompute |
 | The export | Assigned, then each form of §4.3's additions: none on the sheet, none in the shortfall; the existing frozen assertions unchanged |
 | Report | Each refusal, nothing written; a retry by the same rep (nothing new); by the holder (keeps it; one tombstone, one event, one report row); held by another rep, and by the house (custody unchanged); on an already blocked contact (a second report row and tombstone); from an inactive rep (recorded) |
-| Undo | Each refusal, including a second undo, an undo by another rep, an admin's report id, `at` before the report, 24 hours and one second; report R1 → undo → report R2 → the undo of R1 again → `nothing_to_undo`, R2 stands; exactly 24 hours → undone: flag false, the report's tombstone gone, any other untouched, the report row undone, one `contact.suppression_cleared`; status not `do_not_call`; intake no longer refuses |
+| Undo | Each refusal — including `still_blocked` for another tombstone on the phone, one on a list key, an opt-out under `is_suppressed`, an unmatched opt-out, and a flagless voice event — a second undo, an undo by another rep, an admin's report id, `at` before the report, 24 hours and one second; report R1 → undo → report R2 → the undo of R1 again → `nothing_to_undo`, R2 stands; exactly 24 hours → undone: flag false, the report's tombstone gone, any other untouched, the report row undone, one `contact.suppression_cleared`; status not `do_not_call`; intake no longer refuses |
 | Admin request | Each refusal; a contact whose stored phone `valid_phone` rejects is still blocked; with a contact a rep holds: blocked, custody unchanged; without a contact: a tombstone and a report row, no contact; door B refuses; door A creates it with `do_not_call` |
 | Locking | Undo A paused at its hook while report B waits: A commits, then B is recorded, the number blocked. Report B paused while undo A waits: after B commits, A is refused `still_blocked`. Report paused while `assign_batch` waits: the batch refuses — `do_not_call` on the locked row, which Postgres re-reads after the wait. Report paused while `add_numbers` waits: `do_not_call` — its judging statements run after the lock, each with a fresh snapshot. An undo paused while `assign_batch` waits: the batch's result is consistent with one order or the other; a batch started after the undo commits assigns |
-| The clock | Every event, tombstone, and row the new verbs write carries `at` |
-| The single-registry scrub | `dnc_refresh` against a database named `mailengine_prod` raises before writing; against any other it runs |
+| The clock | `occurred_at` of every event, `created_at` of every tombstone, and `reported_at` / `undone_at` of every report the new verbs write equal `at`; a check stamped after `at` reads `not_checked` for `at` |
+| The single-registry scrub | With the allowlist replaced so that `mailengine_test` is not on it, `dnc_refresh` raises and writes nothing; with it restored, it runs. No test connects to any database but `mailengine_test` |
 | Row 3 for a claim | A contact created long ago, claimed by a rep after the last run: `not_checked`; after the next run: `not_covered` |
 | Frozen tests | Every existing test passes; the export invariant gains new functions (§4.3); the suppression file's docstring and `:164` comment are edited, no assertion |
 
@@ -411,7 +431,7 @@ for the locking tests to pause at — as part 1's `rep_intake._before_insert`.
 | The 24 hours | From the report's `occurred_at`, on the server's clock (decision 7.6); inclusive |
 | "Came in" for status row 3 | The later of `contacts.created_at` and the newest `intake_rep.added_at`, so a claimed contact waits for the next run too (§4.1) |
 | The check's 31 days | `make_interval(hours => 744)`, so a session's time zone cannot shift it (§4.2) |
-| A flag set before a report | The undo of that report is refused `still_blocked` (§4.6) |
+| A flag set before a report | The undo of that report is refused `still_blocked` (§4.6); so a contact reported by two reps has no undo (§6) |
 | Which report an undo undoes | The one it names by id (§4.6) |
 | Who may report | Any known rep, not the house; a retry by the same rep writes nothing new (§4.5) |
 
@@ -436,6 +456,7 @@ create table dnc_reports (
   tombstone_id    uuid not null,
   reason          text not null,
   flag_was_set    boolean not null,
+  undo_reason     text,
   reported_at     timestamptz not null,
   undone_at       timestamptz,
   undo_event_id   bigint,
@@ -443,7 +464,10 @@ create table dnc_reports (
   check ((contact_id is null) = (event_id is null)),
   check ((undone_at is null) = (undo_event_id is null)),
   check (undone_at is null or kind = 'rep'),
-  check (kind = 'admin' or contact_id is not null)
+  check (kind = 'admin' or contact_id is not null),
+  check (contact_id is not null or not flag_was_set),
+  check ((undone_at is null) = (undo_reason is null)),
+  check (undone_at is null or undone_at >= reported_at)
 );
 
 create index dnc_reports_contact_idx on dnc_reports (contact_id);
@@ -458,7 +482,9 @@ grant select on dnc_runs, dnc_reports to me_user_ro;
 Additive. `contact_id`, `event_id`, `undo_event_id` and `tombstone_id` carry no foreign
 key: like a tombstone, a report must survive a hard delete of its contact and events, and
 the undo deletes the tombstone while the row keeps the id. The partial unique index backs
-the one-live-report-per-rep rule of §4.5. A report with no contact (§4.7) has no event. Only an undone rep report
+the one-live-report-per-rep rule of §4.5. A record with no contact has `flag_was_set`
+false. The undo's reason is kept on the row too, so it outlives a hard delete of the
+events. A report with no contact (§4.7) has no event. Only an undone rep report
 has `undone_at`. `flag_was_set` records whether `do_not_call` was already true, so an
 undo never clears a flag its report did not set. The explicit grant does not rely on `0002`'s default privileges.
 
@@ -474,4 +500,4 @@ undo never clears a flag its report did not set. The explicit grant does not rel
 | 4.4 | Add: the undo removes the report's tombstone (answer 4) |
 | 4.6 | Add: "after the check" is after the next completed daily run (answer 1) |
 | 9.16 (DNC half) | Decided: the 31 days as checked against 16 CFR 310.4(b)(3)(iv) on 2026-09-13 |
-| 4.1 | Add: production scrubs only through the ledger path (answer 5) |
+| 4.1 | Add: production scrubs only through the ledger path; the single-registry scrub runs only on named dev and test databases (answer 5) |
