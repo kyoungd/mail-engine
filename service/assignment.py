@@ -30,7 +30,7 @@ from config.params import (
 from db.session import transaction
 from domain.errors import ValidationError
 from service.custody import set_owner
-from service.dnc import BLOCKED_SQL, LINK_FRESH_SQL, LIVE_ROW_SQL
+from service.dnc import BLOCKED_SQL, LINK_FRESH_SQL
 
 # The rule keys assignment accepts (S-1): the wave grammar's selection keys.
 # NOT `stage` (the pool gates own stage), NOT `limit` (`count` owns it), NOT
@@ -126,16 +126,15 @@ _CANDIDATE_COLS = sql.SQL(
     "(c.phone_e164 is not null and substring(c.phone_e164 from 3 for 3) in "
     "  (select area_code from dnc_subscriptions)) as area_subscribed, "
     "exists (select 1 from suppression_tombstones t "
-    "  where t.phone_e164 = c.phone_e164 and t.channel = 'voice') as tombstoned, "
-    "{live} as blocked_row"
-).format(link=LINK_FRESH_SQL, live=LIVE_ROW_SQL)
+    "  where t.phone_e164 = c.phone_e164 and t.channel = 'voice') as tombstoned"
+).format(link=LINK_FRESH_SQL)
 
 
 def _gate(row, live_phones: frozenset[str] = frozenset()) -> str | None:
     """First failing gate → shortfall cause; None → assignable. `live_phones` is the
     second read of blocked phones, taken after the row locks (part 2 §4.4)."""
     (_id, phone, batch_ptr, owner_id, stage, do_not_call, dnc_registry, is_seed,
-     _checked_at, dnc_fresh, area_subscribed, tombstoned, blocked_row) = row
+     _checked_at, dnc_fresh, area_subscribed, tombstoned) = row
     if is_seed:
         return "seed"
     if phone is None:
@@ -148,7 +147,7 @@ def _gate(row, live_phones: frozenset[str] = frozenset()) -> str | None:
         return "mid_funnel"
     if stage not in _ASSIGNABLE_STAGES:
         return "mid_funnel"
-    if do_not_call or blocked_row or phone in live_phones:
+    if do_not_call or phone in live_phones:
         return "voice_suppressed"
     if dnc_registry:
         return "dnc_registry"

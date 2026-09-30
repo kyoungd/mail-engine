@@ -9,8 +9,8 @@ under an approved build plan and an approved test gate, `0015.dnc-filtering.sql`
 `tests/acceptance/test_dnc_filtering.py` plus one test in
 `test_export_compliance_invariant.py`. One gate test's harness was corrected with the
 operator's approval (its lock hook re-ran inside its own worker thread); no assertion
-changed. Mutation checks: each path's removal failed the gate, except the gate's
-locked-read column, which the second read after the locks duplicates. §8's migration check
+changed. Mutation checks: each path's removal failed the gate. A live-row column in the
+gate's locked read duplicated the second read after the locks and was removed. §8's migration check
 ran on the 2026-09-13 production backup in a scratch database: every existing table
 unchanged; the backfill found nothing to convert (no flag, tombstone, or qualifying event).
 History: Revision 16 was approved after fifteen
