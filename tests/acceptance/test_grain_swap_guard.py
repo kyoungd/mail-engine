@@ -14,6 +14,7 @@ These need a database at a schema the session fixture has already moved past, so
 test gets a genuine scratch database rather than a simulation of one.
 """
 
+import sys
 from urllib.parse import urlsplit, urlunsplit
 from uuid import uuid4
 
@@ -52,6 +53,12 @@ def scratch_url(owner_url: str):
         yield url
     finally:
         with psycopg.connect(owner_url, autocommit=True) as admin:
+            sessions = admin.execute(
+                "select pid, usename, application_name, client_addr, backend_type, "
+                "state, backend_start from pg_stat_activity where datname = %s",
+                (name,),
+            ).fetchall()
+            print(f"sessions on {name} before drop: {sessions}", file=sys.stderr)
             admin.execute(
                 sql.SQL("drop database if exists {} with (force)").format(
                     sql.Identifier(name)

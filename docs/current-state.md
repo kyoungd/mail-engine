@@ -62,8 +62,10 @@ what is not settled. This project proposes changes to it; the operator approves 
   teardown — `drop database … with (force)` was refused because a process of another
   role was connected to the scratch database. It passed 5/5 alone and in two later
   full runs; nothing was connected when looked at. Possibly the 2026-09-10 failure.
-  Two leftover `me_scratch_*` databases remain in the local cluster. Proposed: log
-  `pg_stat_activity` in that teardown before the drop.
+  The teardown now prints the scratch database's sessions (`pg_stat_activity`) to
+  stderr before the drop — a normal run shows one idle `me_user` session (yoyo's) —
+  so the next failure names the other role. The two leftover `me_scratch_*`
+  databases were dropped.
 
 ## Small things noticed
 
