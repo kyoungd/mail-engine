@@ -16,7 +16,8 @@ record from 2026-07-29 to 2026-09-13.
 |---|---|
 | Branch `contact-engine` | Cut from `main` at `4b6d5b9`, 2026-09-29; pushed. Not yet the GitHub default: a settings change by the operator (`gh` is not installed here). |
 | Part 0, Foundation | Approved and **built** 2026-09-29 ([`00-foundation.md`](contact-engine/00-foundation.md)). `make test` 395 passed, `make e2e` passed, ruff + pyright clean. |
-| Parts 1 to 6 | Not designed. One at a time, in order, by this project ([`00-overview.md`](contact-engine/00-overview.md)). |
+| Part 1, Intake | Designed and **approved** 2026-09-30 ([`01-intake.md`](contact-engine/01-intake.md), revision 8, after seven reviews). Not built. |
+| Parts 2 to 6 | Not designed. One at a time, in order ([`00-overview.md`](contact-engine/00-overview.md)). |
 | Hosting on Render | After part 6 |
 | Code | The mail code, web pages, and messages are removed; ~7,200 lines of app code and ~7,700 of tests remain (from ~11,000 and ~12,700). New: `jobs/intake_cli.py`, `service/state.py`, `derivation/activity.py`. No migration; newest is `0013`. |
 | Docs | `PRD.md` v2.0; mail-engine's documents moved to `mail-engine-backup/`. |
@@ -39,10 +40,16 @@ what is not settled. This project proposes changes to it; the operator approves 
 
 ## The queue
 
-1. **Design part 1, Intake.** It must first reconcile the 2026-08-06 partner-sourcing
-   decision with decisions 3.1–3.3 ([`handoff.md`](contact-engine/handoff.md) §4).
-2. **The largest open conflict:** 9.0, the 90 days against the rest (parts 4 and 5).
-3. **Make `contact-engine` the GitHub default** — the operator, in GitHub's settings.
+1. **The lock fix (🔴, answers 9 and 11 of part 1):** `suppress()` reads the owner
+   without a lock (`service/contacts.py:446-447`), and the DNC scrub acts on an owner
+   read in an earlier transaction (`jobs/dnc_refresh.py:80-96`, `:125-146`). Failing
+   tests that reproduce each race and the plan go to the operator before any code.
+2. **Build part 1 (🔴):** its build plan to the operator for explicit approval; tests
+   first; migration `0014`.
+3. **Propose the decision-record changes** of `01-intake.md` §11 to the operator.
+4. **Design part 2, DNC filtering.**
+5. **The largest open conflict:** 9.0, the 90 days against the rest (parts 4 and 5).
+6. **Make `contact-engine` the GitHub default** — the operator, in GitHub's settings.
 
 ## Part 0, as built — what to know
 
