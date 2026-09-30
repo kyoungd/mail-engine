@@ -60,9 +60,8 @@ def _owned_inventory() -> list[tuple[str, int, int, int]]:
 
 _picked_code = ""  # the onboarding pick, carried into the subscribe step's default
 _partner_name = ""  # the registered partner, carried into assign/export defaults
-_admin_client = None  # the login gate's client, reused by the sales-rep item
+_admin_client = None  # the login gate's client, reused by the register step
 _admin_token = ""  # the gate's JWT — held in memory only, never printed
-_created_rep_id = ""  # last main-site rep id created, default for --sales-rep-id
 
 
 def _make_admin_client():
@@ -97,30 +96,6 @@ def _login_gate() -> int:
         return 1
     _admin_client, _admin_token = client, token
     print(f"admin verified: {email}")
-    return 0
-
-
-def _create_sales_rep_action() -> int:
-    """Register a rep on the MAIN SITE's roster (nmc_sales_rep) through its
-    admin API — the Postman-free half of the registration runbook. The returned
-    id becomes the default --sales-rep-id when registering the partner here."""
-    from seams.nmc_admin import NmcAdminError
-
-    global _created_rep_id
-    if _admin_client is None:
-        print("no admin session — restart the console and log in")
-        return 1
-    email = _ask("rep email (their toolkit login identity)")
-    if not email:
-        return 1
-    name = _ask("rep name")
-    try:
-        rep_id = _admin_client.create_sales_rep(_admin_token, email=email, name=name)
-    except NmcAdminError as exc:
-        print(f"error: {exc}")
-        return 1
-    _created_rep_id = str(rep_id)
-    print(f"main-site sales rep created: id {rep_id} ({email})")
     return 0
 
 
@@ -216,7 +191,7 @@ def _step_register() -> int:
             hours = _ask("weekly dial hours (sizes the batch)", "10")
             return main(["set", picked, "--hours", hours])
         return 0
-    rep = _ask("main-site sales-rep id (blank = enter manually)", _created_rep_id)
+    rep = _ask("main-site sales-rep id (blank = enter manually)")
     if rep:
         # The main site owns identity — pull name/email from the roster rather
         # than re-typing them (operator decision 2026-08-16, "cheap and easy").
@@ -229,7 +204,7 @@ def _step_register() -> int:
             None,
         )
         if row is None:
-            print(f"no rep id {rep} on the main-site roster — create it (menu 11) first")
+            print(f"no rep id {rep} on the main-site roster — add it on the website first")
             return 1
         if row.get("status") != "active":
             print(
@@ -314,15 +289,6 @@ def run_onboarding() -> int:
     stops at the pick; a just-purchased code ends after subscribe, because its
     file is not even provisioned yet. Either way the assign gates would refuse
     unscrubbed contacts regardless — these stops just say so up front."""
-    if (
-        _admin_client is not None
-        and input("register the partner on the MAIN SITE first? [y/N]: ").strip().lower()
-        == "y"
-    ):
-        rc = _run_step(_create_sales_rep_action)
-        if rc != 0:
-            print(f"onboarding stopped at main-site registration (exit {rc})")
-            return rc
     inventory = _owned_inventory()
     if inventory:
         print("owned codes — total / dialable / available:")
@@ -501,11 +467,11 @@ THE MODEL
   Contacts are the pool. The daily DNC cycle keeps the pool legal to dial.
   Partners hold BATCHES of contacts for 90 days; you watch the day-30 mark.
   None of this is partner-visible — partners only ever receive an exported
-  CSV and their report emails.
+  CSV.
 
 ITEMS
   1  partner status   the scoreboard: holdings, each live batch (day N of 90,
-                      QUIET past day 30 / activity), export + report stamps
+                      QUIET past day 30 / activity), the export stamp
   2  roster           the address book: every partner row and its config
   3  onboard          the full walk: pick starting code -> purchase pause (only
                       if the code is not owned) -> pick or create the partner ->
@@ -532,17 +498,18 @@ RULES THE SYSTEM ENFORCES (no way around them, by design)
 
 CLOCKS
   90 days  batch custody; expiry returns unworked leads to the pool
-  30 days  quiet-batch checkpoint -> status + your digest; reclaim is YOUR call
+  30 days  quiet-batch checkpoint -> status; reclaim is YOUR call
   31 days  safe-harbor wall: max age of the registry version behind any dial
   21 days  per-contact scrub recheck cadence (the daily cycle covers it)
 
 PARTNER IDENTITY (Medusa <-> here)
-  Create the roster row on the main site first — menu 11 does it from here
-  (your admin login is the console door); enter its sales-rep id and
-  partner code when registering here. Those two keys are how closes credit.
+  Create the roster row on the website first (the one place a rep is added);
+  enter its sales-rep id and partner code when registering here. Those two
+  keys are how closes credit.
 
 MORE
-  design: docs/partner-lead-assignment.md   decisions: docs/decisions.md
+  design: docs/mail-engine-backup/partner-lead-assignment.md
+  decisions: docs/mail-engine-backup/decisions.md
   every menu item is also a plain CLI — e.g. python -m jobs.partners_cli --help
 """
 
@@ -563,7 +530,6 @@ ACTIONS: dict[str, tuple[str, Callable[[], int]]] = {
     "8": ("DNC portal status", _dnc_portal_status),
     "9": ("manage area-code subscriptions", _manage_subscriptions),
     "10": ("help", _help),
-    "11": ("register main-site sales rep", _create_sales_rep_action),
 }
 
 

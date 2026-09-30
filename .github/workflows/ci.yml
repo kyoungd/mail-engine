@@ -38,17 +38,6 @@ jobs:
     env:
       OWNER_DATABASE_URL: postgresql://me_user:ci_owner_pw@localhost:5432/mailengine_test
       READONLY_DATABASE_URL: postgresql://me_user_ro:ci_ro_pw@localhost:5432/mailengine_test
-      DROP_PASSWORD: ci-drop-password
-      # web/api.py builds Lob clients with hard os.environ[...] reads on routes
-      # the suite exercises; offline tests never place a real call, so dummies
-      # suffice (and the guard rejects anything starting with "live_").
-      LOB_API_KEY: test_ci_dummy
-      LOB_TEST_API_KEY: test_ci_dummy
-      LOB_FROM_NAME: CI Dummy
-      LOB_FROM_LINE1: 123 Test St
-      LOB_FROM_CITY: Testville
-      LOB_FROM_STATE: CA
-      LOB_FROM_ZIP: "90210"
     steps:
       - uses: actions/checkout@v4
 

@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 import psycopg
 import pytest
 
-from service.execution import recompute_state
+from service.state import recompute_state
 from service.ingestion import ingest_event
 from tests.factories import new_contact
 
@@ -66,11 +66,8 @@ def test_do_not_mail_survives_recompute_and_gates_mail_not_stage(
     clean_db, owner_conn, readonly_url
 ):
     """v3 counterpart (rewritten under the Phase 2 🔴 approval): the human-authored
-    flag survives recompute untouched (FR-7) and still excludes the contact from
-    every wave audience — but it no longer collapses the stage to SUPPRESSED; the
-    contact's phone stays live for the voice channel."""
-    from service.waves import resolve_audience
-
+    flag survives recompute untouched (FR-7) — but it no longer collapses the stage
+    to SUPPRESSED; the contact's phone stays live for the voice channel."""
     contact_id = _seed_contact(owner_conn, do_not_mail=True)
     ingest_event("lob", "piece.submitted", AT1, {}, contact_id=contact_id)
 
@@ -87,8 +84,6 @@ def test_do_not_mail_survives_recompute_and_gates_mail_not_stage(
             do_not_mail, stage = row
     assert do_not_mail is True
     assert stage != "suppressed"
-    with owner_conn.cursor() as cur:
-        assert contact_id not in resolve_audience(cur, {"trade": ["plumber"]}).ids
 
 
 def test_human_set_next_action_survives_recompute(clean_db, owner_conn, readonly_url):

@@ -1,8 +1,8 @@
-"""The main-site admin seam (console login gate + sales-rep registration,
-approved 2026-08-16). Two calls against the local Medusa web app:
+"""The main-site admin seam (console login gate + reading the roster, approved
+2026-08-16). Two calls against the local Medusa web app:
 
-  POST {NMC_WEB_URL}/auth/customer/emailpass          -> {"token": <JWT>}
-  GET/POST {NMC_WEB_URL}/store/nmc/admin/sales-reps   -> the roster (admin-only)
+  POST {NMC_WEB_URL}/auth/customer/emailpass     -> {"token": <JWT>}
+  GET {NMC_WEB_URL}/store/nmc/admin/sales-reps   -> the roster (admin-only)
 
 Every /store/* request carries `x-publishable-api-key` (`NMC_PUBLISHABLE_KEY`,
 Medusa's public client key) or Medusa refuses before auth runs. The admin check
@@ -107,13 +107,3 @@ class NmcAdminClient:
         )
         self._check_store_status(status, "admin check")
         return payload["reps"]
-
-    def create_sales_rep(self, token: str, *, email: str, name: str) -> str:
-        status, payload = self.transport(
-            "POST",
-            f"{self.base_url}/store/nmc/admin/sales-reps",
-            {"email": email, "name": name},
-            self._store_headers(token),
-        )
-        self._check_store_status(status, "sales-rep create")
-        return payload["rep"]["id"]

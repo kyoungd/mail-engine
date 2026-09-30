@@ -314,3 +314,34 @@ def test_menu_7_runs_the_production_daily_run(monkeypatch):
     )
     assert console.ACTIONS["7"][1]() == 0
     assert len(calls) == 1 and calls[0][0].endswith("/daily-run.sh")
+
+
+# --- contact-engine part 0, step 7: the website's roster is where a rep is added --
+
+
+def test_the_menu_has_no_item_that_creates_a_rep_on_the_website():
+    assert "11" not in console.ACTIONS
+    assert not hasattr(console, "_create_sales_rep_action")
+
+
+def test_onboarding_with_an_admin_session_goes_straight_to_the_pick(monkeypatch):
+    ran = []
+    _steps(monkeypatch, ran)
+    _owned_inventory(monkeypatch, "818")
+    monkeypatch.setattr(console, "_admin_client", object())
+    prompts = []
+    answers = iter(["818"])
+    monkeypatch.setattr(
+        "builtins.input", lambda prompt="": prompts.append(prompt) or next(answers)
+    )
+    assert console.run_onboarding() == 0
+    assert len(prompts) == 1 and "starting code" in prompts[0]
+    assert ran == ["register", "subscribe", "assign", "export"]
+
+
+def test_the_manual_names_no_digest_report_email_or_menu_11(capsys):
+    console._help()
+    out = capsys.readouterr().out
+    assert "menu 11" not in out
+    assert "digest" not in out
+    assert "report email" not in out

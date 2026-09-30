@@ -304,21 +304,21 @@ def _status(name: str | None) -> int:
         HOUSE_PARTNER_ID,
         DEFAULT_PARAMS,
     )
-    from judgment.rules.batch_checkpoint import ACTIVITY_TYPES
+    from derivation.activity import ACTIVITY_TYPES
 
     with transaction() as conn:
         with conn.cursor() as cur:
             if name is None:
                 cur.execute(
-                    "select id, name, sales_rep_id, partner_code, last_export_at, "
-                    "last_report_at from partners "
+                    "select id, name, sales_rep_id, partner_code, last_export_at "
+                    "from partners "
                     "where status = 'active' and id <> %s order by name",
                     (HOUSE_PARTNER_ID,),
                 )
             else:
                 cur.execute(
-                    "select id, name, sales_rep_id, partner_code, last_export_at, "
-                    "last_report_at from partners where name = %s and id <> %s",
+                    "select id, name, sales_rep_id, partner_code, last_export_at "
+                    "from partners where name = %s and id <> %s",
                     (name, HOUSE_PARTNER_ID),
                 )
             partners = cur.fetchall()
@@ -326,7 +326,7 @@ def _status(name: str | None) -> int:
                 print("no partners" if name is None else f"no partner named {name!r}")
                 return 0 if name is None else 1
 
-            for pid, pname, rep_id, code, export_at, report_at in partners:
+            for pid, pname, rep_id, code, export_at in partners:
                 cur.execute(
                     "select count(*) from contacts where owner_id = %s",
                     (pid,),
@@ -362,10 +362,7 @@ def _status(name: str | None) -> int:
                     print(line)
 
                 stamp = lambda v: v.date().isoformat() if v else "never"  # noqa: E731
-                print(
-                    f"  last export: {stamp(export_at)}  "
-                    f"last report: {stamp(report_at)}"
-                )
+                print(f"  last export: {stamp(export_at)}")
     return 0
 
 

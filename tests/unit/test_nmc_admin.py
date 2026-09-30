@@ -55,17 +55,6 @@ def test_admin_probe_403_names_the_allowlist():
         NmcAdminClient("http://x", "pk_1", transport=transport).verify_admin("jwt-abc")
 
 
-def test_create_sales_rep_returns_id_as_string():
-    transport = FakeTransport(
-        {"POST /store/nmc/admin/sales-reps": (200, {"rep": {"id": "47", "email": "p@x.com"}})}
-    )
-    rep_id = NmcAdminClient("http://x", "pk_1", transport=transport).create_sales_rep(
-        "jwt-abc", email="p@x.com", name="New Partner"
-    )
-    assert rep_id == "47"
-    assert transport.last_body == {"email": "p@x.com", "name": "New Partner"}
-
-
 def test_missing_config_fails_loud_naming_the_var():
     with pytest.raises(NmcAdminConfigError, match="NMC_PUBLISHABLE_KEY"):
         NmcAdminClient("http://x", publishable_key=None)
@@ -140,7 +129,6 @@ def _register_io(monkeypatch, roster, *answers):
     monkeypatch.setattr(console, "_roster", lambda: [])  # no pick — new partner
     monkeypatch.setattr(console, "_admin_client", _FakeAdminClient(roster=roster))
     monkeypatch.setattr(console, "_admin_token", "jwt-abc")
-    monkeypatch.setattr(console, "_created_rep_id", "")
     captured = []
     monkeypatch.setattr("jobs.partners_cli.main", lambda argv: captured.append(argv) or 0)
     return captured
@@ -163,6 +151,18 @@ def test_register_prefills_from_main_site_rep_id(monkeypatch):
         "--channel", "email", "--channel-address", "kyoungd@yahoo.com",
         "--sales-rep-id", "47",
     ]]
+
+
+def test_register_asks_for_the_rep_id_with_nothing_filled_in(monkeypatch):
+    prompts = []
+    answers = iter(["", "Manual Guy", "m@x.com", "10", ""])
+    monkeypatch.setattr(
+        "builtins.input", lambda prompt="": prompts.append(prompt) or next(answers)
+    )
+    monkeypatch.setattr(console, "_roster", lambda: [])
+    monkeypatch.setattr("jobs.partners_cli.main", lambda argv: 0)
+    assert console._step_register() == 0
+    assert "sales-rep id" in prompts[0] and "[" not in prompts[0]
 
 
 def test_register_refuses_unknown_rep_id_loudly(monkeypatch, capsys):

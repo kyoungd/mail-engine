@@ -10,18 +10,18 @@ record_note's note.*-only restriction, and the tombstone surviving re-ingest."""
 
 import zipfile
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 
 from config.params import HOUSE_PARTNER_ID
 from domain.errors import ValidationError
 from seams.dnc_registry import FileDncRegistry
+from service.assignment import assign_batch
 from service.contacts import clear_suppression, load_list, suppress
 from service.custody import set_owner
-from service.execution import recompute_state
+from service.state import recompute_state
 from service.ingestion import ingest_event
-from service.waves import resolve_audience
 from tests.factories import new_contact
 
 AT = datetime(2026, 1, 10, 12, 0, tzinfo=UTC)
@@ -51,8 +51,14 @@ def _stage(cur, contact_id) -> str:
     return row[0]
 
 
-def _audience(cur, rule=None) -> list:
-    return resolve_audience(cur, rule if rule is not None else {"trade": ["plumber"]}).ids
+def _refused_by(conn, contact_id) -> str | None:
+    """The assignment gate that refuses the contact to a rep; None if assignable."""
+    with conn.cursor() as cur:
+        john = _john(cur)
+    conn.commit()
+    report = assign_batch(john, f"probe-{uuid4().hex[:8]}", "young", contact_ids=[contact_id])
+    causes = [cause for cause, ids in report.shortfall.items() if contact_id in ids]
+    return causes[0] if causes else None
 
 
 def _events(cur, contact_id, etype) -> list[dict]:
@@ -118,15 +124,6 @@ def test_mail_suppression_sets_flag_emits_and_writes_tombstone(clean_db, owner_c
         assert stones[0][1] == "cslb-M1"  # list_key rides the tombstone
 
 
-def test_mail_suppression_gates_the_wave_audience(clean_db, owner_conn):
-    with owner_conn.cursor() as cur:
-        contact_id = new_contact(cur, phone_e164="+18185550002")
-    owner_conn.commit()
-    suppress(contact_id, "mail", "asked")
-    with owner_conn.cursor() as cur:
-        assert contact_id not in _audience(cur)
-
-
 def test_mail_suppression_is_not_clearable(clean_db, owner_conn):
     with owner_conn.cursor() as cur:
         contact_id = new_contact(cur, phone_e164="+18185550003")
@@ -152,7 +149,6 @@ def test_sms_suppression_sets_flag_and_leaves_mail_alone(clean_db, owner_conn):
         flags = _flags(cur, contact_id)
         assert flags["do_not_text"] is True and flags["do_not_mail"] is False
         # The sms gate's reader is Phase 4's export; the column being set is the gate.
-        assert contact_id in _audience(cur)  # sms never gates mail
 
 
 def test_sms_suppression_is_not_clearable(clean_db, owner_conn):
@@ -169,9 +165,7 @@ def test_sms_suppression_is_not_clearable(clean_db, owner_conn):
 # ----------------------------------------------------------------------------------
 
 
-def test_voice_suppression_sets_flag_and_stays_in_the_mail_audience(clean_db, owner_conn):
-    """S-6's cheapest-wrong-edit, asserted directly: a contractor who says 'stop
-    calling' keeps receiving postcards."""
+def test_voice_suppression_sets_flag_and_records_the_channel(clean_db, owner_conn):
     with owner_conn.cursor() as cur:
         contact_id = new_contact(cur, phone_e164="+18185550006")
     owner_conn.commit()
@@ -181,7 +175,6 @@ def test_voice_suppression_sets_flag_and_stays_in_the_mail_audience(clean_db, ow
     with owner_conn.cursor() as cur:
         flags = _flags(cur, contact_id)
         assert flags["do_not_call"] is True and flags["do_not_mail"] is False
-        assert contact_id in _audience(cur)
         suppressed = _events(cur, contact_id, "contact.suppressed")
         assert len(suppressed) == 1 and suppressed[0]["channel"] == "voice"
 
@@ -266,7 +259,6 @@ def test_registry_hit_sets_flag_stamps_and_stays_mailable(clean_db, owner_conn, 
         assert row is not None and row[0] is not None
         checked = _events(cur, contact_id, "contact.dnc_checked")
         assert len(checked) == 1 and checked[0]["registry_version"] == "2026-08-05"
-        assert contact_id in _audience(cur)  # registry-listed is still mailable
 
 
 def test_registry_hit_on_an_assigned_contact_ends_the_assignment(
@@ -378,7 +370,6 @@ def test_two_returned_pieces_derive_address_undeliverable_not_suppressed(
         flags = _flags(cur, contact_id)
         assert flags["address_undeliverable"] is True
         assert _stage(cur, contact_id) != "suppressed"  # v3: no longer a stage fact
-        assert contact_id not in _audience(cur)  # but still gates mail
 
 
 def test_address_undeliverable_recompute_is_deterministic(clean_db, owner_conn):
@@ -435,7 +426,7 @@ def test_opt_out_sets_all_three_flags_and_writes_three_tombstones(clean_db, owne
         cur.execute("select owner_id from contacts where id = %s", (contact_id,))
         row = cur.fetchone()
         assert row is not None and row[0] == HOUSE_PARTNER_ID
-        assert contact_id not in _audience(cur)
+    assert _refused_by(owner_conn, contact_id) == "voice_suppressed"
 
 
 def test_opt_out_rejects_the_reason_that_would_rearm_the_trap(clean_db, owner_conn):
@@ -476,7 +467,6 @@ def test_historical_do_not_mail_opt_out_derives_mail_only(clean_db, owner_conn):
 
     with owner_conn.cursor() as cur:
         assert _stage(cur, contact_id) != "suppressed"
-        assert contact_id not in _audience(cur)  # the flag still gates mail
 
 
 def test_historical_real_opt_out_still_derives_suppressed(clean_db, owner_conn):
@@ -496,9 +486,7 @@ def test_historical_real_opt_out_still_derives_suppressed(clean_db, owner_conn):
 # ----------------------------------------------------------------------------------
 
 
-def test_an_event_only_opt_out_is_excluded_from_every_wave_audience(
-    clean_db, owner_conn
-):
+def test_an_event_only_opt_out_is_never_assignable(clean_db, owner_conn):
     """Fixture bypasses suppress(): the event lands with no column writes. The stage
     clause is the belt-and-suspenders that still excludes the contact."""
     with owner_conn.cursor() as cur:
@@ -510,7 +498,7 @@ def test_an_event_only_opt_out_is_excluded_from_every_wave_audience(
     recompute_state()
     with owner_conn.cursor() as cur:
         assert _flags(cur, contact_id)["do_not_mail"] is False  # no column write
-        assert contact_id not in _audience(cur)
+    assert _refused_by(owner_conn, contact_id) == "mid_funnel"  # the suppressed stage
 
 
 def test_record_note_accepts_only_note_types(clean_db, owner_conn):
@@ -523,29 +511,6 @@ def test_record_note_accepts_only_note_types(clean_db, owner_conn):
     record_note(contact_id, "note.general", "fine")  # note.* still works
     with pytest.raises(ValidationError):
         record_note(contact_id, "contact.opt_out", "sneaky opt-out as a note")
-
-
-def test_note_web_routes_reject_non_note_types(clean_db, owner_conn):
-    from fastapi.testclient import TestClient
-
-    from web.api import app
-
-    client = TestClient(app, raise_server_exceptions=False)
-    with owner_conn.cursor() as cur:
-        contact_id = new_contact(cur, phone_e164="+18185550024")
-    owner_conn.commit()
-
-    api = client.post(
-        f"/api/contacts/{contact_id}/note",
-        json={"note_type": "contact.opt_out", "text": "x"},
-    )
-    assert api.status_code == 409  # the app-wide ValidationError status
-    ui = client.post(
-        f"/contacts/{contact_id}/note",
-        data={"note_type": "contact.opt_out", "text": "x"},
-        follow_redirects=False,
-    )
-    assert ui.status_code == 409
 
 
 # ----------------------------------------------------------------------------------

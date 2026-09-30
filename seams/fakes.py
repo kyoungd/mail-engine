@@ -1,148 +1,11 @@
-"""In-memory seam implementations for testing the jobs and execute_wave without any
-vendor. They model the two properties the real clients must have: submit is idempotent
-on the mailer code (the vendor idempotency key), and a feed can fail.
-"""
+"""In-memory seam implementations for testing the jobs without any vendor."""
 
-import hashlib
-import json
-from collections.abc import Iterator
 from pathlib import Path
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
-from typing import Any
+from datetime import datetime
 from uuid import UUID
 
-from domain.enums import EventSource
-from domain.types import Event
-from seams.address_verifier import AddressVerificationError, VerificationResult
-from seams.print_api import ProofResult, SubmissionResult
 from seams.snapshot_inbox import InboxObject
 from seams.token_registry import TokenRegistryError
-
-_WEBHOOK_STATUS_TO_TYPE = {
-    "delivered": "piece.delivered",
-    "returned": "piece.returned",
-}
-
-
-class FakePrintApi:
-    """Idempotent on mailer_code (a re-submit returns the cached result, never a second
-    print). `fail_after` raises once this many distinct pieces have printed — a clean
-    way to simulate a crash mid-drop and prove resumability."""
-
-    def __init__(self, fail_after: int | None = None, cost_cents: int = 73) -> None:
-        self.fail_after = fail_after
-        self.cost_cents = cost_cents
-        self.printed: dict[str, SubmissionResult] = {}
-        self.submit_calls = 0
-        self.proof_calls = 0
-
-    def submit_piece(
-        self, mailer_code: str, creative: dict[str, Any], recipient=None
-    ) -> SubmissionResult:
-        if mailer_code in self.printed:
-            return self.printed[mailer_code]
-        if self.fail_after is not None and len(self.printed) >= self.fail_after:
-            raise RuntimeError("print api down")
-        self.submit_calls += 1
-        result = SubmissionResult(external_id=f"lob_{mailer_code}", cost_cents=self.cost_cents)
-        self.printed[mailer_code] = result
-        return result
-
-    def render_proof(self, creative: dict[str, Any]) -> ProofResult:
-        """Deterministic fake proof: the url encodes a checksum of the creative, so a
-        test can tell two variants' proofs apart without a vendor."""
-        checksum = hashlib.sha256(json.dumps(creative, sort_keys=True).encode()).hexdigest()[:12]
-        self.proof_calls += 1
-        return ProofResult(pdf_url=f"https://lob.test/proof/{checksum}.pdf")
-
-    def parse_webhook(self, raw: bytes, headers: dict[str, str]) -> Event | None:
-        data = json.loads(raw)
-        event_type = _WEBHOOK_STATUS_TO_TYPE.get(data["status"])
-        if event_type is None:
-            return None
-        at = datetime.now(UTC)
-        return Event(
-            id=0,
-            source=EventSource.LOB,
-            type=event_type,
-            occurred_at=at,
-            ingested_at=at,
-            external_id=data.get("id"),
-            payload={"mailer_code": data["mailer_code"]},
-        )
-
-
-@dataclass
-class FakeResponseFeed:
-    source: str
-    events: list[Event] = field(default_factory=list)
-    fail: bool = False
-
-    def pull_events(self, since: datetime) -> Iterator[Event]:
-        if self.fail:
-            raise RuntimeError(f"{self.source} feed down")
-        for event in self.events:
-            if event.occurred_at >= since:
-                yield event
-
-
-@dataclass
-class FakeSender:
-    sent: list[tuple[str, str]] = field(default_factory=list)
-
-    def send(self, founder: str, message: str) -> None:
-        self.sent.append((founder, message))
-
-
-class FakeVerifier:
-    """Programmable `AddressVerifier` (design §5). Defaults to the happy path —
-    deliverable, with standardized components and a delivery point.
-
-    The four cases the job must handle, all reachable from the constructor:
-      deliverable-with-components  FakeVerifier()
-      no delivery point            FakeVerifier(delivery_point="")
-      undeliverable                FakeVerifier(deliverability="undeliverable")
-      vendor error                 FakeVerifier(fail=True)
-
-    The last one is the point of the whole seam: a verdict is a result the caller
-    stamps and never re-requests, while an error must leave the row unstamped for the
-    next run to retry. A fake that could only produce verdicts would let a job that
-    conflates them pass its tests.
-    """
-
-    def __init__(
-        self,
-        *,
-        deliverability: str = "deliverable",
-        delivery_point: str = "01234567890",
-        components: bool = True,
-        fail: bool = False,
-    ) -> None:
-        self.deliverability = deliverability
-        self.delivery_point = delivery_point
-        self.components = components
-        self.fail = fail
-        self.calls: list[dict[str, str]] = []
-
-    def verify(self, address: dict[str, str]) -> VerificationResult:
-        self.calls.append(dict(address))
-        if self.fail:
-            raise AddressVerificationError("fake vendor error")
-        if not self.components:
-            return VerificationResult(
-                deliverability=self.deliverability,
-                delivery_point=self.delivery_point,
-            )
-        return VerificationResult(
-            deliverability=self.deliverability,
-            delivery_point=self.delivery_point,
-            std_addr_line1=(address.get("addr_line1") or "").upper(),
-            std_addr_line2=(address.get("addr_line2") or "").upper(),
-            std_addr_city=(address.get("addr_city") or "").upper(),
-            std_addr_state=(address.get("addr_state") or "").upper(),
-            std_addr_zip=f"{(address.get('addr_zip') or '').strip()[:5]}-1234",
-        )
 
 
 class FakeDncRegistry:
@@ -178,22 +41,6 @@ class FakeCloseFeed:
         for close in sorted(self._closes, key=lambda c: (c.recorded_at, c.id)):
             if close.recorded_at > since:
                 yield close
-
-
-class FakeDemosClient:
-    """Programmable `DemosClient` (Stage C2). `fail=True` models an unreachable
-    booking-system — the composer must OMIT the section, never placeholder it."""
-
-    def __init__(self, *, partners: list | None = None, fail: bool = False) -> None:
-        self._partners = partners or []
-        self.fail = fail
-        self.windows: list[tuple[datetime, datetime]] = []
-
-    def summary(self, from_: datetime, to: datetime) -> list:
-        if self.fail:
-            raise OSError("booking-system unreachable")
-        self.windows.append((from_, to))
-        return list(self._partners)
 
 
 class FakeSnapshotInbox:

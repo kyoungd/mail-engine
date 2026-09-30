@@ -94,7 +94,7 @@ def main(argv: list[str] | None = None) -> int:
             "examples:\n"
             "  python -m intake.fbn_ca Fictitious_Business_Name.csv --year 2026 -o fbn-2026.csv\n"
             "  python -m intake.fbn_ca raw.csv            # all years, to stdout\n"
-            "then load via the web UI (/intake, source e.g. 'fbn-ca-2026') or load_list()."
+            "then load: python -m jobs.intake_cli fbn-2026.csv --source fbn-ca-2026"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )

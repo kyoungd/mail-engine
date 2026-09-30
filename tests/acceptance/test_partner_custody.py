@@ -6,20 +6,16 @@ derivation with the genesis rule, recipient resolution by partner id, and the
 partners CLI upsert."""
 
 from datetime import UTC, datetime, timedelta
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import pytest
 
 from config.params import HOUSE_PARTNER_ID
 from derivation.custody import OWNERSHIP_EVENT_TYPES, current_owner
 from jobs.partners_cli import main as partners_cli
-from judgment import digest
-from seams.fakes import FakeSender
 from service.custody import set_owner
 from service.ingestion import event_from_row
 from tests.factories import new_contact
-
-AS_OF = datetime.now(UTC).date()
 
 
 def _john_id(cur) -> UUID:
@@ -270,59 +266,6 @@ def test_column_equals_event_confirmed_derivation_with_genesis(clean_db, owner_c
 
 def test_current_owner_genesis_rule_is_total():
     assert current_owner([], HOUSE_PARTNER_ID) == HOUSE_PARTNER_ID
-
-
-# ----------------------------------------------------------------------------------
-# 4. Recipient resolution by partner id (digest + record_nudge payload)
-# ----------------------------------------------------------------------------------
-
-
-def _stalled(conn):
-    contact_id = uuid4()
-    with conn.cursor() as cur:
-        new_contact(cur, id=contact_id, stage_snapshot="won")
-        cur.execute(
-            "insert into activation (contact_id, signed_up_at) values (%s, %s)",
-            (contact_id, datetime(2026, 1, 1, tzinfo=UTC)),
-        )
-    conn.commit()
-
-
-def test_young_recipient_resolves_to_the_house_partner_id(clean_db, owner_conn):
-    _stalled(owner_conn)
-    sender = FakeSender()
-
-    result = digest.run(AS_OF, sender=sender)
-
-    house = str(HOUSE_PARTNER_ID)
-    assert [f for f, _ in sender.sent] == [house]
-    assert len(result.sent[house]) == 1
-    with owner_conn.cursor() as cur:
-        cur.execute("select payload from events where type = 'nudge.sent'")
-        payloads = [r[0] for r in cur.fetchall()]
-    assert payloads and all(
-        p["recipient"] == house and p["recipient_name"] == "Young" for p in payloads
-    )
-
-
-def test_deal_owner_recipient_resolves_to_the_owning_partner_id(clean_db, owner_conn):
-    with owner_conn.cursor() as cur:
-        john = _john_id(cur)
-        contact_id = new_contact(cur, stage_snapshot="responded")
-        set_owner(cur, contact_id, john,
-                  event_type="contact.assigned", reason="assignment", actor="young")
-    owner_conn.commit()
-    sender = FakeSender()
-
-    result = digest.run(AS_OF, sender=sender)
-
-    assert str(john) in result.sent
-    with owner_conn.cursor() as cur:
-        cur.execute("select payload from events where type = 'nudge.sent'")
-        payloads = [r[0] for r in cur.fetchall()]
-    assert any(
-        p["recipient"] == str(john) and p["recipient_name"] == "John" for p in payloads
-    )
 
 
 # ----------------------------------------------------------------------------------

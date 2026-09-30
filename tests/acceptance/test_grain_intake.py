@@ -8,6 +8,7 @@ fixture action, not a verb bypass, and it is the only one in this file.
 """
 
 import csv
+from uuid import uuid4
 
 import psycopg
 import pytest
@@ -15,7 +16,7 @@ import pytest
 from domain.errors import ValidationError
 from service.contacts import ensure_seed_contacts, load_list, retire_seed
 from service.queries import search_contacts
-from service.waves import resolve_audience
+from service.assignment import assign_batch
 
 FIELDS = [
     "list_key", "business_name", "contact_name", "trade", "trades", "license_class",
@@ -330,6 +331,18 @@ def test_fbn_rows_never_phone_merge_and_keep_the_phone_off_the_contact(
 # --- §10 test 5: trade via exists ----------------------------------------------
 
 
+def _matched(conn, rule) -> list:
+    """Every contact the assignment's rule selects — handed over or refused by a gate."""
+    with conn.cursor() as cur:
+        cur.execute("select id from partners where name = 'John'")
+        row = cur.fetchone()
+        assert row is not None
+    conn.commit()
+    report = assign_batch(row[0], f"probe-{uuid4().hex[:8]}", "young",
+                          audience_rule=rule, count=100)
+    return report.assigned + [c for ids in report.shortfall.values() for c in ids]
+
+
 def test_a_multi_class_business_matches_both_trade_audiences_once_each(
     clean_db, tmp_path, owner_conn
 ):
@@ -339,10 +352,9 @@ def test_a_multi_class_business_matches_both_trade_audiences_once_each(
     )
     load_list(path)
 
-    with owner_conn.cursor() as cur:
-        hvac = resolve_audience(cur, {"trade": ["hvac"]}).ids
-        plumber = resolve_audience(cur, {"trade": ["plumber"]}).ids
-        both = resolve_audience(cur, {"trade": ["hvac", "plumber"]}).ids
+    hvac = _matched(owner_conn, {"trade": ["hvac"]})
+    plumber = _matched(owner_conn, {"trade": ["plumber"]})
+    both = _matched(owner_conn, {"trade": ["hvac", "plumber"]})
 
     assert len(hvac) == 1
     assert len(plumber) == 1
@@ -386,23 +398,6 @@ def test_retire_seed_clears_the_flag_and_suppresses_atomically(clean_db, owner_c
     with owner_conn.cursor() as cur:
         cur.execute("select is_seed, do_not_mail from contacts where id = %s", (seed_id,))
         assert cur.fetchone() == (False, True)
-
-
-def test_a_retired_seed_is_in_no_audience_and_rides_no_wave(clean_db, owner_conn):
-    """Including a rule-less full-list wave — clearing `is_seed` alone would stop the
-    per-wave seed append while leaving the row eligible for exactly that."""
-    _seed()
-    with owner_conn.cursor() as cur:
-        cur.execute("select id from contacts where is_seed")
-        row = cur.fetchone()
-        assert row is not None
-        seed_id = row[0]
-
-    retire_seed(seed_id)
-
-    with owner_conn.cursor() as cur:
-        assert seed_id not in resolve_audience(cur, {}).ids
-        assert seed_id not in resolve_audience(cur, {"trade": ["plumber"]}).ids
 
 
 def test_ensure_seed_contacts_without_the_config_entry_does_not_revive_a_retired_seed(

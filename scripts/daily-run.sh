@@ -18,14 +18,14 @@ usage: scripts/daily-run.sh [-h|--help]
 The production daily run, from $ENGINE_DIR:
   1. jobs.dnc_pull      judge each upload in the inbox, land accepted files in dnc-lists/
   2. jobs.dnc_refresh   scrub due contacts, each code against its own snapshot
-  3. jobs.nightly_cli   feeds, recompute, expiry, digest, partner reports (last)
+  3. jobs.nightly_cli   orphans, customer feed, recompute, expiry
 
 Upload FIRST — this run downloads and uploads nothing. NMC's own upload:
   python3 $ENGINE_DIR/clients/dnc_uploader.py --config ~/dnc-uploader-nmc/dnc-uploader.ini
 or the same client's Windows build; reps upload from their own machines.
 A day with no new upload is safe: the pull finds nothing, the scrub uses each
 code's newest recorded list, and a code whose uploads stop drains once its list
-is past 31 days old (the nightly's DNC alert fires past 24).
+is past 31 days old.
 
 Stops at the first step that fails. Safe to re-run the same day: the pull skips
 what is recorded, the scrub skips contacts checked in the last 21 days, and the

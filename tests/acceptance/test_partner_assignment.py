@@ -193,7 +193,7 @@ def test_every_pool_gate_excludes_with_its_cause(clean_db, owner_conn):
     ingest_event("nmc", "call.inbound", AT + timedelta(days=1), {}, contact_id=mid_funnel)
     ingest_event("nmc", "sms.outbound", AT + timedelta(days=2), {}, contact_id=mid_funnel)
     ingest_event("posthog", "signup.completed", AT, {}, contact_id=won)
-    from service.execution import recompute_state
+    from service.state import recompute_state
 
     recompute_state()
 
@@ -484,7 +484,7 @@ def test_a_won_contact_never_reenters_the_pool(clean_db, owner_conn):
 
     assign_batch(partner, "key-13", "young", contact_ids=[contact])
     ingest_event("posthog", "signup.completed", FRESH, {}, contact_id=contact)
-    from service.execution import recompute_state
+    from service.state import recompute_state
 
     recompute_state()
     terminated = run_won_termination_step()
@@ -499,15 +499,11 @@ def test_a_won_contact_never_reenters_the_pool(clean_db, owner_conn):
     _rm_partner(owner_conn, partner)
 
 
-def test_nightly_runs_steps_after_recompute_and_digest_routes_post_return(
-    clean_db, owner_conn
-):
-    """A close ingested before the nightly: recompute derives won, the termination
-    step returns the contact, and the digest routes any hit for it to the house —
-    the documented order sync → orphans → recompute → steps → digest, observed
-    through its effects in ONE run_nightly call."""
+def test_nightly_runs_steps_after_recompute(clean_db, owner_conn):
+    """A close ingested before the nightly: recompute derives won, and the termination
+    step returns the contact — the documented order orphans → recompute → steps,
+    observed through its effects in ONE run_nightly call."""
     from jobs.nightly import run_nightly
-    from seams.fakes import FakeSender
 
     with owner_conn.cursor() as cur:
         partner = _mk_partner(cur, f"P-{uuid4().hex[:8]}")
@@ -518,97 +514,12 @@ def test_nightly_runs_steps_after_recompute_and_digest_routes_post_return(
     assign_batch(partner, "key-15", "young", contact_ids=[contact])
     ingest_event("posthog", "signup.completed", FRESH, {}, contact_id=contact)
 
-    sender = FakeSender()
-    run_nightly([], FRESH - timedelta(days=1), sender=sender)
+    run_nightly()
 
     with owner_conn.cursor() as cur:
         assert _owner(cur, contact) == HOUSE_PARTNER_ID  # won -> terminated same night
         cur.execute("select stage_snapshot from contacts where id = %s", (contact,))
         assert cur.fetchone()[0] == "won"  # so the step ran AFTER recompute
-    for founder, message in sender.sent:
-        # nudges route on post-return ownership. (Re-scoped at the Stage C gate,
-        # 2026-08-01: the partner REPORT legitimately addresses the partner, so
-        # the assertion excludes it — any other send to the partner still fails.)
-        if message.startswith("Your NeverMissCall partner report"):
-            continue
-        assert founder != str(partner)
-    _rm_partner(owner_conn, partner)
-
-
-# ----------------------------------------------------------------------------------
-# 15. The sender-None recording guard
-# ----------------------------------------------------------------------------------
-
-
-def test_sender_none_skips_partner_hits_entirely(clean_db, owner_conn):
-    from judgment import digest
-
-    with owner_conn.cursor() as cur:
-        partner = _mk_partner(cur, f"P-{uuid4().hex[:8]}")
-        _subscribe(cur, "818")
-        partner_owned = _pool_contact(cur, "+18185556000")
-        house_owned = _pool_contact(cur, "+18185556001")
-    owner_conn.commit()
-
-    assign_batch(partner, "key-16", "young", contact_ids=[partner_owned])
-    # hot responses on both (piece out, inbound back, no engagement yet)
-    for cid in (partner_owned, house_owned):
-        ingest_event("lob", "piece.submitted", AT, {}, contact_id=cid)
-        ingest_event("nmc", "call.inbound", FRESH - timedelta(hours=2), {},
-                     contact_id=cid)
-    from service.execution import recompute_state
-
-    recompute_state()
-
-    result = digest.run(FRESH.date(), sender=None)
-
-    with owner_conn.cursor() as cur:
-        cur.execute(
-            "select count(*) from events where contact_id = %s and type = 'nudge.sent'",
-            (partner_owned,),
-        )
-        assert cur.fetchone()[0] == 0  # skipped BEFORE recording
-        cur.execute(
-            "select next_action_at from contacts where id = %s", (partner_owned,)
-        )
-        assert cur.fetchone()[0] is None
-        cur.execute(
-            "select count(*) from events where contact_id = %s and type = 'nudge.sent'",
-            (house_owned,),
-        )
-        assert cur.fetchone()[0] == 1  # the house burn, unchanged (TD-10 known cost)
-    assert str(partner) not in result.sent
-    _rm_partner(owner_conn, partner)
-
-
-def test_with_a_sender_partner_hits_record_and_deliver(clean_db, owner_conn):
-    from judgment import digest
-    from seams.fakes import FakeSender
-
-    with owner_conn.cursor() as cur:
-        partner = _mk_partner(cur, f"P-{uuid4().hex[:8]}")
-        _subscribe(cur, "818")
-        partner_owned = _pool_contact(cur, "+18185556100")
-    owner_conn.commit()
-
-    assign_batch(partner, "key-17", "young", contact_ids=[partner_owned])
-    ingest_event("lob", "piece.submitted", AT, {}, contact_id=partner_owned)
-    ingest_event("nmc", "call.inbound", FRESH - timedelta(hours=2), {},
-                 contact_id=partner_owned)
-    from service.execution import recompute_state
-
-    recompute_state()
-
-    sender = FakeSender()
-    digest.run(FRESH.date(), sender=sender)
-
-    with owner_conn.cursor() as cur:
-        cur.execute(
-            "select count(*) from events where contact_id = %s and type = 'nudge.sent'",
-            (partner_owned,),
-        )
-        assert cur.fetchone()[0] == 1  # byte-identical to the pre-guard path
-    assert any(founder == str(partner) for founder, _ in sender.sent)
     _rm_partner(owner_conn, partner)
 
 
@@ -680,7 +591,7 @@ def test_correlation_first_then_replayed_funnel_close_is_two_events_and_correct(
     ingest_event("posthog", "signup.completed", FRESH, {"mailer_code": "abc"},
                  external_id="ph-2", contact_id=contact)
 
-    from service.execution import recompute_state
+    from service.state import recompute_state
 
     recompute_state()
     terminated = run_won_termination_step()
@@ -712,7 +623,7 @@ def test_a_codeless_close_ends_the_assignment_before_expiry(clean_db, owner_conn
     correlate_closes(
         FakeCloseFeed([_close("cus_C", "+18185557200", FRESH, mailer_code=None)])
     )
-    from service.execution import recompute_state
+    from service.state import recompute_state
 
     recompute_state()
     run_won_termination_step()
@@ -776,7 +687,7 @@ def test_column_still_equals_derivation_across_all_new_paths(clean_db, owner_con
 
     assign_batch(partner, "key-22", "young", contact_ids=[b, c, d])
     ingest_event("posthog", "signup.completed", FRESH, {}, contact_id=b)
-    from service.execution import recompute_state
+    from service.state import recompute_state
 
     recompute_state()
     run_won_termination_step()  # b

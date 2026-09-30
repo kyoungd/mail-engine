@@ -1,13 +1,18 @@
-"""The nightly runner: builds feeds from env and hands them to run_nightly.
+"""The nightly runner: hands run_nightly the customer feed when it is set up.
 
-FR-11 keeps the nightly job-first — it is deliberately never a web route — so this CLI
-(cron's entry point) is the only way it runs. run_nightly itself is untouched: it already
-takes a list of feeds.
+The mail feeds, the address check, the digest, and the partner reports are gone
+(contact-engine part 0, steps 3 and 4); the nightly runs with no mail setting present.
 """
 
 import pytest
 
 from jobs import nightly_cli
+
+_REMOVED_SETTINGS = (
+    "LOB_API_KEY", "LOB_AV_API_KEY", "POSTHOG_API_KEY", "POSTHOG_PROJECT_ID",
+    "SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS", "SMTP_FROM",
+    "NMC_BOOKING_URL", "NMC_API_KEY",
+)
 
 
 @pytest.fixture()
@@ -15,76 +20,36 @@ def spy(monkeypatch):
     """Capture what run_nightly is handed, without running it."""
     captured = {}
 
-    def fake_run_nightly(
-        feeds, since, as_of=None, sender=None, verifier=None, dnc_registry=None,
-        close_feed=None, demos_client=None,
-    ):
-        captured["feeds"] = feeds
-        captured["since"] = since
-        captured["verifier"] = verifier
+    def fake_run_nightly(dnc_registry=None, close_feed=None):
         captured["dnc_registry"] = dnc_registry
         captured["close_feed"] = close_feed
-        captured["sender"] = sender
-        captured["demos_client"] = demos_client
 
     monkeypatch.setattr(nightly_cli, "run_nightly", fake_run_nightly)
-    for var in ("LOB_API_KEY", "LOB_AV_API_KEY", "POSTHOG_API_KEY",
-                "POSTHOG_PROJECT_ID", "MEDUSA_DATABASE_URL", "MEDUSA_READONLY_URL",
-                "SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS", "SMTP_FROM",
-                "NMC_BOOKING_URL", "NMC_API_KEY"):
+    for var in _REMOVED_SETTINGS + ("MEDUSA_DATABASE_URL", "MEDUSA_READONLY_URL"):
         monkeypatch.delenv(var, raising=False)
     return captured
 
 
-def test_builds_a_lob_status_feed_when_LOB_API_KEY_is_set(spy, monkeypatch, capsys):
-    monkeypatch.setenv("LOB_API_KEY", "test_abc")
+def test_runs_with_no_customer_feed_configured(spy, capsys):
     assert nightly_cli.main([]) == 0
-    assert [f.source for f in spy["feeds"]] == ["lob"]
+    assert spy == {"dnc_registry": None, "close_feed": None}
+    assert "nightly complete" in capsys.readouterr().out
 
 
-def test_builds_a_posthog_feed_when_its_env_is_set(spy, monkeypatch):
-    monkeypatch.setenv("LOB_API_KEY", "test_abc")
-    monkeypatch.setenv("POSTHOG_API_KEY", "phx_1")
-    monkeypatch.setenv("POSTHOG_PROJECT_ID", "12345")
+def test_hands_over_the_customer_feed_when_it_is_set_up(spy, monkeypatch):
+    monkeypatch.setenv("MEDUSA_READONLY_URL", "postgresql://ro@localhost/medusa_nmc")
     assert nightly_cli.main([]) == 0
-    assert sorted(f.source for f in spy["feeds"]) == ["lob", "posthog"]
+    assert spy["close_feed"] is not None
 
 
-def test_an_unconfigured_feed_is_skipped_AND_reported(spy, monkeypatch, capsys):
-    # PostHog keys are not collected yet, so this is every run today. A silent skip
-    # would read as "we synced everything" when web response — currently the only
-    # wired response channel — was never pulled.
-    monkeypatch.setenv("LOB_API_KEY", "test_abc")
-    assert nightly_cli.main([]) == 0
-    assert [f.source for f in spy["feeds"]] == ["lob"]
-    # one readouterr() — it drains the buffer, so calling it twice loses the second stream
-    captured = capsys.readouterr()
-    output = (captured.out + captured.err).lower()
-    assert "posthog" in output
-    assert "skip" in output
+def test_dry_run_reports_the_customer_feed_and_runs_nothing(spy, monkeypatch, capsys):
+    assert nightly_cli.main(["--dry-run"]) == 0
+    assert "customer feed: not configured" in capsys.readouterr().out
 
-
-def test_running_with_no_feeds_configured_fails_loudly(spy, monkeypatch):
-    # run_nightly with an empty list would resolve_orphans -> recompute_state ->
-    # digest.run and mail nudges computed over nothing new. nightly.py guards against
-    # a feed ERROR; nothing guards against feed ABSENCE. Refuse instead.
-    assert nightly_cli.main([]) != 0
-    assert "feeds" not in spy
-
-
-def test_since_defaults_to_a_30_day_lookback(spy, monkeypatch):
-    # Overlap is free — ingestion dedupes on (source, external_id) — but a short window
-    # loses scans permanently if the box was off for a few days.
-    monkeypatch.setenv("LOB_API_KEY", "test_abc")
-    nightly_cli.main([])
-    age_days = (nightly_cli._now() - spy["since"]).days
-    assert age_days == 30
-
-
-def test_since_can_be_overridden(spy, monkeypatch):
-    monkeypatch.setenv("LOB_API_KEY", "test_abc")
-    nightly_cli.main(["--since", "2026-07-01"])
-    assert spy["since"].date().isoformat() == "2026-07-01"
+    monkeypatch.setenv("MEDUSA_READONLY_URL", "postgresql://ro@localhost/medusa_nmc")
+    assert nightly_cli.main(["--dry-run"]) == 0
+    assert "customer feed: configured" in capsys.readouterr().out
+    assert spy == {}
 
 
 def test_help_exits_zero_and_shows_usage(capsys):
@@ -92,3 +57,12 @@ def test_help_exits_zero_and_shows_usage(capsys):
         nightly_cli.main(["--help"])
     assert exit_info.value.code == 0
     assert "usage" in capsys.readouterr().out.lower()
+
+
+def test_the_nightly_runs_to_its_end_with_no_mail_setting_present(
+    clean_db, monkeypatch, capsys
+):
+    for var in _REMOVED_SETTINGS + ("MEDUSA_DATABASE_URL", "MEDUSA_READONLY_URL"):
+        monkeypatch.delenv(var, raising=False)
+    assert nightly_cli.main([]) == 0
+    assert "nightly complete" in capsys.readouterr().out

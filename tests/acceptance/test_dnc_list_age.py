@@ -14,18 +14,14 @@ from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from uuid import UUID, uuid4
 
-import psycopg
 import pytest
 
-from config.params import DEFAULT_PARAMS, DNC_FRESHNESS_DAYS, HOUSE_PARTNER_ID
+from config.params import DNC_FRESHNESS_DAYS, HOUSE_PARTNER_ID
 from jobs.dnc_pull import pull_snapshots
 from jobs.dnc_refresh import dnc_refresh_all
-from judgment.rules.dnc_version_alert import RULE as dnc_version_alert
 from seams.fakes import FakeSnapshotInbox
 from service.assignment import assign_batch
 from tests.factories import new_contact
-
-AS_OF = date(2026, 9, 9)
 
 
 def _utc_today() -> date:
@@ -177,54 +173,3 @@ def test_the_wall_is_31_days_on_the_utc_date_whatever_the_session_zone(
         assert report.assigned == [contact_id]
     else:
         assert report.assigned == [] and report.shortfall == {"dnc_stale": [contact_id]}
-
-
-# -- the alert --------------------------------------------------------------------
-
-
-def _evaluate(readonly_url):
-    with psycopg.connect(readonly_url) as conn:
-        conn.read_only = True
-        with conn.cursor() as cur:
-            return dnc_version_alert.evaluate(cur, DEFAULT_PARAMS, AS_OF)
-
-
-def _checked(cur, phone: str, days_ago: int) -> None:
-    new_contact(cur, phone_e164=phone, dnc_checked_at=datetime.combine(
-        AS_OF - timedelta(days=days_ago), time(12), tzinfo=UTC))
-
-
-def test_alert_fires_when_the_newest_list_is_old_though_checks_are_fresh(
-    clean_db, owner_conn, readonly_url
-):
-    """Uploads stopped, scrub still running — the case a check-age alert cannot see."""
-    with owner_conn.cursor() as cur:
-        _subscribe(cur, "818")
-        _checked(cur, "+18185550009", days_ago=1)
-        _snapshot_row(cur, "818", AS_OF - timedelta(days=25))
-    owner_conn.commit()
-
-    hits = _evaluate(readonly_url)
-
-    assert len(hits) == 1
-    assert hits[0].facts["stale"] == [{"area_code": "818", "age_days": 25}]
-
-
-def test_only_the_newest_accepted_list_counts(clean_db, owner_conn, readonly_url):
-    """A superseded old list is no alarm; a fresh REJECTED file must not make an old
-    accepted one look current."""
-    with owner_conn.cursor() as cur:
-        _subscribe(cur, "818")
-        _subscribe(cur, "714")
-        _checked(cur, "+18185550009", days_ago=1)
-        _checked(cur, "+17145550009", days_ago=1)
-        _snapshot_row(cur, "818", AS_OF - timedelta(days=25))
-        _snapshot_row(cur, "818", AS_OF - timedelta(days=2))
-        _snapshot_row(cur, "714", AS_OF - timedelta(days=25))
-        _snapshot_row(cur, "714", AS_OF - timedelta(days=1), status="rejected")
-    owner_conn.commit()
-
-    hits = _evaluate(readonly_url)
-
-    assert len(hits) == 1
-    assert hits[0].facts["stale"] == [{"area_code": "714", "age_days": 25}]

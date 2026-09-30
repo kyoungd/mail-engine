@@ -11,7 +11,7 @@ import pytest
 import service.contacts as contacts
 from domain.errors import ValidationError
 from service.contacts import load_list, record_outcome, set_next_action, suppress
-from service.execution import recompute_state
+from service.state import recompute_state
 from service.ingestion import ingest_event
 from tests.factories import new_contact
 
@@ -140,15 +140,23 @@ def test_suppress_is_one_way_no_unsuppress_verb():
     assert not hasattr(contacts, "unsuppress")
 
 
-def test_opt_out_halts_mail_immediately_without_a_recompute(clean_db, owner_conn, readonly_url):
-    from service.waves import resolve_audience
+def test_opt_out_halts_calling_immediately_without_a_recompute(
+    clean_db, owner_conn, readonly_url
+):
+    from service.assignment import assign_batch
 
-    contact_id = _seed_contact(owner_conn)  # plumber, do_not_mail = false
-    suppress(contact_id, "all", "asked to be left alone")
-    # No recompute has run — the audience resolver must already exclude them.
     with owner_conn.cursor() as cur:
-        remaining = resolve_audience(cur, {"trade": ["plumber"]}).ids
-    assert contact_id not in remaining
+        contact_id = new_contact(cur, phone_e164="+18185550031")
+    owner_conn.commit()
+    suppress(contact_id, "all", "asked to be left alone")
+    # No recompute has run — the assignment gate must already refuse them.
+    with owner_conn.cursor() as cur:
+        cur.execute("select id from partners where name = 'John'")
+        john = cur.fetchone()
+        assert john is not None
+    owner_conn.commit()
+    report = assign_batch(john[0], "probe-opt-out", "young", contact_ids=[contact_id])
+    assert report.shortfall.get("voice_suppressed") == [contact_id]
 
     with psycopg.connect(readonly_url) as conn:
         with conn.cursor() as cur:

@@ -121,7 +121,7 @@ def main(argv: list[str] | None = None) -> int:
             "  python -m intake.cslb_ca MasterLicenseData.csv --county 'Los Angeles' "
             "--classes C36 -o la-plumbers.csv\n"
             "  python -m intake.cslb_ca MasterLicenseData.csv --wc-exempt   # solo operators\n"
-            "then load via the web UI (/intake, source e.g. 'cslb-ca') or load_list().\n\n"
+            "then load: python -m jobs.intake_cli la-plumbers.csv --source cslb-ca\n\n"
             "TRAP: --wc-exempt is void for C-39/C-8/C-20/C-22/D-49 (WC mandatory for those\n"
             "classes regardless of employees) and decays for everyone by 2028 (SB 216 / SB\n"
             "1455). See docs/list-shapes.md."
