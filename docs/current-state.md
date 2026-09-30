@@ -16,10 +16,10 @@ record from 2026-07-29 to 2026-09-13.
 |---|---|
 | Branch `contact-engine` | Cut from `main` at `4b6d5b9`, 2026-09-29; pushed. Not yet the GitHub default: a settings change by the operator (`gh` is not installed here). |
 | Part 0, Foundation | Approved and **built** 2026-09-29 ([`00-foundation.md`](contact-engine/00-foundation.md)). `make test` 395 passed, `make e2e` passed, ruff + pyright clean. |
-| Part 1, Intake | Designed and **approved** 2026-09-30 ([`01-intake.md`](contact-engine/01-intake.md), revision 8, after seven reviews). Not built. |
+| Part 1, Intake | Approved and **built** 2026-09-30 ([`01-intake.md`](contact-engine/01-intake.md)): migration `0014` (`intake_rep`), `service/rep_intake.add_numbers`, gate `tests/acceptance/test_rep_intake.py`. `make test` 458 passed; e2e, lint clean. `0014` applied to `mailengine_dev` only. |
 | Parts 2 to 6 | Not designed. One at a time, in order ([`00-overview.md`](contact-engine/00-overview.md)). |
 | Hosting on Render | After part 6 |
-| Code | The mail code, web pages, and messages are removed; ~7,200 lines of app code and ~7,700 of tests remain (from ~11,000 and ~12,700). New: `jobs/intake_cli.py`, `service/state.py`, `derivation/activity.py`. No migration; newest is `0013`. |
+| Code | The mail code, web pages, and messages are removed; ~7,200 lines of app code and ~7,700 of tests remain (from ~11,000 and ~12,700). New: `jobs/intake_cli.py`, `service/state.py`, `derivation/activity.py`. Newest migration `0014` (dev only). |
 | Docs | `PRD.md` v2.0; mail-engine's documents moved to `mail-engine-backup/`. |
 
 **The source of decisions** is the decision record in the NeverMissCall repository,
@@ -44,8 +44,7 @@ what is not settled. This project proposes changes to it; the operator approves 
    update`; the scrub's `_apply` re-reads it `for update` in each contact's
    transaction. Frozen gate `tests/acceptance/test_lock_races.py` (red for the
    predicted reasons, then green); `make test` 398 passed, e2e and lint clean.
-2. **Build part 1 (🔴):** its build plan to the operator for explicit approval; tests
-   first; migration `0014`.
+2. ~~**Build part 1**~~ — done 2026-09-30.
 3. **Propose the decision-record changes** of `01-intake.md` §11 to the operator.
 4. **Design part 2, DNC filtering.**
 5. **The largest open conflict:** 9.0, the 90 days against the rest (parts 4 and 5).
@@ -69,6 +68,9 @@ what is not settled. This project proposes changes to it; the operator approves 
   teardown — `drop database … with (force)` was refused because a process of another
   role was connected to the scratch database. It passed 5/5 alone and in two later
   full runs; nothing was connected when looked at. Possibly the 2026-09-10 failure.
+  Seen again 2026-09-30, dropping a scratch database right after restoring the
+  production backup into it; again nothing was connected when looked at. Unproven
+  hypothesis: an autovacuum/autoanalyze worker on the freshly loaded database.
   The teardown now prints the scratch database's sessions (`pg_stat_activity`) to
   stderr before the drop — a normal run shows one idle `me_user` session (yoyo's) —
   so the next failure names the other role. The two leftover `me_scratch_*`

@@ -63,6 +63,6 @@ One at a time, in order.
 | [`00-purpose.md`](00-purpose.md) | The big picture: the six jobs |
 | [`00-interface.md`](00-interface.md) | What is exposed, at a high level |
 | [`00-foundation.md`](00-foundation.md) | Approved 2026-09-29 |
-| [`01-intake.md`](01-intake.md) | Part 1. Approved 2026-09-30. Not built. |
+| [`01-intake.md`](01-intake.md) | Part 1. Approved and built 2026-09-30. |
 | Parts 2 to 6 | Not yet written. One at a time, by the contact-engine session, in `marketing/mail-engine`. |
 | [`handoff.md`](handoff.md) | The note that hands them over |

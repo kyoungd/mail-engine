@@ -1,9 +1,12 @@
 # contact-engine Upgrade — Part 1: Intake
 
 **Status:** APPROVED by the operator, 2026-09-30 (revision 8; offered "Approve", "One
-more review", or "Read it first"; chose approve). Approval does not start the build:
-the `suppress()` and scrub lock fix comes first, then the build plan under the red-tier
-gate (§8). History: Revision 1 did not pass its review (a
+more review", or "Read it first"; chose approve). **BUILT 2026-09-30:** the lock fix
+(`13fc291`) first; then, under an approved build plan and an approved test gate,
+`0014.intake-rep.sql`, `service/rep_intake.py`, and `tests/acceptance/test_rep_intake.py`
+(one test added after a mutation check found the gate missed an unmatched sale on a
+phone that already has a contact). §8's migration check ran on the 2026-09-13
+production backup in a scratch database: every existing table unchanged. History: Revision 1 did not pass its review (a
 missing result for a rep's own contact held by the house, a clock test that
 contradicted the clock rule, no locking). Revision 2 did not pass (a migration check
 that could not be carried out). Revision 3 did not pass (an opted-out contact with no

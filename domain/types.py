@@ -135,6 +135,30 @@ class IntakeReport:
 
 
 @dataclass(frozen=True, kw_only=True)
+class RepRow:
+    """One number a rep adds (docs/contact-engine/01-intake.md §4.2)."""
+
+    phone: str
+    business_name: str | None = None
+    contact_name: str | None = None
+    contact_role: str | None = None
+    trade: str | None = None
+    addr_city: str | None = None
+    addr_state: str | None = None
+    how_obtained: str | None = None
+
+
+@dataclass(frozen=True)
+class RowResult:
+    """What `add_numbers` did with one row: one of the §4.2 results, and the contact
+    it concerns when one exists and the rep may know it."""
+
+    phone: str
+    result: str
+    contact_id: UUID | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
 class SampleContact:
     id: UUID
     business_name: str | None
