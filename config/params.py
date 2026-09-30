@@ -4,6 +4,7 @@ tests can move a threshold without touching a rule. The runtime-tunable config t
 today."""
 
 from dataclasses import dataclass
+from datetime import time
 from uuid import UUID
 
 # The house account's partner row (partner-lead-assignment.md §7, S-11): a fixed,
@@ -17,6 +18,11 @@ HOUSE_PARTNER_ID = UUID("00000000-0000-4000-8000-000000000001")
 # stamp is older than this. 21 days keeps every dialable contact inside the federal
 # 31-day safe-harbor window with margin for missed runs.
 DNC_RECHECK_DAYS = 21
+
+# The calling window, the business's local time (decision 5.3; part 3 answer 2): a
+# moment is inside when START <= local time < END in every zone the business could be in.
+CALLING_WINDOW_START = time(9)
+CALLING_WINDOW_END = time(19)
 
 # A partner-supplied snapshot must reach us within this many days of the FTC's own
 # file date: the portal serves only the CURRENT file, so a genuine fresh download is
