@@ -50,8 +50,8 @@ what is not settled. This project proposes changes to it; the operator approves 
    to the operator (decision 4.4 changed by answers 8 and 9).
 4. **Build part 2** (🔴): its build plan and tests to the operator first.
 5. **Design part 3, Time zone.**
-5. **The largest open conflict:** 9.0, the 90 days against the rest (parts 4 and 5).
-6. **Make `contact-engine` the GitHub default** — the operator, in GitHub's settings.
+6. **The largest open conflict:** 9.0, the 90 days against the rest (parts 4 and 5).
+7. **Make `contact-engine` the GitHub default** — the operator, in GitHub's settings.
 
 ## Part 0, as built — what to know
 
