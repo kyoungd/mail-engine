@@ -1,6 +1,6 @@
 # contact-engine Upgrade — Part 2: DNC filtering
 
-**Status:** DRAFT, revision 12, 2026-09-30. Revision 8 **passed** its review; the operator
+**Status:** DRAFT, revision 13, 2026-09-30. Revision 8 **passed** its review; the operator
 then replaced the rep's 24-hour undo with an admin lift (answer 8). Revision 9's lift —
 over every form of block, by an event-id mark — did not pass (a later-attached opt-out
 could be lifted unseen; a concurrent request could be erased; lifts deadlocked). The
@@ -8,12 +8,13 @@ operator narrowed the lift to requests recorded through part 2's own verbs (answ
 Revision 10, rewritten around that, did not pass (an opt-out carrying a phone stopped
 blocking that phone once attached to another contact). Revision 11 did not pass (a lift
 could erase a live request the admin never saw): a lift now names the requests it lifts.
-The check's 31 days go back to exactly what answer 3 kept. This revision applies the
-minor findings. Not yet re-reviewed, not approved. Nothing is built.
+The check's 31 days go back to exactly what answer 3 kept. Revision 12 did not pass (no
+test could tell a by-id tombstone delete from a phone-wide one). This revision adds that
+test, makes door B read the shared voice block, and applies the minor findings. Not yet re-reviewed, not approved. Nothing is built.
 **Part of:** [the upgrade](00-overview.md). Decisions are in the decision record,
 `nvermisscall/docs/active/sales-partner-dialer-decisions.md`, named here by number
 ("decision 4.1"); sections of this document are named "§4.1".
-**Checked against:** the `contact-engine` branch at `e235e19` (parts 0 and 1 built; the
+**Checked against:** the `contact-engine` branch at `070b5a4` (parts 0 and 1 built; the
 code is unchanged since `c3179da`). A statement about the code carries its file and line.
 
 ---
@@ -99,7 +100,9 @@ an unknown contact too (`no_contact`). The first that applies:
   anything but `mail` or `sms` — that is not the event of a **lifted** request (§4.7);
 - **any** `contact.opt_out` event whose reason is not `do_not_mail`, or any voice
   `contact.suppressed` event (other than a lifted request's), that **carries the phone** —
-  `to_e164(payload.phone_e164)` **and** `to_e164(payload.phone)`, both counted — one
+  `to_e164(payload.phone_e164)` **and** `to_e164(payload.phone)`, both counted, a value
+  that is not a string taken through `str()` first and a payload that is not an object
+  read as empty — one
   stricter than the matcher, which uses `phone_e164` raw and ignores `phone` when it is
   present —
   **whether or not it is attached to a contact, and to which.** An opt-out attached by
@@ -182,7 +185,8 @@ A new table `dnc_runs` (§10), written by one verb, `record_scrub_run(started_at
 limited)` in `service/dnc.py` — `service/` stays the only write path. `dnc_refresh_all`,
 the daily run's scrub, reads its start from the database's `now()` when it begins (the
 database's clock, because row 3 compares it with `contacts.created_at`, which the database
-stamps; a job is the outermost layer and may read a clock). It calls the verb when it
+stamps). The start is read in the job module, not in `service/`: jobs are the outer layer
+that may read a clock. It calls the verb when it
 finishes; no row when it raises; a row when nothing is subscribed. The single-registry
 `dnc_refresh` records nothing.
 
@@ -234,7 +238,7 @@ reached NMC by email or phone. The phone is normalized with `to_e164` first.
 | `at` has no time zone | refused `bad_time` |
 | The reason is missing or blank | refused `no_reason` |
 | `to_e164` rejects the phone | refused `invalid_phone` |
-| A non-seed contact has the phone | `blocked` through the request helper of §4.5, kind `admin`, no rep; custody unchanged |
+| A non-seed contact has the phone | `blocked` through the request helper of §4.5, kind `admin`, no rep, the event's payload `reported_by: admin`; custody unchanged |
 | No non-seed contact has it | a `dnc_requests` row (kind `admin`, no contact, no event) and a voice tombstone for the phone, `created_at = at` — even for a number part 1's stricter rule rejects, because door A stores any number `to_e164` accepts |
 
 The request row keeps the phone, the reason, and the time for good (decision 8.8), even
@@ -246,8 +250,9 @@ the tombstone, so the number is refused everywhere.
 ### 4.7 An admin lifts recorded requests (decision 4.4 as replaced; answers 8, 9)
 
 A rep who reported by mistake asks the operator. The operator first reads
-`live_requests(phone)` in `service/dnc.py` — every live request part 2 recorded on the
-number: its id, kind, rep, reason, `requested_at` — and judges it. Then
+`live_requests(phone)` in `service/dnc.py` — exactly the set the lift will lock: every live
+request on the non-seed contact with the phone, or on the phone itself; its id, kind, rep,
+reason, `requested_at` — and judges it. Then
 `lift_do_not_call(phone, request_ids, reason, at)` lifts **exactly the requests the operator
 named**, reps' or admins', and nothing else (answer 9). The phone is normalized with
 `to_e164` first. It returns the ids it lifted.
@@ -265,8 +270,9 @@ named**, reps' or admins', and nothing else (answer 9). The phone is normalized 
 
 One transaction. It locks the non-seed contact with the phone, if one exists, `for
 update`, then the live `dnc_requests` rows on that contact or phone, `for update`, in `seq`
-order. Then comes the hook the locking tests pause at (§7); **after it**, as the last
-reads before the first write, are made the `changed`, `retry`, and `other_block` checks. If, once the rows are locked, any
+order. Then comes the first hook the locking tests pause at (§7); **after it** are made,
+in the table's order, the `nothing_to_lift`, `changed`, `retry`, and `other_block`
+checks, as the last reads. Then a second hook, and then the first write. If, once the rows are locked, any
 of them names a contact the lift did not lock, or a contact with the phone now exists
 that it did not lock, it is refused `retry` and changes nothing — a contact was created
 while it ran. **Anything else** is any form of
@@ -296,12 +302,13 @@ When nothing else blocks it:
 The lift takes the same locks, in the same order, as every writer of the contact row —
 the contact first, then its own rows in `seq` order — and no table lock, so it cannot
 deadlock with them or with another lift. Two lifts on one number serialize on the rows;
-the second finds the set changed and is refused. A forged event can neither lift (only the `dnc_requests` table does)
+the second finds nothing live and is refused `nothing_to_lift`. A forged event can neither lift (only the `dnc_requests` table does)
 nor be lifted (it is not a request's event, so it is "anything else"). An opt-out that
 `resolve_orphans` attaches to the contact after a lift was never covered, so it blocks.
 
-After a lift, the stage derivation does not refuse the number and part 1's intake refuses
-at least what the status refuses: a request's event is a `contact.suppressed`, which
+After a lift, the stage derivation does not refuse the number, and part 1's intake — which
+reads the same voice block (§4.11) — refuses nothing the status admits except an unmatched
+`do_not_mail` opt-out, where intake stays the stricter: a request's event is a `contact.suppressed`, which
 neither `is_suppressed` nor intake row 3 reads, and an opt-out would have refused the lift.
 
 `clear_suppression` still refuses `voice`, and no `unsuppress` verb appears, so the frozen
@@ -346,12 +353,21 @@ hosted under another name. Production scrubs only through `dnc_refresh_all`. The
 allowlist is one module-level name, so the test replaces it and proves the refusal
 without connecting to production (§7).
 
+### 4.11 Door B reads the voice block
+
+Part 1's `rep_intake._judge` row 3 is changed to read the shared voice-block SQL of §4.1
+(and keeps its own unmatched-`do_not_mail` refusal, which is stricter). Without this, door B
+would claim a contact whose only block is a list-key tombstone, a flagless voice
+`contact.suppressed`, or a carried phone on an attached event — numbers the status refuses —
+and a rep would hold them. It is a change to part 1's built code (§9, design answer), made
+under part 2's red-tier build with part 1's gate test extended, not loosened.
+
 ## 5. Part 1's hand-offs
 
 | Part 1 left | Part 2 |
 |---|---|
-| Undoing a "don't call me again" (4.4) would leave the tombstone, so intake would keep refusing | Replaced: there is no rep undo; an admin's lift deletes the lifted requests' tombstones (§4.7), and intake then admits the number |
-| A voice `contact.suppressed` recorded without the flag is not read by intake row 3 | The voice block reads it (§4.1); intake row 3 is part 1's and unchanged |
+| Undoing a "don't call me again" (4.4) would leave the tombstone, so intake would keep refusing | Replaced: there is no rep undo; an admin's lift deletes the lifted requests' tombstones (§4.7), and intake then admits the number unless something else blocks it |
+| A voice `contact.suppressed` recorded without the flag is not read by intake row 3 | Intake row 3 now reads the voice block (§4.11) |
 | A held contact returns to the house on a voice block | Part 2's verbs never move custody. `suppress(voice)` still does; it has no caller on the branch, and part 4 decides (§6) |
 
 ## 6. Gaps and limits
@@ -369,22 +385,22 @@ Gaps are not questions (decision 2.9).
 | An unmatched opt-out carrying only a mailer code blocks nothing until the nightly `resolve_orphans` attaches it | Left: the nightly attaches it; the status reads it from then on |
 | A report queued on a phone (decision 8.7) whose contact has since been hard-deleted is refused `no_contact` | When a hard delete is built (FR-8): it must route such a report to §4.6 by phone |
 | A hard delete (FR-8, not built) that removes events loses an event-only opt-out or flagless voice event, which have no tombstone; FR-8 must write a voice tombstone for each | When a hard delete is built |
-| The gate and the export read tombstones, events and requests in their statement's first snapshot, and the carried-phone array from an earlier statement — outside the row lock: an opt-out landing mid-batch is not seen by that batch; the next one sees it, and the status reads it at call time | Left: as part 1's intake |
+| The gate and the export read tombstones, events and requests in their statement's first snapshot, and the carried-phone array from an earlier statement — outside the row lock: an opt-out landing mid-batch is not seen by that batch; the next one sees it, and the status reads it at call time. (Door B judges with fresh statements after its lock, so it does see it.) | Left |
 | A sheet passes the 31-day check when it is pulled; a rep not on the app may dial from it later, past 31 days | Left: the export's rule "re-pull before each session" (`service/assignment.py:311-317`); reps on the app are checked at every call (part 5) |
 | `clear_suppression(contact, 'dnc_registry')` clears a registry verdict with no check and no list; only the scrub calls it | Left: part 6 must not expose it |
 | The re-landing of each code's newest DNC file on every run (§4.8) | Hosting (9.11) |
 | `dnc_status` trusts the `at` it is handed | Parts 5 and 6 pass the server's clock (decision 7.6) |
 | Part 5's wrong-number replacement (9.14) changes a phone: the new phone must be checked again, and a lift or request on the old phone does not follow it | Part 5; §4.1 row 4 refuses a verdict linked to another code |
 | The console's inventory counts do not read the voice block | Left: an operator view, not a path to a call |
-| A no-contact lift that commits while `load_list` is between reading tombstones and creating the contact (`service/contacts.py:159-169`) leaves the contact flagged with no live request: it can never be lifted. A future hard delete of a contact with a live request leaves a request naming a deleted contact: a lift on a re-created contact is refused `retry`. Both over-block | Left, safe; FR-8 must re-point or close such requests |
+| A no-contact lift that commits while `load_list` is between reading tombstones (`service/contacts.py:160-169`) and creating the contact (`:268-294`) leaves the contact flagged with no live request: it can never be lifted. A future hard delete of a contact with a live request leaves a request naming a deleted contact: a lift on a re-created contact is refused `retry`. Both over-block | Left, safe; FR-8 must re-point or close such requests |
 | NANP codes in zones east of UTC (Guam 671, Northern Mariana Islands 670): the UTC date can be behind theirs, so the list's age would not err toward stale there | Before any such code is subscribed |
-| Door B (part 1) reads phone tombstones and unmatched opt-outs only: it can claim a contact whose only block is a flagless voice `contact.suppressed` or a list-key tombstone, or add a phone whose only block is a voice `contact.suppressed` or an attached event carrying it; the rep holds a number the status refuses | Left: the status, the gate and the export refuse it |
+| An unmatched opt-out carrying only a mailer code or thread blocks nothing until the nightly `resolve_orphans` attaches it — short of decision 4.3's "at once". No code writes such an event today | When one does (part 6's event intake): resolve it at once, by `pieces.mailer_code` or thread, as the matcher's first steps do |
 
 ## 7. Tests, written first
 
 `clean_db` gains `dnc_runs` and `dnc_requests` in its truncate list (`tests/conftest.py`),
-and so does the e2e journey's wipe (`tests/e2e/test_partner_journey.py:48-57`), which
-restarts event ids.
+and so do the other truncates that restart event ids: the e2e journey's wipe
+(`tests/e2e/test_partner_journey.py:48-57`) and `tests/acceptance/test_grain_intake.py:70-71`.
 A test that creates reps deletes its `dnc_requests` rows before deleting the reps
 (`rep_id` references `partners`), as the `intake_rep` tests do.
 The verbs have a no-op hook inside their transaction, after their locks and before their
@@ -406,13 +422,14 @@ and never names another database.
 | The export | Assigned, then each form of §4.3's additions: none on the sheet, none in the shortfall; the existing frozen assertions unchanged |
 | Report | Each refusal, nothing written; by the holder (keeps it; one request, one tombstone, one event); by a rep who held it and lost it (recorded); held by another rep, and by the house (custody unchanged); on an already blocked contact (another request); from an inactive rep (recorded); a rep who never held it → `not_yours` |
 | Admin request | Each refusal; with a contact a rep holds: blocked, custody unchanged; a contact whose stored phone part 1's rule rejects: blocked; without a contact: a request row and a tombstone, no contact, no event; door B refuses; door A creates it with `do_not_call` |
-| Lift | Each refusal. `live_requests` lists them. Two reps' reports and an admin's request on a number, all three named → lifted, their ids returned: flag false, their three tombstones gone, any other tombstone untouched, the rows kept and marked lifted, one clear event, status not `do_not_call`, the gate and the export admit it, intake no longer refuses, and after a recompute the stage is not `suppressed`. Then a new report → `do_not_call` again. A lift on a number with no contact, then door A creates it: no flag. Refused `other_block` for each: an old opt-out event; a list-key tombstone not from a request; a phone tombstone from `suppress(voice)` after a request; a flagless voice event; an unmatched opt-out; an unmatched voice event; the flag already on before the first request. A queued report recorded second but with an earlier `at` does not make the lift refuse. A live request not named → `changed`, nothing lifted. A request recorded after `live_requests` was read and before the lift → `changed`. A contact created by door A while a no-contact lift waits: refused `retry`, nothing changed |
+| Lift | Each refusal. `live_requests` lists them. Two reps' reports and an admin's request on a number, all three named → lifted, their ids returned: flag false, their three tombstones gone, any other tombstone untouched, the rows kept and marked lifted, one clear event, status not `do_not_call`, the gate and the export admit it, intake no longer refuses, and after a recompute the stage is not `suppressed`. Then a new report → `do_not_call` again. A lift on a number with no contact, then door A creates it: no flag. Refused `other_block` for each: an old opt-out event; a list-key tombstone not from a request; a phone tombstone from `suppress(voice)` after a request; a flagless voice event; an unmatched opt-out; an unmatched voice event; the flag already on before the first request. A queued report recorded second but with an earlier `at` does not make the lift refuse. A live request not named → `changed`, nothing lifted. A request recorded after `live_requests` was read and before the lift → `changed`. A contact created by door A while a no-contact lift waits: refused `retry`, nothing changed. A live request naming a contact the lift did not lock: `retry` |
 | Later attachment | An unmatched opt-out with a mailer code only; a lift of the contact's requests; `resolve_orphans` attaches the opt-out → `do_not_call` |
 | Forgery | An ingested `contact.suppression_cleared` lifts nothing; an ingested voice `contact.suppressed` on a reported contact makes the lift refuse `other_block` |
-| Locking | A report paused at its hook while `assign_batch` waits: the batch refuses (`do_not_call` on the locked row, re-read after the wait). A report paused while `add_numbers` waits: `do_not_call`. A lift paused at its hook while a report on the same contact waits: the lift commits, then the report is recorded and blocks. A lift paused while an admin request with no contact is written for the same phone: that request's tombstone survives the lift and blocks. Two lifts on one number: the second is refused `changed`. A lift paused while `assign_batch` waits on the contact: no deadlock; the batch refuses the contact as `voice_suppressed` (the re-read row shows the flag false, but the request's voice event, not yet lifted in the statement's first snapshot, still blocks, and `voice_suppressed` comes before `tombstoned`) |
+| Locking | A report paused at its hook while `assign_batch` waits: the batch refuses (`do_not_call` on the locked row, re-read after the wait). A report paused while `add_numbers` waits: `do_not_call`. A lift paused at its first hook while a report on the same contact waits: the lift commits, then the report is recorded and blocks. **A no-contact lift paused at its second hook** (after its checks, before its first write) while an admin no-contact request for the same phone commits: the lift returns `lifted`, the new request's tombstone still exists, the new request is still live, and `dnc_status` / door B refuse the number — which a phone-wide delete would fail. An admin no-contact request committed while a lift is paused at its first hook: `changed`. A lift paused while an admin request with no contact is written for the same phone: that request's tombstone survives the lift and blocks. Two lifts on one number: the second is refused `nothing_to_lift`. A lift paused while `assign_batch` waits on the contact: no deadlock; the batch refuses the contact as `voice_suppressed` (the re-read row shows the flag false, but the request's voice event, not yet lifted in the statement's first snapshot, still blocks, and `voice_suppressed` comes before `tombstoned`) |
 | The clock | `occurred_at` of every event, `created_at` of every tombstone, and `requested_at` / `lifted_at` of every request the new verbs write equal `at` |
 | The operator's command | `jobs.dnc_admin_cli` blocks, shows, and lifts named ids, with and without a contact, and refuses a blank reason |
-| Carried phones | An opt-out with a badly formed `phone_e164` and a valid `phone` blocks the valid one; one with `phone_e164` in another format blocks its normalized form |
+| Carried phones | An opt-out with a badly formed `phone_e164` and a valid `phone` blocks the valid one; one with `phone_e164` in another format blocks its normalized form; one with `phone_e164` stored as a JSON number, and one whose payload is a JSON array, neither crash any reader |
+| Door B | A list-key tombstone, a flagless voice `contact.suppressed`, and a carried phone on an attached event each make door B refuse `do_not_call`; part 1's existing tests stay green |
 | The single-registry scrub | With the allowlist replaced so that `mailengine_test` is not on it, `dnc_refresh` raises and writes nothing; restored, it runs |
 | Frozen tests | Every existing assertion passes; the export invariant gains new functions (§4.3); the edited docstrings and `:164` comment (§4.7) change no assertion |
 
@@ -455,6 +472,7 @@ and never names another database.
 | "Failed" in decision 4.1 | On the DNC file (row 5); a check that could not run ages into row 6 (§4.1) |
 | A carried phone | Blocks whether or not its event is attached, and to which contact; both `phone_e164` and `phone` count, normalized (§4.1) |
 | What a lift lifts | Exactly the requests the operator named after reading them; anything else live refuses it (§4.7) |
+| Door B and the voice block | Part 1's intake row 3 reads the shared voice block (§4.11) — a change to part 1's built code |
 
 ## 10. The migration, `0015.dnc-filtering.sql`
 
@@ -520,7 +538,8 @@ privileges.
 | Record 4.6 | Add: "after the check" is after the next completed daily run (answer 1) |
 | Record 4.1 | Add: production scrubs only through the ledger path; the single-registry scrub runs only on named dev and test databases (answer 5) |
 | `00-purpose.md:58` | "the rep who reported it can undo it within 24 hours" → an admin lifts recorded requests |
-| `00-interface.md:42`, `:97`, `:116` | "undone 'don't call me again'" → lifted; "which of the rep's own actions can still be undone" loses the part-2 case |
+| `00-interface.md:42`, `:43`, `:97`, `:116` | "undone 'don't call me again'" → lifted; "which of the rep's own actions can still be undone" loses the part-2 case; `:43` (admin "don't call me again") is built |
+| `00-overview.md` §4 | Part 2's row |
 
 ## 12. Safety properties
 
@@ -531,11 +550,11 @@ it.
 |---|---|---|
 | S1 | A number with "don't call me again" in any form the voice block reads is never `clear`, never assigned, never exported — until an admin lifts the requests part 2 recorded, and only when nothing else blocks it | The voice block (§4.1), read by all three readers (§4.3); the lift's `other_block` refusal (§4.7) |
 | S2 | Nothing but an admin's lift clears a block, and a lift clears only the requests it locked, on the record with a reason | §4.7: row locks, tombstones deleted by id, rows kept; `clear_suppression` still refuses `voice`; forged events clear nothing |
-| S3 | Every real request is recorded, and kept | A report is refused only for a missing contact or phone, a naive time, an unknown rep or the house, or a rep who never had the contact (§4.5); an admin's request is recorded even with no contact (§4.6); request rows are never deleted (§10) |
+| S3 | Every real request is recorded, and kept | A report is refused only for a missing contact or phone, a naive time, an unknown rep or the house, or a rep who never had the contact (§4.5); an admin's request is recorded even with no contact (§4.6); no verb deletes a request row — a convention of the code, not enforced by §10 |
 | S4 | A check is `clear` only against a list no more than 31 days old: the linked list, or — only for a contact with no link — the check's own age | Freshness (§4.2), row 4's link rule (§4.1), the single-registry scrub confined to dev and test (§4.10), §8's check of past links |
-| S5 | The export refuses whatever the status refuses, and keeps its frozen shape | §4.3 |
+| S5 | The export refuses whatever the status refuses for a DNC cause, and keeps its frozen shape (seeds and phoneless contacts never reach it: the gate refuses them) | §4.3 |
 | S6 | `make test` touches only `mailengine_test`; nothing fake-scrubs production | §4.10, §7 |
-| S7 | A claim that something is safe or unchanged is checked against the code or the tests before it is written | The process of this revision |
+| S7 | (Process, not a property of the design:) a claim that something is safe or unchanged is checked against the code or the tests before it is written | How each revision is written |
 | S8 | No verb of part 2 takes a table lock or takes locks in an order other writers of the contact row do not | §4.5–§4.7: the contact row first, then its own rows in `seq` order |
-| S10 | A lift lifts only what the operator saw and named | §4.7: `live_requests`, the named ids, `changed` |
 | S9 | An event's carried phone blocks that phone however the event is later attached | §4.1, the carried-phone form |
+| S10 | A lift lifts only what the operator saw and named | §4.7: `live_requests`, the named ids, `changed` |
