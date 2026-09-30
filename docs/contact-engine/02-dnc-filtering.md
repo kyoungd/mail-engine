@@ -1,16 +1,17 @@
 # contact-engine Upgrade — Part 2: DNC filtering
 
-**Status:** DRAFT, revision 17, 2026-09-30. Revision 16 was approved after fifteen
+**Status:** DRAFT, revision 18, 2026-09-30. Revision 16 was approved after fifteen
 reviews; the operator then questioned why the design took so long and asked for a
 simpler approach. This revision keeps every approved rule and answer and replaces the
 machinery underneath: **one record of "don't call me again", keyed by phone**, written by
-every path that blocks and read by every place that decides. Not yet reviewed, not
-approved (revision 16's approval is superseded until this one is approved). Nothing is
+every path that blocks and read by every place that decides. Revision 17's review found
+no design hole (one test pointed the unsafe way; twelve minor findings); revision 18
+applies them. Not yet re-reviewed, not approved (revision 16's approval is superseded until this one is approved). Nothing is
 built. Revisions 1–16, with the options offered for every answer, are in git history.
 **Part of:** [the upgrade](00-overview.md). Decisions are in the decision record,
 `nvermisscall/docs/active/sales-partner-dialer-decisions.md`, named here by number
 ("decision 4.1"); sections of this document are named "§4.1".
-**Checked against:** the `contact-engine` branch at `ddca18a` (parts 0 and 1 built; code
+**Checked against:** the `contact-engine` branch at `ea5215b` (parts 0 and 1 built; code
 unchanged since `c3179da`). A statement about the code carries its file and line.
 
 ---
@@ -98,25 +99,29 @@ its kind, who, why, when. Every path that blocks writes the row:
 | A rep's report (§4.5); an admin's request (§4.6) | Directly, through one helper | `rep` / `admin` |
 | Any `contact.opt_out` whose reason is not `do_not_mail` (absent counts), or `contact.suppressed` whose channel is not `mail` or `sms` (absent counts), inserted by **any** code — `suppress()`, `ingest_event`, a test | A trigger on `events`, after insert: for the event's contact's phone and each phone the event carries | `event` |
 | Those events when `resolve_orphans` later attaches one to a contact | The same trigger, after update of `events.contact_id`: for the newly attached contact's phone | `event` |
+| Door A applying a voice tombstone to a contact — creating it with the flag, or attaching a list row whose key has one (`service/contacts.py:152-169`, `:256-266`, `:290-292`) | Door A upserts the row in the same transaction | `intake` |
 | Everything recorded before `0015` — flags; voice tombstones by phone, or by list key resolved to phones through intake rows; qualifying events and their carried phones | A one-time backfill in `0015` | `backfill` |
 
-A **carried phone** is `payload.phone_e164` and `payload.phone`, each normalized as
-`to_e164` does (digits only; eleven with a leading 1 lose it; ten become `+1` and the
-ten), by one SQL function the trigger and the backfill share. A value that is not a
-string, or a payload that is not an object, yields none.
+A **carried phone** is `payload->>'phone_e164'` and `payload->>'phone'` — the text form,
+so a JSON number counts — each normalized as `to_e164` does (digits only; eleven with a
+leading 1 lose it; ten become `+1` and the ten), by one SQL function the trigger and the
+backfill share. A payload that is not an object carries no phone — **but an event of a
+qualifying type attached to a contact still blocks the contact's phone**: its reason or
+channel reads as absent, and absent counts. Phones are stored as the contact has them;
+`dnc_numbers` does not reject an unusual form, so no block is lost to a format check.
+The trigger locks the phones it touches in sorted order.
 
 So **every "don't call me again", however recorded and whatever it is later attached to,
 turns its phone's row on**, and only a lift (§4.7) turns it off. The flag and voice
-tombstones are still read too (§4.1 row 1) — frozen tests set them directly, and door A
-sets the flag from a tombstone — but every flag and voice tombstone on a phone has a live
-row beside it: `suppress()`'s through its event, the rest through the backfill.
+tombstones are still read directly too (§4.1 row 1): a test or other code can set them
+without a row, and such a phone is blocked all the same, and never liftable (§4.7).
 
 ### 4.3 The daily scrub records itself
 
 A table `dnc_runs` (§10), written by one verb, `record_scrub_run(started_at, limited)`.
 `dnc_refresh_all` reads its start from the database's `now()` in the job module and calls
-the verb when it finishes; no row when it raises. The single-registry scrub records
-nothing. Status row 3 reads the latest unlimited run at or before `at`.
+the verb when it finishes, a row also when nothing is subscribed; no row when it raises.
+The single-registry scrub records nothing. Status row 3 reads the latest unlimited run at or before `at`.
 
 ### 4.4 The readers
 
@@ -126,7 +131,10 @@ over a contact row and an explicit moment — read by:
 - **`dnc_status`**, with `at`.
 - **The assignment gate** (`service/assignment.py:134-160`), with `now()`. Causes and order
   unchanged: `voice_suppressed` for `do_not_call` **or** a live row; `tombstoned` as
-  today; `dnc_stale` also covers row 4's link rule.
+  today; `dnc_stale` also covers row 4's link rule. After its `for update` lock the gate
+  re-reads the live rows for its candidates' phones **in a second statement**, as door B
+  does — a report locks the contact but does not update it, so the locked re-read alone
+  would not see a block that landed while the gate waited.
 - **The export** (`service/assignment.py:324-338`), with `now()`, shape unchanged: a
   blocked, registry-listed, or unsubscribed contact is dropped silently; a stale,
   never-checked, or wrongly linked one is in the shortfall as `dnc_stale`. Blocked,
@@ -166,7 +174,8 @@ phone: harmless.
 `invalid_phone` (`to_e164` rejects it, or the result is not `+1` and ten ASCII digits).
 Otherwise through the block helper, kind `admin`, locking the non-seed contact with the
 phone if there is one. A number with no contact is blocked all the same: its row is keyed
-by the phone, so door A's new contact and door B's new number both read it.
+by the phone, and every reader reads it — for a contact door A later creates, and for a
+new number at door B.
 
 ### 4.7 An admin's lift (decision 4.4 as replaced; answers 8, 9)
 
@@ -177,14 +186,14 @@ The operator reads `dnc_history(phone)` — the phone's `dnc_log`, each entry wi
 |---|---|
 | `at` has no time zone / blank reason / invalid phone | refused `bad_time` / `no_reason` / `invalid_phone` |
 | The phone has no live row | refused `nothing_to_lift` |
-| The phone's log has an entry after `seen_seq` | refused `changed` — the operator reads it again |
-| The phone's log has any entry of kind `event` or `backfill`, or the phone has a voice tombstone, or a contact with the phone has `do_not_call` | refused `not_liftable` — the number was blocked some way other than part 2's verbs (answer 9); it stays blocked |
+| `seen_seq` is not the phone's latest log entry | refused `changed` — the operator reads it again |
+| The phone's log has any entry of kind `event`, `intake`, or `backfill`, or the phone has a voice tombstone, or a contact with the phone has `do_not_call` | refused `not_liftable` — the number was blocked some way other than part 2's verbs (answer 9); it stays blocked |
 | Otherwise | `lifted` |
 
 One transaction: lock the non-seed contact with the phone, if any, then the phone's
 `dnc_numbers` row, `for update` — the helper's order — and make the checks on reads taken
 under those locks. Then `blocked = false`, and a `dnc_log` row of kind `lift` with the
-reason and `at`.
+reason, `at`, and the operator's name as actor.
 
 **Why this is safe.** Every block of any kind turns the row on and leaves a log entry
 (§4.2), so nothing blocks the phone that the log does not show. A lift proceeds only when
@@ -195,7 +204,8 @@ entry and a live row. `suppress()` is untouched and its blocks are never liftabl
 `clear_suppression` and the frozen permanence tests need no change.
 
 The operator reaches §4.6 and §4.7 with `python -m jobs.dnc_admin_cli block <phone>
---reason …`, `history <phone>`, and `lift <phone> --seen N --reason …`.
+--reason …`, `history <phone>`, and `lift <phone> --seen N --reason …`; each asks for the operator's
+name as the actor, as `assignment_cli` does.
 
 ### 4.8 The single-registry scrub runs only on dev and test databases (answer 5)
 
@@ -228,28 +238,34 @@ newest accepted file — a requirement on hosting, not built here. It fails clos
 | Which SAN's subscription covers a code for which rep | Counsel (memo Q4) |
 | A number blocked by an event, by the backfill, or by a flag or tombstone can never be lifted | Answer 9 |
 | An event carrying only a mailer code blocks nothing until `resolve_orphans` attaches it, when the trigger blocks the contact's phone | Part 6's event intake: attach at once |
-| A tombstone keyed only by list key whose intake rows carry no phone blocks no phone until door A re-creates the contact with one | Left: identity is never fuzzy |
+| A tombstone keyed only by list key whose intake rows carry no phone blocks no phone until door A applies it — creating a contact, or attaching a list row with that key, which writes the row (§4.2) | Left: identity is never fuzzy |
 | The gate and the export read in their statement's snapshot: a block landing mid-batch is seen by the next; the status reads it at call time | Left |
 | A sheet passes the check when pulled; a rep off the app may dial from it later | Left: "re-pull before each session"; reps on the app are checked at every call (part 5) |
 | Re-landing each code's newest file on every run on Render | Hosting (9.11) |
 | `dnc_status` trusts the `at` it is handed | Parts 5 and 6 pass the server's clock (decision 7.6) |
-| A phone change (9.14) must re-check the new phone | Part 5 |
+| A phone change (9.14): the new phone must be checked again, and the contact's block must be carried to it — the row is keyed by the old phone | Part 5 |
 | NANP codes east of UTC (670, 671) | Before any is subscribed |
+| Lock cycles across events: `resolve_orphans` attaching several events, or two `ingest_event` calls on crossing phones, can deadlock; Postgres aborts one, which its caller retries (the nightly re-runs the next day) | Left; the trigger's sorted order removes the cycle within one event |
+| The operator console's "dialable" counts (`jobs/console.py:45-48`, `:397-400`) ignore `dnc_numbers` | Left: an operator view, not a path to a call |
 
 ## 7. Tests, written first
 
 `clean_db` and the other truncates that restart event ids (`tests/e2e/test_partner_journey.py`,
-`tests/acceptance/test_grain_intake.py`) gain `dnc_numbers`, `dnc_log`, `dnc_runs`.
+`tests/acceptance/test_grain_intake.py`) gain `dnc_numbers`, `dnc_log`, `dnc_runs`; tests that
+delete their reps delete those reps' `dnc_log` rows first. The backfill is a SQL function
+`0015` creates and calls once, so tests can call it on a fixture.
 
 | Test | Checks |
 |---|---|
-| Each path blocks, each reader refuses | For each path of §4.2 — a report; an admin request with and without a contact; `suppress(voice)`; an `ingest_event` opt-out with a reason and with none; a `contact.suppressed` with no channel; an unmatched opt-out carrying the phone as `phone_e164` and as `(818) 555-0123`; one attached by `resolve_orphans` to another contact; a direct voice tombstone; a direct flag — `dnc_status` reads `do_not_call`, the gate refuses with its existing cause, the export (blocked after assignment) drops it, door B refuses on both paths |
-| Not blocks | A `do_not_mail` opt-out; a `contact.suppressed` with channel `mail`; a non-object payload: no row, no crash |
+| Each path writes the row | For each path of §4.2, the `dnc_numbers` row is live and its log entry has the right kind — asserted directly, not through a reader: a report; an admin request with and without a contact; `suppress(voice)` (`event`); an `ingest_event` opt-out with a reason, with none, and with a non-object payload on a contact; a `contact.suppressed` with no channel; an unmatched opt-out carrying the phone as `phone_e164`, as `(818) 555-0123`, and as a JSON number; one attached by `resolve_orphans` to another contact; door A creating and attaching from a tombstone (`intake`) |
+| Each reader refuses a live row | A live row alone — no flag, no tombstone — makes `dnc_status` read `do_not_call`, the gate refuse `voice_suppressed`, the export (row turned on after assignment, by a raw qualifying event) drop it, door B refuse an existing contact's phone, and door B refuse a new number |
+| Not blocks | A `do_not_mail` opt-out; a `contact.suppressed` with channel `mail`; an **unmatched** event with a non-object payload: no row, no crash |
 | The backfill | On a fixture holding every legacy form: a live `backfill` row for each blocked phone, none for others; list-key tombstones resolved through intake rows |
 | Status 0–7, their order | Each status; `not_covered` only after a run; the link rule; the 31 days a minute either side, unchanged from today |
 | Report | Each refusal writes nothing; by the holder, by a rep who held it, on a blocked phone; custody unchanged; no flag, tombstone, or event written |
 | Lift | Each refusal writes nothing; `changed` for an entry after `seen_seq`; `not_liftable` for an `event` or `backfill` entry, a tombstone, or a flag; lifted: row off, a `lift` entry, every reader admits the number; then a new report blocks it again |
-| Locking | A report, or an `ingest_event` opt-out, waiting on the phone's row while a lift holds it: after the lift, the phone is blocked again. A report racing `assign_batch` and `add_numbers`: each after it refuses. No deadlock among the lift, the helper, `suppress()`, `resolve_orphans`, and `assign_batch` |
+| Locking | A report, or an `ingest_event` opt-out, waiting on the phone's row while a lift holds it: after the lift, the phone is blocked again. A report committing while `assign_batch` waits on the contact: the batch's second read refuses it. A report racing `add_numbers`: refused after. Two events crossing phones in one trigger call: no deadlock |
+| Lift, strictness | `seen_seq` below the latest, or another phone's `seq`: `changed`. An `intake` entry: `not_liftable`. The lift's log entry names the actor |
 | The single-registry scrub | Allowlist replaced: raises, writes nothing; restored: runs |
 | Frozen tests | Every existing assertion passes; the export invariant gains new functions |
 
@@ -259,8 +275,8 @@ newest accepted file — a requirement on hosting, not built here. It fails clos
 |---|---|
 | Red-tier gate: the gate and export change, a trigger, a backfill over real data, a migration | Build plan approved first; the tests — including the frozen export invariant's new functions and the truncate lists — approved as its first step |
 | The tests of §7; `make test`, `make e2e`, `make lint` | Pass |
-| `0015` on production-shaped data | From a checkout without it: existing rows unchanged; the backfill's count by source form; every phone the old gate refuses by flag or tombstone has a live row |
-| On production, read-only, by the operator | Every checked contact in a subscribed code links an accepted snapshot of its own code; every contact phone is `+1` and ten ASCII digits |
+| `0015` on production-shaped data | From a checkout without it: existing rows unchanged; the backfill's count by source form; every phone the old gate refuses by flag or tombstone, every phone the old door B would refuse by an event, and every carried phone of a qualifying event has a live row; the trigger is created before the backfill runs, in the same transaction |
+| On production, read-only, by the operator | Every checked contact in a subscribed code links an accepted snapshot of its own code; phones in contacts, tombstones, and intake rows that are not `+1` and ten ASCII digits are listed |
 
 ## 9. For the operator
 
@@ -280,11 +296,13 @@ newest accepted file — a requirement on hosting, not built here. It fails clos
 
 | Point | Answer |
 |---|---|
-| One record | `dnc_numbers` + `dnc_log`, written by the helper, a trigger on `events`, and a one-time backfill (§4.2) |
+| One record | `dnc_numbers` + `dnc_log`, written by the helper, door A, a trigger on `events`, and a one-time backfill (§4.2) |
+| The trigger | The schema's first trigger, and a write path outside `service/` — named as the one exception to "`service/` is the only write path", because it must catch every writer of an event, the tests' included |
 | What the helper writes | The row and a log entry only — no flag, tombstone, or event (§4.5) |
 | What a lift requires | Nothing but the verbs' own blocks in the log, all seen (`seen_seq`), and no flag or tombstone on the phone (§4.7) |
 | 9.9, an admin request with no contact | The row and a log entry; the row is keyed by phone (§4.6) |
 | 9.11 | Pull and scrub in one job; hosting re-lands files (§4.9) |
+| 9.16, the 31 days | As checked 2026-09-13 against 16 CFR 310.4(b)(3)(iv) (§3) |
 | Custody | No verb of part 2 moves it |
 | A link to another code's list, or to a rejected snapshot | `not_checked` |
 | Door B | Reads the one record on both paths (§4.4) — a change to part 1's code |
@@ -300,7 +318,7 @@ create table dnc_runs (
 create index dnc_runs_unlimited_idx on dnc_runs (started_at) where not limited;
 
 create table dnc_numbers (
-  phone_e164  text primary key check (phone_e164 ~ '^\+1[0-9]{10}$'),
+  phone_e164  text primary key,
   blocked     boolean not null,
   updated_at  timestamptz not null
 );
@@ -308,7 +326,8 @@ create table dnc_numbers (
 create table dnc_log (
   seq         bigint generated always as identity primary key,
   phone_e164  text not null,
-  kind        text not null check (kind in ('rep', 'admin', 'event', 'backfill', 'lift')),
+  kind        text not null check (kind in ('rep', 'admin', 'event', 'intake', 'backfill', 'lift')),
+  actor       text not null,
   rep_id      uuid references partners(id),
   contact_id  uuid,
   event_id    bigint,
@@ -323,8 +342,11 @@ create index dnc_log_phone_idx on dnc_log (phone_e164, seq);
 -- dnc_block_from_event() — trigger on events, after insert and after update of
 --   contact_id, for §4.2's event types: upsert dnc_numbers (blocked = true) and append
 --   dnc_log (kind 'event') for the contact's phone and each carried phone.
--- Backfill — the same, kind 'backfill', over every existing flag, voice tombstone (by
---   phone; by list key through intake rows), and qualifying event.
+-- dnc_backfill() — kind 'backfill', over every existing flag, voice tombstone (by
+--   phone; by list key through intake rows), and qualifying event with its carried
+--   phones; created here and called once, after the trigger exists.
+-- dnc_numbers.updated_at is the database's now() for trigger, intake, and backfill rows,
+--   and the verb's `at` for verb rows.
 
 grant select on dnc_runs, dnc_numbers, dnc_log to me_user_ro;
 ```
