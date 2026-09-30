@@ -1,16 +1,17 @@
 # contact-engine Upgrade — Part 2: DNC filtering
 
-**Status:** DRAFT, revision 10, 2026-09-30. Revision 8 **passed** its review; the operator
+**Status:** DRAFT, revision 11, 2026-09-30. Revision 8 **passed** its review; the operator
 then replaced the rep's 24-hour undo with an admin lift (answer 8). Revision 9's lift —
 over every form of block, by an event-id mark — did not pass (a later-attached opt-out
 could be lifted unseen; a concurrent request could be erased; lifts deadlocked). The
 operator narrowed the lift to requests recorded through part 2's own verbs (answer 9).
-This revision is rewritten around that and applies revision 9's minor findings. Not yet
-re-reviewed, not approved. Nothing is built.
+Revision 10, rewritten around that, did not pass (an opt-out carrying a phone stopped
+blocking that phone once attached to another contact). This revision fixes it and
+applies the minor findings. Not yet re-reviewed, not approved. Nothing is built.
 **Part of:** [the upgrade](00-overview.md). Decisions are in the decision record,
 `nvermisscall/docs/active/sales-partner-dialer-decisions.md`, named here by number
 ("decision 4.1"); sections of this document are named "§4.1".
-**Checked against:** the `contact-engine` branch at `184c5d6` (parts 0 and 1 built; the
+**Checked against:** the `contact-engine` branch at `6ab83fc` (parts 0 and 1 built; the
 code is unchanged since `c3179da`). A statement about the code carries its file and line.
 
 ---
@@ -94,19 +95,24 @@ an unknown contact too (`no_contact`). The first that applies:
   `do_not_mail`, a missing reason included);
 - a **voice** `contact.suppressed` event on the contact — its `channel` absent, or
   anything but `mail` or `sms` — that is not the event of a **lifted** request (§4.7);
-- an unmatched `contact.opt_out` event, or an unmatched voice `contact.suppressed` event,
-  carrying the phone (the matcher's rule, part 1 §4.2).
+- **any** `contact.opt_out` event whose reason is not `do_not_mail`, or any voice
+  `contact.suppressed` event (other than a lifted request's), that **carries the phone** —
+  by the matcher's rule, `payload.phone_e164`, else `payload.phone` through `to_e164` —
+  **whether or not it is attached to a contact, and to which.** An opt-out attached by
+  mailer code to another contact still blocks the phone it carried.
 
 - **Every form is read as currently recorded, whatever its recorded time** — a block
   recorded with a future time blocks now. Only freshness and row 3's run lookup use
   `at`.
 - **Only `clear` may be called** as far as DNC goes (decision 4.1). "Failed" in 4.1 is
-  row 5; a check that could not run leaves the old one, which becomes row 6.
-- **The voice block covers everything part 1's intake row 3 refuses, and more** (the
-  flagless voice `contact.suppressed`). The unmatched forms are computed in Python — the
-  phones of unmatched `contact.opt_out` events and of unmatched `contact.suppressed`
-  events whose channel is voice, with the matcher's rule — and passed to the shared SQL
-  as an array.
+  read as row 5; a check that could not run leaves the old one, which becomes row 6 (§9,
+  design answer).
+- **The voice block covers what part 1's intake row 3 refuses, and more:** the flagless
+  voice `contact.suppressed`, list-key tombstones, and carried phones of attached events.
+  One difference runs the other way: part 1 refuses an unmatched `do_not_mail` opt-out,
+  which the voice block — like `is_suppressed` — does not count; intake is the stricter,
+  and so safe. The carried phones are computed in Python with the matcher's rule over
+  every such event, matched or not, and passed to the shared SQL as an array.
 - **An unmatched opt-out with no phone** — only a mailer code — blocks nothing until the
   nightly `resolve_orphans` attaches it to its contact (§6).
 - **Row 4's link rule.** A contact's link is the list its verdict came from. A link to
@@ -125,12 +131,13 @@ an unknown contact too (`no_contact`). The first that applies:
 
 ### 4.2 The 31 days (decision 4.2; 9.10; answer 3)
 
-Kept as they are (answer 3, re-asked on the corrected fact): the list's age in whole
-days on the UTC date, `version_date >= (UTC date of the moment) − 31`; the check's age as
-an exact interval, written `make_interval(hours => 744)` so the session's time zone
-cannot shift it (§3), equal to Python's `timedelta(days=31)`. Both err toward stale: the
-UTC date is never behind a US date, and an exact interval never counts a partial day as a
-whole one.
+The list's age stays in whole days on the UTC date, `version_date >= (UTC date of the
+moment) − 31` (answer 3). The check's age stays an exact interval (answer 3), **changed**
+from `make_interval(days => 31)` to `make_interval(hours => 744)` (§9, design answer):
+today's form is 743 or 745 hours across a daylight-saving change in a zone that observes
+it (§3), so 744 is an hour stricter one way and an hour looser the other — never tied to
+the server's zone. The legal wall is the list's age, which stays strict: the UTC date is
+never behind a US date.
 
 ### 4.3 One rule, three readers
 
@@ -139,12 +146,13 @@ contact row and an explicit moment. Three readers:
 
 - **`dnc_status`** (§4.1), with `at` handed in.
 - **The assignment gate** (`service/assignment.py:134-160`), with `now()` as the moment.
-  **Its causes and their order are unchanged**; one form is added: `voice_suppressed` is
-  returned for `do_not_call` **or** any other form of the voice block except a
+  **Its causes and their order are unchanged**; three of them read more: `voice_suppressed`
+  is returned for `do_not_call` **or** any other form of the voice block except a
   tombstone — so a contact whose opt-out is only an event is refused before the nightly
-  stage catches up. A tombstone, for the phone or any of the contact's list keys, gives
-  `tombstoned`, in its place. Freshness, and the link rule of §4.1 row 4, are read from
-  the shared SQL.
+  stage catches up; `tombstoned` matches a tombstone for the phone **or any of the
+  contact's list keys** (today the phone only, `service/assignment.py:129-130`); and
+  `dnc_stale` also covers the link rule of §4.1 row 4. Freshness is read from the shared
+  SQL.
 - **The export** (`service/assignment.py:324-338`), with `now()`: a contact is on the
   sheet only if none of the gate's DNC causes applies. **Its shape is unchanged:** a
   contact refused for the voice block, `dnc_registry`, or an unsubscribed code is dropped
@@ -243,11 +251,15 @@ admins' — and nothing else (answer 9). The phone is normalized with `to_e164` 
 | `to_e164` rejects the phone | refused `invalid_phone` |
 | No live request is on the number | refused `nothing_to_lift` |
 | Anything else blocks it | refused `other_block` — the number stays blocked |
+| A contact was created while it ran | refused `retry` — nothing changed |
 | Otherwise | `lifted` |
 
 One transaction. It locks the non-seed contact with the phone, if one exists, `for
 update`, then the live `dnc_requests` rows on that contact or phone, `for update`; every
-check below is made on reads taken under those locks. **Anything else** is any form of
+check below is made on reads taken under those locks. If, once the rows are locked, any
+of them names a contact the lift did not lock, or a contact with the phone now exists
+that it did not lock, it is refused `retry` and changes nothing — a contact was created
+while it ran. **Anything else** is any form of
 the voice block (§4.1) other than these requests' own traces:
 
 - a voice tombstone, for the phone or any of the contact's list keys, that is not one of
@@ -255,9 +267,10 @@ the voice block (§4.1) other than these requests' own traces:
 - an opt-out under `is_suppressed`;
 - a voice `contact.suppressed` event on the contact that is not one of these requests'
   events (or of requests lifted earlier);
-- an unmatched opt-out or voice event carrying the phone;
-- a flag already on before these requests: the earliest of them has `flag_was_set`
-  true.
+- an opt-out or voice event carrying the phone, attached or not, that is not one of these
+  requests' events;
+- a flag already on before these requests: the first of them **in recording order**
+  (`seq`, §10 — not `requested_at`, which the caller supplies) has `flag_was_set` true.
 
 When nothing else blocks it:
 
@@ -281,13 +294,12 @@ event is a `contact.suppressed`, which neither `is_suppressed` nor intake row 3 
 an opt-out would have refused the lift.
 
 `clear_suppression` still refuses `voice`, and no `unsuppress` verb appears, so the frozen
-tests at `test_suppression_split.py:200` and `test_contacts.py:139` stand. The build
-updates, with the approved tests (§8), exactly these texts, each to name the one
-exception — an admin's lift of recorded requests: `suppress()`'s docstring ("Permanent by
-design", `service/contacts.py:426`); `clear_suppression`'s docstring ("the single public
-write path", "rejects the permanent channels", `:504-507`) and its error message
-(`:511`); and the matrix-row comment at `test_suppression_split.py:164` ("do_not_call …
-permanent").
+tests at `test_suppression_split.py:200` and `test_contacts.py:139` stand. What
+`suppress()` writes is never lifted — its tombstone and event are always "anything else"
+— so its docstring ("Permanent by design", `service/contacts.py:426`) and the matrix-row
+comment at `test_suppression_split.py:164` stay true and are not edited. The build updates
+one text: `clear_suppression`'s docstring ("the single public write path" for
+`contact.suppression_cleared`, `:504-507`), to name the lift as the second writer.
 
 The operator reaches §4.6 and §4.7 with a new command, `python -m jobs.dnc_admin_cli
 block|lift <phone> --reason …`, which closes part 0's gap "cannot record an opt-out". The
@@ -350,11 +362,13 @@ Gaps are not questions (decision 2.9).
 | `dnc_status` trusts the `at` it is handed | Parts 5 and 6 pass the server's clock (decision 7.6) |
 | Part 5's wrong-number replacement (9.14) changes a phone: the new phone must be checked again, and a lift or request on the old phone does not follow it | Part 5; §4.1 row 4 refuses a verdict linked to another code |
 | The console's inventory counts do not read the voice block | Left: an operator view, not a path to a call |
-| Door B (part 1) still claims a contact whose only block is a flagless voice `contact.suppressed`; the rep holds a number the status refuses | Left: the status, the gate and the export refuse it |
+| Door B (part 1) reads phone tombstones and unmatched opt-outs only: it can claim a contact whose only block is a flagless voice `contact.suppressed` or a list-key tombstone, or add a phone whose only block is a voice `contact.suppressed` or an attached event carrying it; the rep holds a number the status refuses | Left: the status, the gate and the export refuse it |
 
 ## 7. Tests, written first
 
 `clean_db` gains `dnc_runs` and `dnc_requests` in its truncate list (`tests/conftest.py`).
+A test that creates reps deletes its `dnc_requests` rows before deleting the reps
+(`rep_id` references `partners`), as the `intake_rep` tests do.
 The verbs have a no-op hook inside their transaction, after their locks and before their
 first write, for the locking tests to pause at — as part 1's `rep_intake._before_insert`.
 `make test` runs them on `mailengine_test`; the single-registry test replaces its allowlist
@@ -362,7 +376,7 @@ and never names another database.
 
 | Test | Checks |
 |---|---|
-| The voice block, each form, in each reader | `do_not_call`; a voice tombstone on the phone; one on a list key but not the phone; an opt-out event with a reason, and with none; an unmatched opt-out under `phone_e164`, and as `(818) 555-0123` under `phone`; an unmatched voice `contact.suppressed`; an unmatched `contact.suppressed` with channel `mail` → not a block; a flagless voice `contact.suppressed` — each gives `do_not_call` in `dnc_status`, a refusal by the gate (`voice_suppressed`, or `tombstoned` for a tombstone), and absence from the export |
+| The voice block, each form, in each reader | `do_not_call`; a voice tombstone on the phone; one on a list key but not the phone; an opt-out event with a reason, and with none; an unmatched opt-out under `phone_e164`, and as `(818) 555-0123` under `phone`; an unmatched voice `contact.suppressed`; an unmatched `contact.suppressed` with channel `mail` → not a block; an opt-out carrying phone P attached (by mailer code) to a contact with another phone → P still blocked; an opt-out ingested on a contact but carrying another phone → that phone blocked; a flagless voice `contact.suppressed` — each gives `do_not_call` in `dnc_status`, a refusal by the gate (`voice_suppressed`, or `tombstoned` for a tombstone), and absence from the export |
 | A future time | A flagless opt-out recorded with an `occurred_at` a day ahead: `do_not_call` now, in the status, the gate and the export |
 | Status 0, 2 to 7 | The status; a naive `at` refused; an unknown contact refused; a seed → `seed` |
 | The order | status 1 + on the DNC file → `do_not_call`; not covered + on the DNC file → `not_covered`; on the DNC file + stale → `on_dnc_file`; no phone + unsubscribed → `no_phone`; unsubscribed + never checked + before the last run → `not_covered` |
@@ -374,10 +388,10 @@ and never names another database.
 | The export | Assigned, then each form of §4.3's additions: none on the sheet, none in the shortfall; the existing frozen assertions unchanged |
 | Report | Each refusal, nothing written; by the holder (keeps it; one request, one tombstone, one event); by a rep who held it and lost it (recorded); held by another rep, and by the house (custody unchanged); on an already blocked contact (another request); from an inactive rep (recorded); a rep who never held it → `not_yours` |
 | Admin request | Each refusal; with a contact a rep holds: blocked, custody unchanged; a contact whose stored phone part 1's rule rejects: blocked; without a contact: a request row and a tombstone, no contact, no event; door B refuses; door A creates it with `do_not_call` |
-| Lift | Each refusal. Two reps' reports and an admin's request on a number → lifted: flag false, their three tombstones gone, any other tombstone untouched, the rows kept and marked lifted, one clear event, status not `do_not_call`, the gate and the export admit it, intake no longer refuses, and after a recompute the stage is not `suppressed`. Then a new report → `do_not_call` again. A lift on a number with no contact, then door A creates it: no flag. Refused `other_block` for each: an old opt-out event; a list-key tombstone not from a request; a flagless voice event; an unmatched opt-out; the flag already on before the first request |
+| Lift | Each refusal. Two reps' reports and an admin's request on a number → lifted: flag false, their three tombstones gone, any other tombstone untouched, the rows kept and marked lifted, one clear event, status not `do_not_call`, the gate and the export admit it, intake no longer refuses, and after a recompute the stage is not `suppressed`. Then a new report → `do_not_call` again. A lift on a number with no contact, then door A creates it: no flag. Refused `other_block` for each: an old opt-out event; a list-key tombstone not from a request; a phone tombstone from `suppress(voice)` after a request; a flagless voice event; an unmatched opt-out; an unmatched voice event; the flag already on before the first request. A queued report recorded second but with an earlier `at` does not make the lift refuse. A contact created by door A while a no-contact lift waits: refused `retry`, nothing changed |
 | Later attachment | An unmatched opt-out with a mailer code only; a lift of the contact's requests; `resolve_orphans` attaches the opt-out → `do_not_call` |
 | Forgery | An ingested `contact.suppression_cleared` lifts nothing; an ingested voice `contact.suppressed` on a reported contact makes the lift refuse `other_block` |
-| Locking | A report paused at its hook while `assign_batch` waits: the batch refuses (`do_not_call` on the locked row, re-read after the wait). A report paused while `add_numbers` waits: `do_not_call`. A lift paused at its hook while a report on the same contact waits: the lift commits, then the report is recorded and blocks. A lift paused while an admin request with no contact is written for the same phone: that request's tombstone survives the lift and blocks. Two lifts on one number: the second is refused `nothing_to_lift`. A lift paused while `assign_batch` waits on the contact: no deadlock; the batch's result follows its statement's first snapshot |
+| Locking | A report paused at its hook while `assign_batch` waits: the batch refuses (`do_not_call` on the locked row, re-read after the wait). A report paused while `add_numbers` waits: `do_not_call`. A lift paused at its hook while a report on the same contact waits: the lift commits, then the report is recorded and blocks. A lift paused while an admin request with no contact is written for the same phone: that request's tombstone survives the lift and blocks. Two lifts on one number: the second is refused `nothing_to_lift`. A lift paused while `assign_batch` waits on the contact: no deadlock; the batch refuses the contact as `tombstoned` (the re-read row shows the flag false; its tombstone read keeps the statement's first snapshot, where the request's tombstone is present) |
 | The clock | `occurred_at` of every event, `created_at` of every tombstone, and `requested_at` / `lifted_at` of every request the new verbs write equal `at` |
 | The operator's command | `jobs.dnc_admin_cli` blocks and lifts, with and without a contact, and refuses a blank reason |
 | The single-registry scrub | With the allowlist replaced so that `mailengine_test` is not on it, `dnc_refresh` raises and writes nothing; restored, it runs |
@@ -419,7 +433,9 @@ and never names another database.
 | A link to another code's list | Reads `not_checked` (§4.1 row 4) |
 | A seed | Reads `seed` (§4.1 row 0) |
 | "Came in" for status row 3 | The later of `contacts.created_at` and the newest `intake_rep.added_at` (§4.1) |
-| The check's 31 days | `make_interval(hours => 744)` (§4.2) |
+| The check's 31 days | `make_interval(hours => 744)`, a change from today's `days => 31` (§4.2) |
+| "Failed" in decision 4.1 | On the DNC file (row 5); a check that could not run ages into row 6 (§4.1) |
+| A carried phone | Blocks whether or not its event is attached, and to which contact (§4.1) |
 
 ## 10. The migration, `0015.dnc-filtering.sql`
 
@@ -434,6 +450,7 @@ create index dnc_runs_unlimited_idx on dnc_runs (started_at) where not limited;
 
 create table dnc_requests (
   id            uuid primary key default gen_random_uuid(),
+  seq           bigint generated always as identity,
   kind          text not null check (kind in ('rep', 'admin')),
   contact_id    uuid,
   phone_e164    text not null check (phone_e164 ~ '^\+1[0-9]{10}$'),
@@ -451,13 +468,13 @@ create table dnc_requests (
   check ((contact_id is null) = (event_id is null)),
   check (contact_id is not null or not flag_was_set),
   check ((lifted_at is null) = (lift_reason is null)),
-  check (lift_reason is null or btrim(lift_reason) <> ''),
-  check (lifted_at is null or lifted_at >= requested_at)
+  check (lift_reason is null or btrim(lift_reason) <> '')
 );
 
 create index dnc_requests_contact_live_idx on dnc_requests (contact_id) where lifted_at is null;
 create index dnc_requests_phone_live_idx on dnc_requests (phone_e164) where lifted_at is null;
-create index dnc_requests_event_idx on dnc_requests (event_id);
+create unique index dnc_requests_event_idx on dnc_requests (event_id);
+create unique index dnc_requests_tombstone_idx on dnc_requests (tombstone_id);
 
 grant select on dnc_runs, dnc_requests to me_user_ro;
 ```
@@ -465,7 +482,9 @@ grant select on dnc_runs, dnc_requests to me_user_ro;
 Additive. `contact_id`, `event_id` and `tombstone_id` carry no foreign key: a request, like a
 tombstone, must outlive a hard delete of its contact and events, and a lift deletes the
 tombstone while the row keeps its id. A request with no contact is an admin's, with no
-event and `flag_was_set` false. The explicit grant does not rely on `0002`'s default
+event and `flag_was_set` false. `seq` is the order requests were recorded in. `lifted_at`
+is not checked against `requested_at`: both are caller-supplied, and a request may be
+recorded with a future time (§4.1). The explicit grant does not rely on `0002`'s default
 privileges.
 
 ## 11. Proposed changes to the decision record and the upgrade's documents
@@ -477,12 +496,12 @@ privileges.
 | Record 9.9 | Decided: a request row and a voice tombstone (§9, design answer) |
 | Record 9.10 | Decided: the list in whole UTC days, the check as an exact interval (answer 3); written as 744 hours (§9, design answer) |
 | Record 9.11 | Decided for part 2: pull and scrub in one job; hosting must re-land each code's newest file on every run (not yet built) |
-| Record 9.16 (DNC half) | Decided: the 31 days as checked against 16 CFR 310.4(b)(3)(iv) on 2026-09-13 |
+| Record 9.16 (DNC half) | Decided: the 31 days as checked against 16 CFR 310.4(b)(3)(iv) on 2026-09-13. State DNC lists and Sunday rules stay open with counsel |
 | Record 4.3 | Add: every report is recorded, whoever holds the contact; a rep may report a contact they hold or have held (answer 7); no report moves custody |
 | Record 4.6 | Add: "after the check" is after the next completed daily run (answer 1) |
 | Record 4.1 | Add: production scrubs only through the ledger path; the single-registry scrub runs only on named dev and test databases (answer 5) |
 | `00-purpose.md:58` | "the rep who reported it can undo it within 24 hours" → an admin lifts recorded requests |
-| `00-interface.md:97`, `:116` | "undone 'don't call me again'" → lifted; "which of the rep's own actions can still be undone" loses the part-2 case |
+| `00-interface.md:42`, `:97`, `:116` | "undone 'don't call me again'" → lifted; "which of the rep's own actions can still be undone" loses the part-2 case |
 
 ## 12. Safety properties
 
@@ -499,3 +518,4 @@ it.
 | S6 | `make test` touches only `mailengine_test`; nothing fake-scrubs production | §4.10, §7 |
 | S7 | A claim that something is safe or unchanged is checked against the code or the tests before it is written | The process of this revision |
 | S8 | No verb of part 2 takes a table lock or takes locks in an order other writers of the contact row do not | §4.5–§4.7: the contact row first, then its own rows |
+| S9 | An event's carried phone blocks that phone however the event is later attached | §4.1, the carried-phone form |
