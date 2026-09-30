@@ -40,10 +40,10 @@ what is not settled. This project proposes changes to it; the operator approves 
 
 ## The queue
 
-1. **The lock fix (🔴, answers 9 and 11 of part 1):** `suppress()` reads the owner
-   without a lock (`service/contacts.py:446-447`), and the DNC scrub acts on an owner
-   read in an earlier transaction (`jobs/dnc_refresh.py:80-96`, `:125-146`). Failing
-   tests that reproduce each race and the plan go to the operator before any code.
+1. ~~**The lock fix**~~ — **done 2026-09-30.** `suppress()` reads the owner `for
+   update`; the scrub's `_apply` re-reads it `for update` in each contact's
+   transaction. Frozen gate `tests/acceptance/test_lock_races.py` (red for the
+   predicted reasons, then green); `make test` 398 passed, e2e and lint clean.
 2. **Build part 1 (🔴):** its build plan to the operator for explicit approval; tests
    first; migration `0014`.
 3. **Propose the decision-record changes** of `01-intake.md` §11 to the operator.

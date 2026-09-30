@@ -444,7 +444,8 @@ def suppress(contact_id: UUID, channel: str, reason: str) -> None:
     with transaction() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "select phone_e164, owner_id from contacts where id = %s", (contact_id,)
+                "select phone_e164, owner_id from contacts where id = %s for update",
+                (contact_id,),
             )
             row = cur.fetchone()
             if row is None:

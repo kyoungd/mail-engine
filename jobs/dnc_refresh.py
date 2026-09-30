@@ -122,10 +122,17 @@ def _apply(
     key = f"snap:{snapshot_id}" if snapshot_id is not None else version
     checked = hits = cleared = 0
 
-    for contact_id, phone, owner_id, already_listed, _ in rows:
+    for contact_id, phone, _, already_listed, _ in rows:
         hit = _national(phone) in on_registry
         with transaction() as conn:
             with conn.cursor() as cur:
+                cur.execute(
+                    "select owner_id from contacts where id = %s for update",
+                    (contact_id,),
+                )
+                locked = cur.fetchone()
+                assert locked is not None
+                owner_id = locked[0]
                 cur.execute(
                     "update contacts set dnc_checked_at = now(), dnc_registry = %s, "
                     "dnc_snapshot_id = coalesce(%s, dnc_snapshot_id) where id = %s",
