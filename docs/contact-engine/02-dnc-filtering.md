@@ -1,6 +1,8 @@
 # contact-engine Upgrade — Part 2: DNC filtering
 
-**Status:** DRAFT, revision 18, 2026-09-30. Revision 16 was approved after fifteen
+**Status:** APPROVED by the operator, 2026-09-30, at revision 18 (offered "Approve now",
+"One focused review", or "Read it first"; chose approve now). Approval does not start the
+build: its plan and tests come first, under the red-tier gate (§8). Not built. History: Revision 16 was approved after fifteen
 reviews; the operator then questioned why the design took so long and asked for a
 simpler approach. This revision keeps every approved rule and answer and replaces the
 machinery underneath: **one record of "don't call me again", keyed by phone**, written by
