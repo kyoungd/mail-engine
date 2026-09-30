@@ -1,6 +1,9 @@
 # contact-engine Upgrade — Part 2: DNC filtering
 
-**Status:** DRAFT, revision 16, 2026-09-30. Revision 8 **passed** its review; the operator
+**Status:** APPROVED by the operator, 2026-09-30 (revision 16, with its design answers;
+offered "Approve", "One more review", or "Read it first"; chose approve). Approval does
+not start the build: its plan and tests come first, under the red-tier gate (§8). Not
+built. History: Revision 8 **passed** its review; the operator
 then replaced the rep's 24-hour undo with an admin lift (answer 8). Revision 9's lift —
 over every form of block, by an event-id mark — did not pass (a later-attached opt-out
 could be lifted unseen; a concurrent request could be erased; lifts deadlocked). The

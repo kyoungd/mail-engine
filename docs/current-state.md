@@ -17,7 +17,8 @@ record from 2026-07-29 to 2026-09-13.
 | Branch `contact-engine` | Cut from `main` at `4b6d5b9`, 2026-09-29; pushed. Not yet the GitHub default: a settings change by the operator (`gh` is not installed here). |
 | Part 0, Foundation | Approved and **built** 2026-09-29 ([`00-foundation.md`](contact-engine/00-foundation.md)). `make test` 395 passed, `make e2e` passed, ruff + pyright clean. |
 | Part 1, Intake | Approved and **built** 2026-09-30 ([`01-intake.md`](contact-engine/01-intake.md)): migration `0014` (`intake_rep`), `service/rep_intake.add_numbers`, gate `tests/acceptance/test_rep_intake.py`. `make test` 458 passed; e2e, lint clean. `0014` applied to `mailengine_dev` only. |
-| Parts 2 to 6 | Not designed. One at a time, in order ([`00-overview.md`](contact-engine/00-overview.md)). |
+| Part 2, DNC filtering | Designed and **approved** 2026-09-30 ([`02-dnc-filtering.md`](contact-engine/02-dnc-filtering.md), revision 16, after fifteen reviews). Not built. The rep's 24-hour undo was replaced by an admin lift of recorded requests (answers 8, 9 — a change to decision 4.4, to be recorded). |
+| Parts 3 to 6 | Not designed. One at a time, in order ([`00-overview.md`](contact-engine/00-overview.md)). |
 | Hosting on Render | After part 6 |
 | Code | The mail code, web pages, and messages are removed; ~7,200 lines of app code and ~7,700 of tests remain (from ~11,000 and ~12,700). New: `jobs/intake_cli.py`, `service/state.py`, `derivation/activity.py`. Newest migration `0014` (dev only). |
 | Docs | `PRD.md` v2.0; mail-engine's documents moved to `mail-engine-backup/`. |
@@ -45,8 +46,10 @@ what is not settled. This project proposes changes to it; the operator approves 
    transaction. Frozen gate `tests/acceptance/test_lock_races.py` (red for the
    predicted reasons, then green); `make test` 398 passed, e2e and lint clean.
 2. ~~**Build part 1**~~ — done 2026-09-30.
-3. **Propose the decision-record changes** of `01-intake.md` §11 to the operator.
-4. **Design part 2, DNC filtering.**
+3. **Propose the decision-record changes** of `01-intake.md` §11 and `02-dnc-filtering.md` §11
+   to the operator (decision 4.4 changed by answers 8 and 9).
+4. **Build part 2** (🔴): its build plan and tests to the operator first.
+5. **Design part 3, Time zone.**
 5. **The largest open conflict:** 9.0, the 90 days against the rest (parts 4 and 5).
 6. **Make `contact-engine` the GitHub default** — the operator, in GitHub's settings.
 
