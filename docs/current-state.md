@@ -50,7 +50,8 @@ what is not settled. This project proposes changes to it; the operator approves 
    to the operator (decision 4.4 changed by answers 8 and 9).
 4. ~~**Build part 2**~~ — done 2026-09-30. Production release (`0015` in `mailengine_prod`) waits on the operator.
 5. ~~**Build part 3**~~ — done 2026-09-30 ([`03-time-zone.md`](contact-engine/03-time-zone.md), approved at revision 6): migration `0016`, `domain/zones.py` (NANPA's file), `service/zones.py`, `jobs/zone_admin_cli.py`, gate `tests/acceptance/test_time_zone.py`. `make test` 587 passed; e2e, lint clean. `0016` applied to `mailengine_dev` only. Production will start from a blank database and be reloaded (operator, 2026-09-30). The operator changed decision 5.5 (answer 3: the holding rep can set the zone) — to be recorded with the other decision-record changes.
-6. **The largest open conflict:** 9.0, the 90 days against the rest (parts 4 and 5).
+6. ~~**Build part 4**~~ — done 2026-09-30 ([`04-assignment.md`](contact-engine/04-assignment.md), approved at revision 6; assignment — holding and getting numbers; no migration): `get_more_numbers`, `rep_own`, the 90-day return per contact, door B's 90-day `held`, the console counts; gate `tests/acceptance/test_assignment_regions.py`. `make test` 613 passed; e2e, lint clean. The sale, the Got a callback / Follow up exception, 9.0 and 9.12 moved to part 5 (answer 1); a contact returned by expiry cannot come back to the same rep for 90 days (answer 3).
+6a. **The largest open conflict:** 9.0, the 90 days against the rest — now part 5's.
 7. **Make `contact-engine` the GitHub default** — the operator, in GitHub's settings.
 
 ## Part 0, as built — what to know

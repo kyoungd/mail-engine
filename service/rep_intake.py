@@ -6,12 +6,12 @@ row result of §4.2 that applies. A refused row writes nothing. Rows are judged 
 contact rows as they are under lock (§4.3); new contacts are inserted in phone order.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from uuid import UUID
 
 from psycopg import sql
 
-from config.params import HOUSE_PARTNER_ID
+from config.params import ASSIGNMENT_EXPIRY_DAYS, HOUSE_PARTNER_ID
 from db.session import transaction
 from derivation.rules import is_suppressed
 from domain.errors import ValidationError
@@ -80,7 +80,7 @@ def _unmatched_phones(cur, event_type: str) -> set[str]:
     return {p for (payload,) in cur.fetchall() if (p := _event_phone(payload or {}))}
 
 
-def _judge(cur, rep: UUID, phone: str, unmatched_opt_outs, unmatched_sales):
+def _judge(cur, rep: UUID, phone: str, unmatched_opt_outs, unmatched_sales, at: datetime):
     """(result, contact_id, owner-relation) for one valid, first-seen phone."""
     cur.execute(
         "select id, owner_id, assignment_batch_id, do_not_call, stage_snapshot::text "
@@ -134,6 +134,16 @@ def _judge(cur, rep: UUID, phone: str, unmatched_opt_outs, unmatched_sales):
         return "held", None
     if owner_id == rep:
         return "already_yours", contact_id
+
+    # Not the same rep for 90 days after it went back from them by expiry (part 4 §4.5).
+    cur.execute(
+        "select 1 from events where contact_id = %s "
+        "and type = 'contact.assignment_expired' "
+        "and payload->>'previous_owner_id' = %s and occurred_at >= %s",
+        (contact_id, str(rep), at - timedelta(days=ASSIGNMENT_EXPIRY_DAYS)),
+    )
+    if cur.fetchone() is not None:
+        return "held", None
 
     cur.execute(
         "select rep_id from intake_rep where contact_id = %s and is_primary", (contact_id,)
@@ -198,7 +208,7 @@ def add_numbers(
                 else:
                     seen.add(phone)
                     result, contact_id = _judge(
-                        cur, rep, phone, unmatched_opt_outs, unmatched_sales
+                        cur, rep, phone, unmatched_opt_outs, unmatched_sales, at
                     )
                     judged.append((phone, result, contact_id))
 

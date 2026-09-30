@@ -66,5 +66,6 @@ One at a time, in order.
 | [`01-intake.md`](01-intake.md) | Part 1. Approved and built 2026-09-30. |
 | [`02-dnc-filtering.md`](02-dnc-filtering.md) | Part 2. Approved 2026-09-30 at revision 18 (the simplified design: one record of "don't call me again"). **Built** 2026-09-30. |
 | [`03-time-zone.md`](03-time-zone.md) | Part 3. Approved 2026-09-30 at revision 6. **Built** 2026-09-30. |
-| Parts 4 to 6 | Not yet written. One at a time, by the contact-engine session, in `marketing/mail-engine`. |
+| [`04-assignment.md`](04-assignment.md) | Part 4, holding and getting numbers; the sale moved to part 5 (its answer 1). Approved 2026-09-30 at revision 6. **Built** 2026-09-30. |
+| Parts 5 and 6 | Not yet written. One at a time, by the contact-engine session, in `marketing/mail-engine`. |
 | [`handoff.md`](handoff.md) | The note that hands them over |

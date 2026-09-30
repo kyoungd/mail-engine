@@ -36,6 +36,7 @@ def _owned_inventory() -> list[tuple[str, int, int, int]]:
     house pool. This is the onboarding decision input — which owned code the
     partner starts in, and whether it has inventory (the radius derivation is
     expansion planning, not onboarding; jobs/derive_area_codes stays standalone)."""
+    from config.params import HOUSE_PARTNER_ID
     from db.session import transaction
 
     with transaction() as conn:
@@ -45,11 +46,14 @@ def _owned_inventory() -> list[tuple[str, int, int, int]]:
                 "count(c.id) filter (where not c.dnc_registry and not c.do_not_call "
                 "  and c.dnc_checked_at is not null), "
                 "count(c.id) filter (where not c.dnc_registry and not c.do_not_call "
-                "  and c.dnc_checked_at is not null and c.assignment_batch_id is null) "
+                "  and c.dnc_checked_at is not null and c.assignment_batch_id is null "
+                "  and c.owner_id = %s and not exists (select 1 from intake_rep i "
+                "  where i.contact_id = c.id and i.is_primary)) "
                 "from dnc_subscriptions s "
                 "left join contacts c on c.phone_e164 is not null and c.is_seed = false "
                 "  and substring(c.phone_e164 from 3 for 3) = s.area_code "
-                "group by s.area_code order by s.area_code"
+                "group by s.area_code order by s.area_code",
+                (HOUSE_PARTNER_ID,),
             )
             return [(code, total, dialable, avail)
                     for code, total, dialable, avail in cur.fetchall()]
@@ -398,7 +402,9 @@ def _subscription_view() -> list[tuple]:
                 "  and not c.do_not_call and c.dnc_checked_at is not null), "
                 "count(distinct c.id) filter (where not c.dnc_registry "
                 "  and not c.do_not_call and c.dnc_checked_at is not null "
-                "  and c.assignment_batch_id is null), "
+                "  and c.assignment_batch_id is null and c.owner_id = %s "
+                "  and not exists (select 1 from intake_rep i "
+                "  where i.contact_id = c.id and i.is_primary)), "
                 "(select string_agg(h.label, ', ' order by h.label) from ("
                 "   select case when s2.san_holder_id = %s then 'NMC' else p2.name end "
                 "   as label from dnc_subscriptions s2 "
@@ -408,7 +414,7 @@ def _subscription_view() -> list[tuple]:
                 "left join contacts c on c.phone_e164 is not null and c.is_seed = false "
                 "  and substring(c.phone_e164 from 3 for 3) = s.area_code "
                 "group by s.area_code order by s.area_code",
-                (HOUSE_PARTNER_ID,),
+                (HOUSE_PARTNER_ID, HOUSE_PARTNER_ID),
             )
             return list(cur.fetchall())
 

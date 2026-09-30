@@ -48,6 +48,20 @@ BATCH_CAP = 500
 BATCH_ROUND = 50
 ASSIGNMENT_EXPIRY_DAYS = 90
 
+# Get more numbers (docs/contact-engine/04-assignment.md §4.1; part 4 answer 2): a rep
+# picks a region and gets REP_BATCH_SIZE contacts drawn at random from its area codes,
+# and may ask while holding no more than ASK_AGAIN_AT of NMC's contacts. Fresno (559,
+# 357) is in no region; an overlay's codes always share a region.
+REGIONS: dict[str, tuple[str, ...]] = {
+    "LA area": ("213", "323", "738", "310", "424", "818", "747", "626", "562", "661",
+                "714", "657", "949", "909", "840", "951", "805", "820"),
+    "San Diego": ("619", "858", "760", "442"),
+    "Northern CA": ("415", "628", "510", "341", "650", "408", "669", "925", "707", "369",
+                    "916", "279", "530", "837", "209", "350", "831"),
+}
+REP_BATCH_SIZE = 250
+ASK_AGAIN_AT = 50
+
 
 def derived_batch_size(weekly_hours: int) -> int:
     """§5's table: batch ≈ 12 × weekly hours, rounded to the nearest 50,
