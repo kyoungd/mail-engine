@@ -111,7 +111,7 @@ def clean_db(owner_url: str, applied_migrations):
                 "intake_cslb_ca, intake_fbn_ca, contact_merge_map, "
                 "assignment_batches, feed_watermarks, "
                 "suppression_tombstones, dnc_subscriptions, dnc_snapshots, "
-                "dnc_numbers, dnc_log, dnc_runs, contact_zones "
+                "dnc_numbers, dnc_log, dnc_runs, contact_zones, memos, calls_received, calls "
                 "restart identity cascade"
             )
             # partners is deliberately NOT truncated: the migration-seeded house and

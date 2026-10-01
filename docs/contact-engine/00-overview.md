@@ -67,5 +67,6 @@ One at a time, in order.
 | [`02-dnc-filtering.md`](02-dnc-filtering.md) | Part 2. Approved 2026-09-30 at revision 18 (the simplified design: one record of "don't call me again"). **Built** 2026-09-30. |
 | [`03-time-zone.md`](03-time-zone.md) | Part 3. Approved 2026-09-30 at revision 6. **Built** 2026-09-30. |
 | [`04-assignment.md`](04-assignment.md) | Part 4, holding and getting numbers; the sale moved to part 5 (its answer 1). Approved 2026-09-30 at revision 6. **Built** 2026-09-30. |
-| Parts 5 and 6 | Not yet written. One at a time, by the contact-engine session, in `marketing/mail-engine`. |
+| [`05a-call-record.md`](05a-call-record.md) | Part 5a, the call record. Part 5 is cut in three: 5a the call record, 5b the rule, 5c the sale and the 90 days (its answer 1). Approved 2026-09-30 at revision 5. **Built** 2026-09-30. |
+| Parts 5b, 5c and 6 | Not yet written. One at a time, by the contact-engine session, in `marketing/mail-engine`. |
 | [`handoff.md`](handoff.md) | The note that hands them over |

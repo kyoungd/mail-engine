@@ -4,6 +4,7 @@ Verbs fail loudly and completely — no partial writes."""
 
 
 class ValidationError(ValueError):
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(self, code: str, message: str, detail: dict | None = None) -> None:
         super().__init__(message)
         self.code = code
+        self.detail = detail or {}
