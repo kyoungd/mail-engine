@@ -6,9 +6,11 @@ never the owner's MEDUSA_DATABASE_URL); without it the nightly runs without clos
 """
 
 import argparse
+from datetime import UTC, datetime
 
 from db.medusa import medusa_readonly_url
 from jobs.nightly import run_nightly
+from service.runs import record_daily_run
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -43,6 +45,7 @@ def main(argv: list[str] | None = None) -> int:
         close_feed = NmcCloseFeed.from_env()
     # DNC registry: none handed in — the ledger scrub runs from daily-run.sh.
     run_nightly(dnc_registry=None, close_feed=close_feed)
+    record_daily_run(datetime.now(UTC))
     print("nightly complete")
     return 0
 

@@ -71,5 +71,5 @@ One at a time, in order.
 | [`05b-the-rule.md`](05b-the-rule.md) | Part 5b, the rule. Approved 2026-09-30 at revision 6. **Built** 2026-09-30. |
 | [`05c-sale-and-90-days.md`](05c-sale-and-90-days.md) | Part 5c, the sale and the 90 days. Approved 2026-09-30 at revision 7. **Built** 2026-10-01. |
 | [`06a-the-api.md`](06a-the-api.md) | Part 6a, the API — the contract between the dialer, the website and contact-engine. Part 6 is cut in two: 6a the API, 6b running it (its answer 1). Approved 2026-10-01 at revision 6. **Built** 2026-10-01. |
-| Part 6b | Not yet written: alerts and switch-on gates (9.5), when contact-engine cannot be reached (9.17), a stand-in (9.7). |
+| [`06b-running-it.md`](06b-running-it.md) | Part 6b, running it — the alerts and switch-on gates (9.5), when contact-engine cannot be reached (9.17), no stand-in (9.7), and part 2's recheck by the list's age. Approved 2026-10-01 at revision 8. **Built** 2026-10-01. Part 6 is complete. |
 | [`handoff.md`](handoff.md) | The note that hands them over |

@@ -62,6 +62,14 @@ REGIONS: dict[str, tuple[str, ...]] = {
 REP_BATCH_SIZE = 250
 ASK_AGAIN_AT = 50
 
+# Part 6b's alerts (docs/contact-engine/06b-running-it.md §4.3): no nightly finished in
+# this long; contacts that stop being callable within this many days, or were never
+# checked this long after coming in; a call open longer than this.
+DAILY_RUN_ALERT_HOURS = 26
+DNC_EXPIRY_ALERT_DAYS = 7
+NEVER_CHECKED_ALERT_HOURS = 48
+CALL_OPEN_ALERT_HOURS = 24
+
 
 def derived_batch_size(weekly_hours: int) -> int:
     """§5's table: batch ≈ 12 × weekly hours, rounded to the nearest 50,

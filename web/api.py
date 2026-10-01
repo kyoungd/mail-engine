@@ -24,10 +24,10 @@ from pydantic import BaseModel, StringConstraints
 from starlette.exceptions import HTTPException
 
 from config.params import REGIONS
-from db.session import request_connection
+from db.session import ping, request_connection
 from domain.errors import ValidationError
 from domain.types import RepRow
-from service import assignment, calls, dnc, reads, rep_intake, roster, rule, zones
+from service import assignment, calls, dnc, reads, rep_intake, roster, rule, runs, zones
 
 MEMORY_DAYS = 90
 KEY_LIMIT = 200
@@ -549,6 +549,11 @@ def _routes() -> APIRouter:  # noqa: C901, PLR0915
         return _act(request, body, lambda a, at: calls.resolve_received(
             _rep(a), rid, body.resolution, at))
 
+    # the website's status (06b §4.3): its key only, no admin named
+    @r.get("/status")
+    def status(request: Request) -> Response:
+        return _read(request, lambda a, at: runs.status(at), keys=website, rep=False)
+
     # an admin's
     def admin_read(request: Request, run: Callable[[_Asker, datetime], Any]) -> Response:
         return _read(request, run, keys=website, rep=False, admin=True)
@@ -627,6 +632,12 @@ def create_app() -> FastAPI:
             return _error(405, "no_route", "this route takes another method")
         return _error(exc.status_code if exc.status_code >= 400 else 404, "no_route",
                       "no such route")
+
+    @app.get("/health")
+    def health() -> Response:
+        if ping():
+            return _answer(200, {"ok": True})
+        return _answer(503, {"ok": False})
 
     app.include_router(_routes())
     return app

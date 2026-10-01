@@ -34,6 +34,18 @@ def transaction() -> Iterator[psycopg.Connection]:
             yield conn
 
 
+def ping() -> bool:
+    """`/health` (docs/contact-engine/06b-running-it.md §4.4): the owner role answers a
+    `select 1` within the timeouts."""
+    try:
+        with psycopg.connect(_owner_url(), connect_timeout=3,
+                             options="-c statement_timeout=2000") as conn:
+            conn.execute("select 1")
+        return True
+    except psycopg.Error:
+        return False
+
+
 @contextmanager
 def request_connection(*, read_only: bool = False) -> Iterator[psycopg.Connection]:
     """One connection and one transaction for a whole request, ambient to every

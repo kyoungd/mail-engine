@@ -32,7 +32,7 @@ TWO ENTRY POINTS (Architecture B, Phase 4):
 import argparse
 import sys
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from uuid import UUID
 
@@ -64,6 +64,7 @@ class Coverage:
     snapshot_id: UUID
     san_holder_id: UUID
     version: str
+    version_date: date
     directory: Path
 
 
@@ -79,21 +80,36 @@ def _subscribed_codes(cur) -> list[str]:
     return [row[0] for row in cur.fetchall()]
 
 
-def _due(subscribed: list[str], limit: int | None) -> list[tuple]:
+def _due(
+    subscribed: list[str], limit: int | None, *, tonight: dict[str, date] | None = None
+) -> list[tuple]:
+    """Due: the check is over 21 days old; or, given `tonight` (each code's list for this
+    pass), the contact's linked list is dated over 21 days ago (UTC) and tonight's list
+    is strictly newer (docs/contact-engine/06b-running-it.md §4.2)."""
+    tonight = tonight or {}
     with transaction() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "select id, phone_e164, owner_id, dnc_registry, "
                 "substring(phone_e164 from 3 for 3) as area_code "
-                "from contacts "
+                "from contacts c "
                 "where phone_e164 is not null and is_seed = false "
-                "and substring(phone_e164 from 3 for 3) = any(%s) "
+                "and substring(phone_e164 from 3 for 3) = any(%(codes)s) "
                 "and (dnc_checked_at is null or dnc_checked_at < now() - "
-                "make_interval(days => %s)) "
-                "order by (owner_id = %s), id "  # assigned (non-house) first
-                + ("limit %s" if limit is not None else ""),
-                (subscribed, DNC_RECHECK_DAYS, HOUSE_PARTNER_ID)
-                + ((limit,) if limit is not None else ()),
+                "make_interval(days => %(days)s) "
+                "  or exists (select 1 from dnc_snapshots s "
+                "    join unnest(%(t_codes)s::text[], %(t_dates)s::date[]) t(code, day) "
+                "      on t.code = s.area_code "
+                "    where s.id = c.dnc_snapshot_id and s.status = 'accepted' "
+                "    and s.version_date is not null "
+                "    and s.area_code = substring(c.phone_e164 from 3 for 3) "
+                "    and s.version_date < (now() at time zone 'UTC')::date - %(days)s "
+                "    and t.day > s.version_date)) "
+                "order by (owner_id = %(house)s), id "  # assigned (non-house) first
+                + ("limit %(limit)s" if limit is not None else ""),
+                {"codes": subscribed, "days": DNC_RECHECK_DAYS,
+                 "t_codes": list(tonight), "t_dates": list(tonight.values()),
+                 "house": HOUSE_PARTNER_ID, "limit": limit},
             )
             return cur.fetchall()
 
@@ -237,6 +253,7 @@ def _coverage(codes: list[str], lists_root: Path) -> dict[str, Coverage]:
             snapshot_id=snapshot_id,
             san_holder_id=holder,
             version=version_date.isoformat(),
+            version_date=version_date,
             directory=lists_root / str(holder) / version_date.isoformat(),
         )
         for area_code, snapshot_id, holder, version_date in rows
@@ -271,7 +288,9 @@ def dnc_refresh_all(*, lists_root: Path = LISTS_ROOT, limit: int | None = None) 
         return DncReport()
 
     coverage = _coverage(subscribed, lists_root)
-    by_code = _group(_due(subscribed, limit))
+    by_code = _group(_due(subscribed, limit, tonight={
+        code: cover.version_date for code, cover in coverage.items()
+    }))
 
     checked = hits = cleared = 0
     skips: list[tuple[str, str]] = []

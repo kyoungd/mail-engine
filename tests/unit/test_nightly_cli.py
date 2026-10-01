@@ -25,6 +25,7 @@ def spy(monkeypatch):
         captured["close_feed"] = close_feed
 
     monkeypatch.setattr(nightly_cli, "run_nightly", fake_run_nightly)
+    monkeypatch.setattr(nightly_cli, "record_daily_run", lambda at: None)
     for var in _REMOVED_SETTINGS + ("MEDUSA_DATABASE_URL", "MEDUSA_READONLY_URL"):
         monkeypatch.delenv(var, raising=False)
     return captured
