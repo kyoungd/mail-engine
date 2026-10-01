@@ -69,7 +69,7 @@ def _truncate(conn):
         cur.execute(
             "truncate activation, events, pieces, waves, variants, contacts, "
             "intake_cslb_ca, intake_fbn_ca, contact_merge_map, "
-            "dnc_numbers, dnc_log, dnc_runs, contact_zones, memos, calls_received, calls restart identity cascade"
+            "dnc_numbers, dnc_log, dnc_runs, contact_zones, memos, calls_received, calls, contact_state, rep_settings restart identity cascade"
         )
     conn.commit()
 

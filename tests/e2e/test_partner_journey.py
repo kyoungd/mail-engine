@@ -53,7 +53,7 @@ def _wipe(owner_url: str) -> None:
                 "intake_cslb_ca, intake_fbn_ca, contact_merge_map, "
                 "assignment_batches, feed_watermarks, "
                 "suppression_tombstones, dnc_subscriptions, "
-                "dnc_numbers, dnc_log, dnc_runs, contact_zones, memos, calls_received, calls "
+                "dnc_numbers, dnc_log, dnc_runs, contact_zones, memos, calls_received, calls, contact_state, rep_settings "
                 "restart identity cascade"
             )
             # partners is not truncatable (the house row is load-bearing) — drop

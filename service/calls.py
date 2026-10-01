@@ -16,7 +16,7 @@ from config.params import HOUSE_PARTNER_ID
 from db.session import transaction
 from domain.errors import ValidationError
 from domain.phone import to_e164
-from service import dnc, zones
+from service import dnc, rule, zones
 
 CALL_OUTCOMES = frozenset(
     {"no_answer", "left_voicemail", "owner_unavailable", "busy", "call_not_placed"}
@@ -35,6 +35,14 @@ _OPEN = "opened_at is not null and outcome is null and cleared_at is null"
 class OpenedCall:
     call_id: UUID
     phone: str
+
+
+@dataclass(frozen=True)
+class _Checked:
+    phone: str
+    checked_at: datetime
+    snapshot_id: UUID | None
+    hours: zones.CallingHours
 
 
 def _after_lock(cur) -> None:
@@ -61,63 +69,76 @@ def _own_open_call(cur, rep: UUID, contact_id: UUID) -> UUID | None:
     return row[0] if row else None
 
 
+def _check_open(
+    cur, rep: UUID, contact_id: UUID, at: datetime, confirm_outside_hours: bool
+) -> _Checked:
+    """`open_call`'s refusals, in order, on the caller's cursor; the contact is left
+    locked. `rule.may_call` gives the same answer through it."""
+    _check_rep(cur, rep)
+    cur.execute(
+        "select owner_id, phone_e164, dnc_checked_at, dnc_snapshot_id "
+        "from contacts where id = %s for update",
+        (contact_id,),
+    )
+    contact = cur.fetchone()
+    if contact is None:
+        raise ValidationError("no_contact", f"no contact {contact_id}")
+    _after_lock(cur)
+    owner_id, phone, checked_at, snapshot_id = contact
+
+    own = _own_open_call(cur, rep, contact_id)
+    if own is not None:
+        raise ValidationError(
+            "call_open", "this contact has your open call", {"call_id": own}
+        )
+    if owner_id != rep:
+        raise ValidationError("not_yours", "the rep does not hold this contact")
+    cur.execute(
+        f"select 1 from calls where contact_id = %s and {_OPEN}",  # noqa: S608
+        (contact_id,),
+    )
+    if cur.fetchone() is not None:
+        raise ValidationError("call_open", "this contact has an open call")
+
+    # Part 2's status and part 3's hours, read after the lock (§4.2).
+    status = dnc.dnc_status(contact_id, at)
+    if status != "clear":
+        raise ValidationError(
+            "not_callable", f"DNC status is {status}", {"status": status}
+        )
+    hours = zones.calling_hours(contact_id, at)
+    if hours.inside is None:
+        raise ValidationError("no_zone", "no time zone is known for this contact")
+    # The rule (part 5b §4.6), after the zone and before the hours.
+    rule.refuse_call(cur, rep, contact_id, at)
+    if hours.inside is False and not confirm_outside_hours:
+        raise ValidationError(
+            "outside_hours", "outside calling hours there",
+            {"local": {z: t.isoformat() for z, t in hours.local.items()}},
+        )
+    return _Checked(phone=phone, checked_at=checked_at, snapshot_id=snapshot_id,
+                    hours=hours)
+
+
 def open_call(
     rep: UUID, contact_id: UUID, at: datetime, confirm_outside_hours: bool = False
 ) -> OpenedCall:
     _aware(at)
     with transaction() as conn:
         with conn.cursor() as cur:
-            _check_rep(cur, rep)
-            cur.execute(
-                "select owner_id, phone_e164, dnc_checked_at, dnc_snapshot_id "
-                "from contacts where id = %s for update",
-                (contact_id,),
-            )
-            contact = cur.fetchone()
-            if contact is None:
-                raise ValidationError("no_contact", f"no contact {contact_id}")
-            _after_lock(cur)
-            owner_id, phone, checked_at, snapshot_id = contact
-
-            own = _own_open_call(cur, rep, contact_id)
-            if own is not None:
-                raise ValidationError(
-                    "call_open", "this contact has your open call", {"call_id": own}
-                )
-            if owner_id != rep:
-                raise ValidationError("not_yours", "the rep does not hold this contact")
-            cur.execute(
-                f"select 1 from calls where contact_id = %s and {_OPEN}",  # noqa: S608
-                (contact_id,),
-            )
-            if cur.fetchone() is not None:
-                raise ValidationError("call_open", "this contact has an open call")
-
-            # Part 2's status and part 3's hours, read after the lock (§4.2).
-            status = dnc.dnc_status(contact_id, at)
-            if status != "clear":
-                raise ValidationError(
-                    "not_callable", f"DNC status is {status}", {"status": status}
-                )
-            hours = zones.calling_hours(contact_id, at)
-            if hours.inside is None:
-                raise ValidationError("no_zone", "no time zone is known for this contact")
-            if hours.inside is False and not confirm_outside_hours:
-                raise ValidationError(
-                    "outside_hours", "outside calling hours there",
-                    {"local": {z: t.isoformat() for z, t in hours.local.items()}},
-                )
-
+            checked = _check_open(cur, rep, contact_id, at, confirm_outside_hours)
+            hours = checked.hours
             cur.execute(
                 "insert into calls (contact_id, rep_id, phone_e164, opened_at, "
                 "dnc_checked_at, dnc_snapshot_id, zones, inside, outside_confirmed) "
                 "values (%s,%s,%s,%s,%s,%s,%s,%s,%s) returning id",
-                (contact_id, rep, phone, at, checked_at, snapshot_id,
-                 sorted(hours.zones), hours.inside, hours.inside is False),
+                (contact_id, rep, checked.phone, at, checked.checked_at,
+                 checked.snapshot_id, sorted(hours.zones), hours.inside,
+                 hours.inside is False),
             )
             made = cur.fetchone()
             assert made is not None
-    return OpenedCall(call_id=made[0], phone=phone)
+    return OpenedCall(call_id=made[0], phone=checked.phone)
 
 
 def record_outcome(
@@ -141,7 +162,10 @@ def record_outcome(
                 raise ValidationError("no_text", "a memo carries its text")
 
             if call_id is not None:
-                cur.execute("select 1 from contacts where id = %s", (contact_id,))
+                # The contact first, then the call row (part 5b §4.3).
+                cur.execute(
+                    "select 1 from contacts where id = %s for update", (contact_id,)
+                )
                 if cur.fetchone() is None:
                     raise ValidationError("no_contact", f"no contact {contact_id}")
                 cur.execute(
@@ -165,6 +189,8 @@ def record_outcome(
                 if cur.rowcount != 1:
                     raise ValidationError("no_call", "the call is no longer open")
                 outcome_id = call_id
+                rule.apply_outcome(cur, contact_id, outcome, outcome != "call_not_placed",
+                                   row[2], at)
             else:
                 cur.execute(
                     "select owner_id from contacts where id = %s for update", (contact_id,)
@@ -189,6 +215,7 @@ def record_outcome(
                 made = cur.fetchone()
                 assert made is not None
                 outcome_id = made[0]
+                rule.apply_outcome(cur, contact_id, outcome, False, None, at)
 
             if memo is not None:
                 cur.execute(
@@ -263,6 +290,14 @@ def resolve_received(rep: UUID, received_id: UUID, resolution: str, at: datetime
             _check_rep(cur, rep)
             if resolution not in RESOLUTIONS:
                 raise ValidationError("bad_resolution", f"not a resolution: {resolution!r}")
+            # The contact first, then the row (part 5b §4.3); its contact never changes.
+            cur.execute(
+                "select contact_id from calls_received where id = %s", (received_id,)
+            )
+            found = cur.fetchone()
+            if found is None:
+                raise ValidationError("no_received", "no such call received")
+            cur.execute("select 1 from contacts where id = %s for update", (found[0],))
             cur.execute(
                 "select rep_id, received_at, resolution from calls_received "
                 "where id = %s for update",
@@ -280,6 +315,7 @@ def resolve_received(rep: UUID, received_id: UUID, resolution: str, at: datetime
                 "update calls_received set resolution = %s, resolved_at = %s where id = %s",
                 (resolution, at, received_id),
             )
+            rule.apply_resolution(cur, found[0], rep, resolution, at)
     return "resolved"
 
 

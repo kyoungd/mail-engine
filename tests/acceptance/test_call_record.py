@@ -328,9 +328,10 @@ def test_outcome_on_a_call_refusals(reps, owner_conn):
     assert _sql(owner_conn, "select outcome from calls where id = %s",
                 (mine.call_id,))[0][0] == "busy"
 
-    cleared = calls.open_call(rep, contact, later)
+    fresh = _callable(owner_conn, rep, "+18185550129")
+    cleared = calls.open_call(rep, fresh, later)
     calls.clear_call(cleared.call_id, "young", "stuck", later)
-    _refused("no_call", lambda: calls.record_outcome(rep, contact, "busy", later,
+    _refused("no_call", lambda: calls.record_outcome(rep, fresh, "busy", later,
                                                      call_id=cleared.call_id))
 
 
