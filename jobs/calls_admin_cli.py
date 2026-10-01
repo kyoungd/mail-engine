@@ -7,21 +7,9 @@ import sys
 from datetime import UTC, datetime
 from uuid import UUID
 
-from db.session import transaction
 from domain.errors import ValidationError
 from service.calls import clear_call
-
-
-def _open_calls() -> list[tuple]:
-    with transaction() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "select c.id, c.opened_at, c.phone_e164, p.name from calls c "
-                "join partners p on p.id = c.rep_id "
-                "where c.opened_at is not null and c.outcome is null "
-                "and c.cleared_at is null order by c.opened_at"
-            )
-            return list(cur.fetchall())
+from service.reads import open_calls
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -44,8 +32,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.cmd == "list":
-            for call_id, opened_at, phone, rep in _open_calls():
-                print(f"{call_id}\t{opened_at.isoformat()}\t{phone}\t{rep}")
+            for call in open_calls():
+                print(f"{call['id']}\t{call['opened_at'].isoformat()}\t{call['phone']}"
+                      f"\t{call['rep']}")
         else:
             print(clear_call(args.call_id, args.actor, args.reason, datetime.now(UTC)))
     except ValidationError as exc:

@@ -30,6 +30,16 @@ UNDO_WINDOW = timedelta(hours=24)
 
 _OPEN = "opened_at is not null and outcome is null and cleared_at is null"
 
+# A contact the rep holds now or held once (§4.5), seeds excluded. Written over the
+# alias `c`, with the parameters `rep` (uuid) and `rep_text`.
+KNOWN_SQL = (
+    "not c.is_seed and (c.owner_id = %(rep)s "
+    "or exists (select 1 from events e where e.contact_id = c.id "
+    "           and e.payload->>'new_owner_id' = %(rep_text)s) "
+    "or exists (select 1 from intake_rep i where i.contact_id = c.id "
+    "           and i.rep_id = %(rep)s))"
+)
+
 
 @dataclass(frozen=True)
 class OpenedCall:
@@ -70,20 +80,22 @@ def _own_open_call(cur, rep: UUID, contact_id: UUID) -> UUID | None:
 
 
 def _check_open(
-    cur, rep: UUID, contact_id: UUID, at: datetime, confirm_outside_hours: bool
+    cur, rep: UUID, contact_id: UUID, at: datetime, confirm_outside_hours: bool,
+    lock: bool = True,
 ) -> _Checked:
     """`open_call`'s refusals, in order, on the caller's cursor; the contact is left
-    locked. `rule.may_call` gives the same answer through it."""
+    locked unless `lock` is false. `rule.may_call` gives the same answer through it."""
     _check_rep(cur, rep)
     cur.execute(
         "select owner_id, phone_e164, dnc_checked_at, dnc_snapshot_id "
-        "from contacts where id = %s for update",
+        "from contacts where id = %s" + (" for update" if lock else ""),
         (contact_id,),
     )
     contact = cur.fetchone()
     if contact is None:
         raise ValidationError("no_contact", f"no contact {contact_id}")
-    _after_lock(cur)
+    if lock:
+        _after_lock(cur)
     owner_id, phone, checked_at, snapshot_id = contact
 
     own = _own_open_call(cur, rep, contact_id)
@@ -284,13 +296,9 @@ def receive_call(rep: UUID, phone: str, at: datetime) -> UUID:
             if e164 is None or not re.fullmatch(r"\+1[0-9]{10}", e164):
                 raise ValidationError("invalid_phone", f"not a phone: {phone!r}")
             cur.execute(
-                "select c.id from contacts c where c.phone_e164 = %s and not c.is_seed "
-                "and (c.owner_id = %s "
-                "  or exists (select 1 from events e where e.contact_id = c.id "
-                "             and e.payload->>'new_owner_id' = %s) "
-                "  or exists (select 1 from intake_rep i where i.contact_id = c.id "
-                "             and i.rep_id = %s))",
-                (e164, rep, str(rep), rep),
+                "select c.id from contacts c where c.phone_e164 = %(phone)s and "
+                + KNOWN_SQL,
+                {"phone": e164, "rep": rep, "rep_text": str(rep)},
             )
             found = cur.fetchone()
             if found is None:

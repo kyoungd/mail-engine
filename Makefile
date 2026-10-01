@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help up down migrate console test e2e lint fmt nuke
+.PHONY: help up down migrate console api test e2e lint fmt nuke
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -18,6 +18,10 @@ migrate: ## Apply migrations as the owner role, then the grain swap (ground rule
 
 console: ## Operator menu over the partner/DNC CLIs (sources .env)
 	@set -a && . ./.env && set +a && PYTHONPATH=. uv run python -m jobs.console
+
+api: ## The API on http://127.0.0.1:8002 (sources .env; needs CE_DIALER_KEY and CE_WEBSITE_KEY)
+	@set -a && . ./.env && set +a && \
+		uv run uvicorn web.api:create_app --factory --host 127.0.0.1 --port 8002
 
 test: ## Run the test suite (fast, offline; e2e+integration deselected; truncates mailengine_test, never dev)
 	@set -a && . ./.env && set +a && \

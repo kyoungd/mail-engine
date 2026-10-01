@@ -343,7 +343,8 @@ def may_call(rep: UUID, contact_id: UUID, at: datetime) -> str:
     _aware(at)
     with transaction() as conn:
         with conn.cursor() as cur:
-            checked = calls._check_open(cur, rep, contact_id, at, False)  # noqa: SLF001
+            checked = calls._check_open(cur, rep, contact_id, at, False,  # noqa: SLF001
+                                        lock=False)
     return checked.phone
 
 

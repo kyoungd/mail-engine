@@ -70,5 +70,6 @@ One at a time, in order.
 | [`05a-call-record.md`](05a-call-record.md) | Part 5a, the call record. Part 5 is cut in three: 5a the call record, 5b the rule, 5c the sale and the 90 days (its answer 1). Approved 2026-09-30 at revision 5. **Built** 2026-09-30. |
 | [`05b-the-rule.md`](05b-the-rule.md) | Part 5b, the rule. Approved 2026-09-30 at revision 6. **Built** 2026-09-30. |
 | [`05c-sale-and-90-days.md`](05c-sale-and-90-days.md) | Part 5c, the sale and the 90 days. Approved 2026-09-30 at revision 7. **Built** 2026-10-01. |
-| Part 6 | Not yet written. One at a time, by the contact-engine session, in `marketing/mail-engine`. |
+| [`06a-the-api.md`](06a-the-api.md) | Part 6a, the API — the contract between the dialer, the website and contact-engine. Part 6 is cut in two: 6a the API, 6b running it (its answer 1). Approved 2026-10-01 at revision 6. **Built** 2026-10-01. |
+| Part 6b | Not yet written: alerts and switch-on gates (9.5), when contact-engine cannot be reached (9.17), a stand-in (9.7). |
 | [`handoff.md`](handoff.md) | The note that hands them over |
