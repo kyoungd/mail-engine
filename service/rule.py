@@ -20,6 +20,7 @@ from db.session import transaction
 from domain.errors import ValidationError
 from service import calls, zones
 from service.dnc import BLOCKED_SQL
+from service.sale import SOLD_SQL
 
 CHOICES = {
     "voicemails": (1, 2, 3),
@@ -225,7 +226,7 @@ def _states(cur, rep: UUID, contact_ids: list[UUID], at: datetime) -> dict[UUID,
         closings.setdefault(contact_id, set()).add(outcome)
     cur.execute(
         sql.SQL(
-            "select c.id, c.phone_e164, c.addr_state, {blocked}, "
+            "select c.id, c.phone_e164, c.addr_state, {blocked}, {sold}, "
             "(select z.zone from contact_zones z where z.contact_id = c.id "
             " order by z.seq desc limit 1), "
             "coalesce(st.list, 'sequence'), coalesce(st.rep_closed, false), "
@@ -233,16 +234,17 @@ def _states(cur, rep: UUID, contact_ids: list[UUID], at: datetime) -> dict[UUID,
             "coalesce(st.last_call_busy, false), st.pause_until "
             "from contacts c left join contact_state st on st.contact_id = c.id "
             "where c.id = any(%s)"
-        ).format(blocked=BLOCKED_SQL),
+        ).format(blocked=BLOCKED_SQL, sold=SOLD_SQL),
         (contact_ids,),
     )
     out: dict[UUID, State] = {}
-    for (contact_id, phone, state, blocked, set_zone, lst, rep_closed, count, voicemails,
-         last_call_at, last_busy, pause_until) in cur.fetchall():
+    for (contact_id, phone, state, blocked, sold, set_zone, lst, rep_closed, count,
+         voicemails, last_call_at, last_busy, pause_until) in cur.fetchall():
         zone_set = (frozenset({set_zone}) if set_zone
                     else zones._evidence(phone, state))  # noqa: SLF001
         out[contact_id] = _decide(
-            s, zone_set, at, blocked=blocked, closed=closings.get(contact_id, set()),
+            s, zone_set, at, blocked=blocked, sold=sold,
+            closed=closings.get(contact_id, set()),
             rep_closed=rep_closed, lst=lst, count=count, voicemails=voicemails,
             last_call_at=last_call_at, last_busy=last_busy, pause_until=pause_until,
         )
@@ -250,13 +252,15 @@ def _states(cur, rep: UUID, contact_ids: list[UUID], at: datetime) -> dict[UUID,
 
 
 def _decide(s: Settings, zone_set: frozenset[str], at: datetime, *, blocked: bool,
-            closed: set[str], rep_closed: bool, lst: str, count: int, voicemails: int,
+            sold: bool, closed: set[str], rep_closed: bool, lst: str, count: int, voicemails: int,
             last_call_at: datetime | None, last_busy: bool,
             pause_until: date | None) -> State:
     base = State(list="", calls=count, voicemails=voicemails)
     if blocked:
         return replace(base, list="closed", reason="asked_not_to_be_called")
-    for outcome in ("signed_up", "wrong_number", "not_interested"):
+    if sold:
+        return replace(base, list="closed", reason="customer")
+    for outcome in ("wrong_number", "not_interested"):
         if outcome in closed:
             return replace(base, list="closed", reason=CLOSINGS[outcome])
     if rep_closed:

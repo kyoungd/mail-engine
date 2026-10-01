@@ -16,7 +16,7 @@ from config.params import HOUSE_PARTNER_ID
 from db.session import transaction
 from domain.errors import ValidationError
 from domain.phone import to_e164
-from service import dnc, rule, zones
+from service import dnc, rule, sale, zones
 
 CALL_OUTCOMES = frozenset(
     {"no_answer", "left_voicemail", "owner_unavailable", "busy", "call_not_placed"}
@@ -160,6 +160,14 @@ def record_outcome(
                 raise ValidationError("bad_outcome", f"not an outcome here: {outcome!r}")
             if memo is not None and not memo.strip():
                 raise ValidationError("no_text", "a memo carries its text")
+            rep_active = True
+            if outcome == "signed_up":
+                # The signer's partner row first, before the contact (part 5c §4.2).
+                cur.execute(
+                    "select status from partners where id = %s for share", (rep,)
+                )
+                status = cur.fetchone()
+                rep_active = status is not None and status[0] == "active"
 
             if call_id is not None:
                 # The contact first, then the call row (part 5b §4.3).
@@ -181,6 +189,7 @@ def record_outcome(
                     or row[2] > at
                 ):
                     raise ValidationError("no_call", "not your open call on this contact")
+                _refuse_second_sale(cur, rep, contact_id, outcome)
                 cur.execute(
                     "update calls set outcome = %s, outcome_at = %s "
                     "where id = %s and outcome is null and cleared_at is null",
@@ -207,6 +216,7 @@ def record_outcome(
                     )
                 if contact[0] != rep:
                     raise ValidationError("not_yours", "the rep does not hold this contact")
+                _refuse_second_sale(cur, rep, contact_id, outcome)
                 cur.execute(
                     "insert into calls (contact_id, rep_id, outcome, outcome_at) "
                     "values (%s,%s,%s,%s) returning id",
@@ -217,6 +227,9 @@ def record_outcome(
                 outcome_id = made[0]
                 rule.apply_outcome(cur, contact_id, outcome, False, None, at)
 
+            if outcome == "signed_up":
+                sale.hold_for_signer(cur, rep, rep_active, contact_id)
+
             if memo is not None:
                 cur.execute(
                     "insert into memos (contact_id, rep_id, call_id, text, at) "
@@ -224,6 +237,15 @@ def record_outcome(
                     (contact_id, rep, outcome_id, memo.strip(), at),
                 )
     return outcome_id
+
+
+def _refuse_second_sale(cur, rep: UUID, contact_id: UUID, outcome: str) -> None:
+    """The first sale stands (part 5c §4.2): a Signed up on a contact sold to another."""
+    if outcome != "signed_up":
+        return
+    seller = sale.seller(cur, contact_id)
+    if seller is not None and seller != rep:
+        raise ValidationError("sold", "the contact was sold by another")
 
 
 def add_memo(rep: UUID, contact_id: UUID, text: str, at: datetime) -> UUID:

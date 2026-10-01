@@ -34,7 +34,9 @@ from config.params import (
 from db.session import transaction
 from domain.errors import ValidationError
 from service.custody import set_owner
+from service import rule
 from service.dnc import BLOCKED_SQL, LINK_FRESH_SQL
+from service.sale import SOLD_SQL, WEBSITE_SOLD_SQL
 
 # The rule keys assignment accepts (S-1): the wave grammar's selection keys.
 # NOT `stage` (the pool gates own stage), NOT `limit` (`count` owns it), NOT
@@ -153,7 +155,8 @@ _CANDIDATE_COLS = sql.SQL(
 
 
 def _gate(row, live_phones: frozenset[str], partner_id: UUID,
-          returned_since: datetime | None) -> str | None:
+          returned_since: datetime | None, sold_ids: frozenset[UUID] = frozenset(),
+          state_causes: dict[UUID, str] | None = None) -> str | None:
     """First failing gate → shortfall cause; None → assignable. `live_phones` is the
     second read of blocked phones, taken after the row locks (part 2 §4.4). A rep's own
     goes to no partner but the house (part 4 §4.2); with `returned_since`, a contact
@@ -170,7 +173,7 @@ def _gate(row, live_phones: frozenset[str], partner_id: UUID,
         return "rep_own"
     if returned_since is not None and last_expired is not None and last_expired >= returned_since:
         return "returned_recently"
-    if stage == "won":
+    if stage == "won" or _id in sold_ids:
         return "won"
     if stage in ("responded", "in_conversation"):
         return "mid_funnel"
@@ -186,7 +189,27 @@ def _gate(row, live_phones: frozenset[str], partner_id: UUID,
         return "dnc_unsubscribed"
     if not dnc_fresh:
         return "dnc_stale"
-    return None
+    # Part 5c §4.4, after the compliance causes: closed, or still resting.
+    return (state_causes or {}).get(_id)
+
+
+def _state_causes(cur, partner_id: UUID, ids: list[UUID], at: datetime) -> dict[UUID, str]:
+    """Part 5c §4.4: `closed` or `resting`, by 5b's state with the partner's settings,
+    for the candidates that have a state row or a closing outcome."""
+    cur.execute(
+        "select contact_id from contact_state where contact_id = any(%s) "
+        "union select contact_id from calls where contact_id = any(%s) "
+        "and outcome in ('wrong_number', 'not_interested') and undone_at is null",
+        (ids, ids),
+    )
+    stated = [r[0] for r in cur.fetchall()]
+    causes: dict[UUID, str] = {}
+    for cid, st in rule._states(cur, partner_id, stated, at).items():  # noqa: SLF001
+        if st.list == "closed" and st.reason in ("wrong_number", "not_interested", "closed"):
+            causes[cid] = "closed"
+        elif st.list == "limit_reached" and st.reason == "resting":
+            causes[cid] = "resting"
+    return causes
 
 
 def _retry_receipt(cur, batch_row) -> AssignmentReport:
@@ -225,6 +248,7 @@ def assign_batch(
     max_held: int | None = None,
     random_draw: bool = False,
     returned_since: datetime | None = None,
+    state_at: datetime | None = None,
 ) -> AssignmentReport:
     """S-1: assign a batch to a partner. The audience rule is the selection; the
     gates are the floor. Selection is `order by id` after gates — never the
@@ -281,9 +305,13 @@ def assign_batch(
                 return _retry_receipt(cur, existing)
 
             if max_held is not None:
+                # Sold, Got a callback and Follow up contacts do not count (part 5c §4.5).
                 cur.execute(
-                    f"select count(*) from contacts c where c.owner_id = %s and {_NMC_SQL}",  # noqa: S608
-                    (partner_id,),
+                    sql.SQL(
+                        "select count(*) from contacts c where c.owner_id = %(p)s and "
+                        + _NMC_SQL + " and not {sold} and not {exempt}"
+                    ).format(sold=SOLD_SQL, exempt=_EXEMPT_SQL),
+                    {"p": partner_id, "house": HOUSE_PARTNER_ID},
                 )
                 held = cur.fetchone()
                 assert held is not None
@@ -346,11 +374,22 @@ def assign_batch(
                 ([r[1] for r in rows if r[1]],),
             )
             live_phones = frozenset(r[0] for r in cur.fetchall())
+            # A Signed up or an outcome locks the contact without updating its row, so
+            # the sale and the 5b state are read again too (part 5c §4.2, §4.4).
+            ids = [r[0] for r in rows]
+            cur.execute(
+                sql.SQL("select c.id from contacts c where c.id = any(%s) and {sold}").format(
+                    sold=SOLD_SQL),
+                (ids,),
+            )
+            sold_ids = frozenset(r[0] for r in cur.fetchall())
+            state_causes = _state_causes(cur, partner_id, ids, state_at or now)
 
             passing: list[UUID] = []
             shortfall: dict[str, list[UUID]] = {}
             for row in rows:
-                cause = _gate(row, live_phones, partner_id, returned_since)
+                cause = _gate(row, live_phones, partner_id, returned_since, sold_ids,
+                              state_causes)
                 if cause is None:
                     passing.append(row[0])
                 else:
@@ -494,6 +533,7 @@ def get_more_numbers(
         max_held=ASK_AGAIN_AT,
         random_draw=True,
         returned_since=at - timedelta(days=ASSIGNMENT_EXPIRY_DAYS),
+        state_at=at,
     )
 
 
@@ -501,19 +541,20 @@ def get_more_numbers(
 # assignment is over the limit old. Written over the alias `c`.
 _STALE_HOLDING_SQL = (
     "c.owner_id <> %(house)s and c.assignment_batch_id is null "
-    "and c.stage_snapshot <> 'won' and " + _NMC_SQL + " "
+    "and " + _NMC_SQL + " "
     "and (select max(e.occurred_at) from events e where e.contact_id = c.id "
     "     and e.type = 'contact.assigned') < now() - make_interval(days => %(days)s)"
 )
 
-# Door B's three tests of sold, less the stage (part 1 `_judge`): a sale on the contact,
-# or an unmatched sale carrying its phone.
-_SOLD_SQL = (
-    "exists (select 1 from events e where e.type = 'signup.completed' "
-    "  and (e.contact_id = c.id or (e.contact_id is null "
-    "       and (e.payload->>'phone_e164' = c.phone_e164 "
-    "            or dnc_normalize(e.payload->>'phone') = c.phone_e164))))"
-)
+# Part 5c §4.3: a rep's Got a callback or Follow up contact, not closed — kept from the
+# 90 days. Written over the alias `c`.
+_EXEMPT_SQL = sql.SQL(
+    "(c.owner_id <> %(house)s and exists (select 1 from contact_state s "
+    "  where s.contact_id = c.id and s.list in ('got_callback', 'follow_up') "
+    "  and not s.rep_closed) "
+    "and not {blocked} and not exists (select 1 from calls k where k.contact_id = c.id "
+    "  and k.outcome in ('wrong_number', 'not_interested') and k.undone_at is null))"
+).format(blocked=BLOCKED_SQL)
 
 
 def run_expiry_step() -> int:
@@ -533,18 +574,22 @@ def run_expiry_step() -> int:
                 "order by c.id for update of c",
                 params,
             )
-            rows = cur.fetchall()
-            batch_due = [cid for cid, by_batch in rows if by_batch]
-            held = [cid for cid, by_batch in rows if not by_batch]
-            if held:
+            ids = [r[0] for r in cur.fetchall()]
+            due: list[UUID] = []
+            if ids:
+                # Re-read after the lock, for both rules: a claim, a sale, or a move to
+                # Got a callback / Follow up that landed while this waited (part 5c §4.2).
                 cur.execute(
-                    "select c.id from contacts c where c.id = any(%(ids)s) "  # noqa: S608
-                    "and " + _STALE_HOLDING_SQL + " and not " + _SOLD_SQL,
-                    {**params, "ids": held},
+                    sql.SQL(
+                        "select c.id from contacts c "
+                        "left join assignment_batches b on b.id = c.assignment_batch_id "
+                        "where c.id = any(%(ids)s) and (b.expires_at < now() or ("
+                        + _STALE_HOLDING_SQL + ")) and not {sold} and not {exempt} "
+                        "order by c.id"
+                    ).format(sold=SOLD_SQL, exempt=_EXEMPT_SQL),
+                    {**params, "ids": ids},
                 )
-                still = {r[0] for r in cur.fetchall()}
-                held = [cid for cid in held if cid in still]
-            due = sorted(batch_due + held, key=str)
+                due = [r[0] for r in cur.fetchall()]
             for cid in due:
                 set_owner(
                     cur, cid, HOUSE_PARTNER_ID,
@@ -555,19 +600,43 @@ def run_expiry_step() -> int:
 
 
 def run_won_termination_step() -> int:
-    """The nightly won-termination (S-1's permanent exclusion): a WON contact still
-    holding a batch pointer returns to the house immediately — a partner must never
-    be dialing a paying customer, and expiry is months too slow for that."""
+    """The nightly won step (part 5c §4.1, §4.2). A sold contact still holding a batch
+    pointer loses it: a rep's stays with that rep (6.5 — the seller keeps it); one on
+    NMC's own sheet returns to the house. A contact sold by the website gets its
+    `web_seller` written once: its holder now. Returns how many pointers it cleared."""
+    now = datetime.now(UTC)
+    cleared = 0
     with transaction() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "select id from contacts where stage_snapshot = 'won' "
-                "and assignment_batch_id is not null order by id for update",
+                sql.SQL(
+                    "select c.id from contacts c "
+                    "left join contact_state s on s.contact_id = c.id "
+                    "where (c.assignment_batch_id is not null and {sold}) "
+                    "or ({website} and s.web_seller is null) "
+                    "order by c.id for update of c"
+                ).format(sold=SOLD_SQL, website=WEBSITE_SOLD_SQL),
             )
-            due = [r[0] for r in cur.fetchall()]
-            for cid in due:
-                set_owner(
-                    cur, cid, HOUSE_PARTNER_ID,
-                    event_type="contact.reclaimed", reason="won", actor="system",
+            for (cid,) in cur.fetchall():
+                cur.execute(
+                    sql.SQL(
+                        "select c.owner_id, c.assignment_batch_id, {sold}, {website}, "
+                        "s.web_seller from contacts c "
+                        "left join contact_state s on s.contact_id = c.id where c.id = %s"
+                    ).format(sold=SOLD_SQL, website=WEBSITE_SOLD_SQL),
+                    (cid,),
                 )
-    return len(due)
+                row = cur.fetchone()
+                assert row is not None
+                owner, pointer, sold, website, web_seller = row
+                if website and web_seller is None:
+                    rule._write_state(cur, cid, {"web_seller": owner, "updated_at": now})  # noqa: SLF001
+                if pointer is not None and sold:
+                    cleared += 1
+                    if owner == HOUSE_PARTNER_ID:
+                        set_owner(cur, cid, HOUSE_PARTNER_ID, event_type="contact.reclaimed",
+                                  reason="won", actor="system")
+                    else:
+                        set_owner(cur, cid, owner, event_type="contact.assigned",
+                                  reason="sold", actor="system")
+    return cleared

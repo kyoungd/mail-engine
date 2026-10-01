@@ -490,12 +490,13 @@ def test_a_won_contact_never_reenters_the_pool(clean_db, owner_conn):
     terminated = run_won_termination_step()
     assert terminated == 1
     with owner_conn.cursor() as cur:
-        assert _owner(cur, contact) == HOUSE_PARTNER_ID
+        assert _owner(cur, contact) == partner
+        assert _batch_pointer(cur, contact) is None
     owner_conn.commit()
 
     # even after its batch would have expired, the pool gate keeps it out
     report = assign_batch(partner, "key-14", "young", contact_ids=[contact])
-    assert report.assigned == [] and report.shortfall["won"] == [contact]
+    assert report.assigned == [] and report.shortfall["already_assigned"] == [contact]
     _rm_partner(owner_conn, partner)
 
 
@@ -517,7 +518,8 @@ def test_nightly_runs_steps_after_recompute(clean_db, owner_conn):
     run_nightly()
 
     with owner_conn.cursor() as cur:
-        assert _owner(cur, contact) == HOUSE_PARTNER_ID  # won -> terminated same night
+        assert _owner(cur, contact) == partner  # won -> kept by its seller (decision 6.5)
+        assert _batch_pointer(cur, contact) is None
         cur.execute("select stage_snapshot from contacts where id = %s", (contact,))
         assert cur.fetchone()[0] == "won"  # so the step ran AFTER recompute
     _rm_partner(owner_conn, partner)
@@ -629,7 +631,7 @@ def test_a_codeless_close_ends_the_assignment_before_expiry(clean_db, owner_conn
     run_won_termination_step()
 
     with owner_conn.cursor() as cur:
-        assert _owner(cur, contact) == HOUSE_PARTNER_ID
+        assert _owner(cur, contact) == partner
         assert _batch_pointer(cur, contact) is None
     _rm_partner(owner_conn, partner)
 

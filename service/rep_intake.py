@@ -19,6 +19,7 @@ from domain.phone import to_e164
 from domain.types import ContactFlags, RepRow, RowResult
 from service.custody import set_owner
 from service.ingestion import EVENT_COLS, event_from_row
+from service.sale import SOLD_SQL
 
 HOW_OBTAINED = frozenset(
     {"met_in_person", "they_contacted_me", "referral", "public_or_research"}
@@ -121,11 +122,13 @@ def _judge(cur, rep: UUID, phone: str, unmatched_opt_outs, unmatched_sales, at: 
         or is_suppressed(events, ContactFlags(do_not_mail=False, do_not_text=False))
     ):
         return "do_not_call", None
-    sold = (
-        stage == "won"
-        or any(e.type == "signup.completed" for e in events)
-        or phone in unmatched_sales
+    cur.execute(
+        sql.SQL("select {sold} from contacts c where c.id = %s").format(sold=SOLD_SQL),
+        (contact_id,),
     )
+    found_sold = cur.fetchone()
+    # Part 5c §4.2: the one test of sold, a Signed up not undone included.
+    sold = bool(found_sold and found_sold[0]) or phone in unmatched_sales
     if sold and owner_id != rep:
         return "held", None
     if owner_id != rep and owner_id != HOUSE_PARTNER_ID:

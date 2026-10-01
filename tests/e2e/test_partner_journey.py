@@ -19,7 +19,6 @@ from datetime import UTC, datetime
 import psycopg
 import pytest
 
-from config.params import HOUSE_PARTNER_ID  # noqa: E402
 from jobs import (  # noqa: E402
     assignment_cli,
     dnc_refresh,
@@ -162,7 +161,7 @@ def test_partner_journey(owner_url, readonly_url, applied_migrations, capsys):
     ) == "won"
     assert _scalar(
         readonly_url, "select owner_id from contacts where id = %s", (reseda,)
-    ) == HOUSE_PARTNER_ID
+    ) == partner_id
     # the other assigned contact is untouched
     assert _scalar(
         readonly_url,
@@ -191,7 +190,7 @@ def test_partner_journey(owner_url, readonly_url, applied_migrations, capsys):
     assert assignment_cli.main([
         "reclaim", PARTNER, "--reason", "journey over",
     ]) == 0
-    assert "reclaimed 1 contact(s)" in capsys.readouterr().out
+    assert "reclaimed 2 contact(s)" in capsys.readouterr().out
     assert _scalar(
         readonly_url,
         "select count(*) from contacts where owner_id = %s", (partner_id,),
