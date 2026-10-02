@@ -1,4 +1,4 @@
-# Current state — 2026-10-01: contact-engine parts 0 to 6 are built; the decision record is brought up to date
+# Current state — 2026-10-01: contact-engine parts 0 to 6 are built; dev is reloaded and the API runs for the main site
 
 **mail-engine pivoted to contact-engine.** It no longer does direct mail. Its job now is
 the contact services for NeverMissCall's sales-partner dialer: intake, DNC filtering,
@@ -19,7 +19,9 @@ session record from 2026-07-29 to 2026-09-13.
 | Part 1, Intake | Approved and **built** 2026-09-30 ([`01-intake.md`](contact-engine/01-intake.md)): migration `0014` (`intake_rep`), `service/rep_intake.add_numbers`, gate `tests/acceptance/test_rep_intake.py`. `make test` 458 passed; e2e, lint clean. `0014` applied to `mailengine_dev` only. |
 | Part 2, DNC filtering | Revision 16 approved 2026-09-30 after fifteen reviews; the operator asked for a simpler approach, and the redesign around one phone-keyed record of "don't call me again" ([`02-dnc-filtering.md`](contact-engine/02-dnc-filtering.md)) was **approved at revision 18** the same day and **built** the same day: migration `0015`, `service/dnc.py`, `jobs/dnc_admin_cli.py`, gate `tests/acceptance/test_dnc_filtering.py`. `make test` 511 passed; e2e, lint clean. `0015` applied to `mailengine_dev` only. The rep's 24-hour undo was replaced by an admin lift of recorded requests (answers 8, 9 — decision 4.4, recorded 2026-10-01). |
 | Parts 3 to 6 | Approved and **built** 2026-09-30 to 10-01, each with its gate; see the queue below and [`00-overview.md`](contact-engine/00-overview.md). Part 6 is the API (`web/api.py`, run with `make api`) and running it (`GET /v1/status`, `GET /health`). HEAD `1e5f8b6`, pushed. `make test` 828 passed; e2e, lint clean. |
-| The decision record | Brought up to date 2026-10-01 from parts 1 to 6, approved by the operator: §9 holds only 9.6 and 9.16. The follow-up docs (`00-interface.md`, `00-purpose.md`, `handoff.md`, `00-overview.md` in both repos; notes in `01-intake.md` and `05a-call-record.md`) are edited too. **Not committed** in either repo. |
+| The decision record | Brought up to date 2026-10-01 from parts 1 to 6, approved by the operator: §9 holds only 9.6 and 9.16. The follow-up docs (`00-interface.md`, `00-purpose.md`, `handoff.md`, `00-overview.md` in both repos; notes in `01-intake.md` and `05a-call-record.md`) are edited too. **Committed** 2026-10-01: `31cc227` here, `891ec9d9` in NeverMissCall (branch `young`). Neither pushed. |
+| `mailengine_dev` | Backed up, dropped, rebuilt from zero and reloaded 2026-10-01 (below). Test-only: nothing in it is assigned to a real rep. |
+| The API for the main site | Runs from `./test-services.sh` on :8002; the interface for the website and the dialer is `nvermisscall/docs/active/contact-engine-api.md` (below). |
 | Hosting on Render | Next, after the blank production start is planned |
 | Code | Newest migration `0021` (applied to `mailengine_dev` only; production is still on `main`, below). |
 | Docs | `PRD.md` v2.0; mail-engine's documents moved to `mail-engine-backup/`. |
@@ -59,9 +61,62 @@ what is not settled. This project proposes changes to it; the operator approves 
 6e. ~~**Build part 6a**~~ — done 2026-10-01 ([`06a-the-api.md`](contact-engine/06a-the-api.md), approved at revision 6): migration `0020`, `web/api.py`, `service/reads.py`, `service/roster.py`, the ambient connection in `db/session.py`; gate `tests/acceptance/test_api.py`. `make test` 784 passed; e2e, lint clean. `0020` applied to `mailengine_dev` only. Run it with `make api` (needs `CE_DIALER_KEY` and `CE_WEBSITE_KEY` in `.env`). Next: design part 6b.
 6f. ~~**Build part 6b**~~ — done 2026-10-01 ([`06b-running-it.md`](contact-engine/06b-running-it.md), approved at revision 8): migration `0021`, `service/runs.py`, `GET /v1/status`, `GET /health`, the nightly's run record, part 2's recheck by the list's age; gate `tests/acceptance/test_running_it.py`. `make test` 828 passed; e2e, lint clean. `0021` applied to `mailengine_dev` only. Part 6 is complete.
 7. **Make `contact-engine` the GitHub default** — the operator, in GitHub's settings.
-8. **Commit the decision record and docs** — in the NeverMissCall repository and here, on the operator's word. NeverMissCall also has an untracked `docs/affiliate-program-review-2026-09-26.md` that is not this project's.
+8. ~~**Commit the decision record and docs**~~ — done 2026-10-01 (`31cc227` here, `891ec9d9` in NeverMissCall); not pushed. NeverMissCall also has an untracked `docs/affiliate-program-review-2026-09-26.md` that is not this project's.
+8a. **The first rep journey through the API against the reloaded dev** — offered, not run: make a test rep known, Get more numbers (LA area), card and may-call, open a call, an outcome, history, a "don't call me again". The same path as switch-on gate 1 (6b §4.7).
+8b. **The main site's side** — in `website/`, a parent-repo session: the contact-engine client (reads `CONTACT_ENGINE_URL`, `CE_DIALER_KEY`, `CE_WEBSITE_KEY`), the roster's `PUT /v1/reps/{id}`, Call Control.
 9. **Plan the blank production start and the reload** — `mailengine_prod` starts from blank (operator, 2026-09-30): migrations from zero, then the contact lists, the DNC snapshots, partners, subscriptions.
 10. **Hosting on Render** — the open limits named for it: 9.11's disk (record 4.10), the connection pool (6a §6, 6b §6), the switch-on gates (record 8.12).
+
+## 2026-10-01 — dev reloaded, the API made runnable for the main site
+
+**`mailengine_dev` reloaded** (operator's choices: drop and rebuild, CSLB + FBN, no
+partners or subscriptions restored from the backup):
+
+1. Backup `~/db-backups/mailengine_dev-2026-10-01_1444.dump` (16.7 MB; `pg_restore
+   --list` reads it; 31 tables of data). It holds the old dev's 5 partners (one linked
+   to `sales_rep_id` 47), 5 subscriptions and 6,123 events.
+2. Dropped, recreated from `template0`, `make migrate` from zero: 21 migrations through
+   `0021`, the grain swap on the empty database. The first full run of "migrations from
+   zero" that the blank production start (queue 9) needs — it worked.
+3. `jobs.intake_cli`: `cslb-all.csv --source cslb-ca` loaded 84,072 (36 s);
+   `fbn-ca-2026.csv --source fbn-ca-2026` loaded 18,359 (6 s). 100,444 contacts,
+   102,431 intake rows, 0 duplicate phones — the canonical numbers.
+
+**DNC loaded into dev** (approved plan):
+
+- `jobs.subscribe_area_codes add 714 760 805 818 916` (house SAN).
+- The five 2026-09-13 lists in `../dnc-lists/<house id>/2026-09-13/` recorded with
+  `service.dnc_snapshots.record_snapshot`, called directly: dev has no
+  `SNAPSHOT_INBOX_URL`, so `dnc_pull` cannot be used, and no CLI records a file already
+  on disk. `uploaded_at` is each file's mtime; `recorded_by` `operator`. All accepted;
+  line counts equal production's for the same files.
+- `jobs.dnc_refresh --from-ledger`: checked 24,212, hits 11,571 (4 m 38 s). By
+  `dnc_status`: 12,641 `clear`, 11,571 `on_dnc_file`. Contacts outside the five codes
+  are `not_checked`. Dev is test-only; the lists' age does not matter there (operator).
+
+**The API runnable for the main site:**
+
+- `nvermisscall/test-services.sh`: its mail-engine block ran `make run`, removed on
+  this branch, so it was already broken. It now starts contact-engine with `make api`
+  on :8002 (log `logs/contact-engine.log`), stops it by port, and skips with a warning
+  when the keys are absent. Tested by running only its start and stop functions:
+  `/health` 200; `/v1/status` 200 with the website key, 403 `wrong_key` with the
+  dialer's, 401 without a key.
+- Dev keys `CE_DIALER_KEY` and `CE_WEBSITE_KEY` generated (random, 32 bytes each), in
+  this checkout's `.env`, the vault (section "contact-engine API keys — DEV"), and
+  `nvermisscall/website/.env` with `CONTACT_ENGINE_URL=http://127.0.0.1:8002`.
+  `website/.env` is not committed (it holds other uncommitted changes).
+- `nvermisscall/docs/active/contact-engine-api.md`: the working reference for the
+  website and the dialer — running it, headers and keys, idempotency, errors, every
+  route with body, answer and refusals, the card, the values, the unreachable rules.
+  The contract stays `06a-the-api.md` and `06b-running-it.md`, which win where they
+  differ (6a answer 2).
+
+**What the main site should know:** no rep is known yet — the website's first call is
+`PUT /v1/reps/{sales_rep_id}` with the dialer's key; a region's batch reports a
+shortfall for its unsubscribed area codes (LA area: 3 of 18 covered); `/v1/status`
+shows `daily_run_missing` until a nightly runs; the API listens on 127.0.0.1, reached
+through the website's dialer backend only.
 
 ## Part 0, as built — what to know
 
