@@ -18,10 +18,10 @@ session record from 2026-07-29 to 2026-09-13.
 | Part 0, Foundation | Approved and **built** 2026-09-29 ([`00-foundation.md`](contact-engine/00-foundation.md)). `make test` 395 passed, `make e2e` passed, ruff + pyright clean. |
 | Part 1, Intake | Approved and **built** 2026-09-30 ([`01-intake.md`](contact-engine/01-intake.md)): migration `0014` (`intake_rep`), `service/rep_intake.add_numbers`, gate `tests/acceptance/test_rep_intake.py`. `make test` 458 passed; e2e, lint clean. `0014` applied to `mailengine_dev` only. |
 | Part 2, DNC filtering | Revision 16 approved 2026-09-30 after fifteen reviews; the operator asked for a simpler approach, and the redesign around one phone-keyed record of "don't call me again" ([`02-dnc-filtering.md`](contact-engine/02-dnc-filtering.md)) was **approved at revision 18** the same day and **built** the same day: migration `0015`, `service/dnc.py`, `jobs/dnc_admin_cli.py`, gate `tests/acceptance/test_dnc_filtering.py`. `make test` 511 passed; e2e, lint clean. `0015` applied to `mailengine_dev` only. The rep's 24-hour undo was replaced by an admin lift of recorded requests (answers 8, 9 — decision 4.4, recorded 2026-10-01). |
-| Parts 3 to 6 | Approved and **built** 2026-09-30 to 10-01, each with its gate; see the queue below and [`00-overview.md`](contact-engine/00-overview.md). Part 6 is the API (`web/api.py`, run with `make api`) and running it (`GET /v1/status`, `GET /health`). HEAD `1e5f8b6`, pushed. `make test` 828 passed; e2e, lint clean. |
-| The decision record | Brought up to date 2026-10-01 from parts 1 to 6, approved by the operator: §9 holds only 9.6 and 9.16. The follow-up docs (`00-interface.md`, `00-purpose.md`, `handoff.md`, `00-overview.md` in both repos; notes in `01-intake.md` and `05a-call-record.md`) are edited too. **Committed** 2026-10-01: `31cc227` here, `891ec9d9` in NeverMissCall (branch `young`). Neither pushed. |
+| Parts 3 to 6 | Approved and **built** 2026-09-30 to 10-01, each with its gate; see the queue below and [`00-overview.md`](contact-engine/00-overview.md). Part 6 is the API (`web/api.py`, run with `make api`) and running it (`GET /v1/status`, `GET /health`). Code HEAD `1e5f8b6`; branch HEAD `c2dd8bb` (the smoke test), pushed. `make test` 828 passed; e2e, lint clean. |
+| The decision record | Brought up to date 2026-10-01 from parts 1 to 6, approved by the operator: §9 holds only 9.6 and 9.16. The follow-up docs (`00-interface.md`, `00-purpose.md`, `handoff.md`, `00-overview.md` in both repos; notes in `01-intake.md` and `05a-call-record.md`) are edited too. **Committed** 2026-10-01: `31cc227` here, `891ec9d9` in NeverMissCall (branch `young`). Both pushed. |
 | `mailengine_dev` | Backed up, dropped, rebuilt from zero and reloaded 2026-10-01 (below). Test-only: nothing in it is assigned to a real rep. |
-| The API for the main site | Runs from `./test-services.sh` on :8002; the interface for the website and the dialer is `nvermisscall/docs/active/contact-engine-api.md` (below). |
+| The API for the main site | Runs from `./test-services.sh` on :8002; the interface for the website and the dialer is `nvermisscall/docs/active/contact-engine-api.md`. A rep's journey through it passes against dev, kept as `make smoke` (below). Ready for the website's side (queue 8b). |
 | Hosting on Render | Next, after the blank production start is planned |
 | Code | Newest migration `0021` (applied to `mailengine_dev` only; production is still on `main`, below). |
 | Docs | `PRD.md` v2.0; mail-engine's documents moved to `mail-engine-backup/`. |
@@ -62,7 +62,7 @@ what is not settled. This project proposes changes to it; the operator approves 
 6f. ~~**Build part 6b**~~ — done 2026-10-01 ([`06b-running-it.md`](contact-engine/06b-running-it.md), approved at revision 8): migration `0021`, `service/runs.py`, `GET /v1/status`, `GET /health`, the nightly's run record, part 2's recheck by the list's age; gate `tests/acceptance/test_running_it.py`. `make test` 828 passed; e2e, lint clean. `0021` applied to `mailengine_dev` only. Part 6 is complete.
 7. **Make `contact-engine` the GitHub default** — the operator, in GitHub's settings.
 8. ~~**Commit the decision record and docs**~~ — done 2026-10-01 (`31cc227` here, `891ec9d9` in NeverMissCall); not pushed. NeverMissCall also has an untracked `docs/affiliate-program-review-2026-09-26.md` that is not this project's.
-8a. **The first rep journey through the API against the reloaded dev** — offered, not run: make a test rep known, Get more numbers (LA area), card and may-call, open a call, an outcome, history, a "don't call me again". The same path as switch-on gate 1 (6b §4.7).
+8a. ~~**The first rep journey through the API against the reloaded dev**~~ — done 2026-10-01, and kept as the smoke test `tests/smoke/test_rep_journey.py` (`make smoke`, `c2dd8bb`). Below.
 8b. **The main site's side** — in `website/`, a parent-repo session: the contact-engine client (reads `CONTACT_ENGINE_URL`, `CE_DIALER_KEY`, `CE_WEBSITE_KEY`), the roster's `PUT /v1/reps/{id}`, Call Control.
 9. **Plan the blank production start and the reload** — `mailengine_prod` starts from blank (operator, 2026-09-30): migrations from zero, then the contact lists, the DNC snapshots, partners, subscriptions.
 10. **Hosting on Render** — the open limits named for it: 9.11's disk (record 4.10), the connection pool (6a §6, 6b §6), the switch-on gates (record 8.12).
@@ -117,6 +117,31 @@ partners or subscriptions restored from the backup):
 shortfall for its unsubscribed area codes (LA area: 3 of 18 covered); `/v1/status`
 shows `daily_run_missing` until a nightly runs; the API listens on 127.0.0.1, reached
 through the website's dialer backend only.
+
+**The rep journey, run against dev (9:04 PM PT, outside the window):** 23 steps
+through the real API, all as the contract says. Make known (roster id 900001) →
+Get more numbers, LA area: 250 assigned, shortfall as counts (22,360
+`dnc_unsubscribed`, 7,199 `dnc_registry`) → card `clear`, may-call `outside_hours` →
+open refused without the rep's confirmation, opened with it → `call_open` while open →
+No answer with a memo; resent with the same key, replayed (`idempotent-replay: true`,
+one memo stored) → history: one call, two memos, `by_you` → card: Waiting, due 3 days
+on → "don't call me again" on another contact: `blocked`, then `not_callable` /
+`do_not_call` on may-call and open; the admin's history shows it → known callers,
+search by 4 digits, the 404 for a contact never held → status, `daily_run_missing`
+only. The first run's one failure was the script's (a case-sensitive header lookup),
+checked with curl.
+
+**The smoke test** (`c2dd8bb`): the journey as `tests/smoke/test_rep_journey.py`, a new
+`smoke` marker deselected by default, `make smoke` (exports the test database URLs for
+the guard; the test itself only speaks HTTP), a Smoke row in `coding/testing.md`.
+Repeatable on test rep 900001: each run picks a fresh callable contact, asks for more
+numbers when none is left, and leaves one call, two memos and one blocked number in
+dev. Checked: API stopped → skipped with the reason; two runs → passed; a wrong website
+key → failed (401 `bad_key`); `make test` 828 passed, 2 deselected; lint clean.
+
+**Left in dev on purpose:** test rep 900001 ("Smoke Test Rep 900001") holding 250
+contacts, the journeys' calls, memos and blocked numbers — fixtures for the website's
+developers.
 
 ## Part 0, as built — what to know
 
