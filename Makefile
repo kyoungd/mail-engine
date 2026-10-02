@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help up down migrate console api test e2e lint fmt nuke
+.PHONY: help up down migrate console api test e2e smoke lint fmt nuke
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -36,6 +36,12 @@ e2e: ## Partner-lifecycle journey (the live product; truncates mailengine_test, 
 		export OWNER_DATABASE_URL="$${OWNER_DATABASE_URL%/*}/mailengine_test" \
 		       READONLY_DATABASE_URL="$${READONLY_DATABASE_URL%/*}/mailengine_test" && \
 		uv run pytest -m e2e tests/e2e/test_partner_journey.py -v
+
+smoke: ## A rep's journey over HTTP against the running API (start it with make api; writes a test rep to the API's database)
+	@set -a && . ./.env && set +a && \
+		export OWNER_DATABASE_URL="$${OWNER_DATABASE_URL%/*}/mailengine_test" \
+		       READONLY_DATABASE_URL="$${READONLY_DATABASE_URL%/*}/mailengine_test" && \
+		uv run pytest -m smoke tests/smoke -v -rs
 
 lint: ## Lint (ruff) and type-check (pyright)
 	uv run ruff check .

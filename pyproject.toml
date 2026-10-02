@@ -26,14 +26,16 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-# The default suite stays fast and offline: e2e (real Lob, network) and
-# integration (live cross-repo seams) are deselected unless explicitly asked
-# for. `make e2e` / `make integration` pass `-m`, which overrides this.
-addopts = "-m 'not e2e and not integration'"
+# The default suite stays fast and offline: e2e (real Lob, network),
+# integration (live cross-repo seams) and smoke (a running API) are deselected
+# unless explicitly asked for. `make e2e` / `make integration` / `make smoke`
+# pass `-m`, which overrides this.
+addopts = "-m 'not e2e and not integration and not smoke'"
 markers = [
     "nightly: slow tests excluded from the in-loop suite",
     "e2e: full-funnel journey against the real Lob test env (make e2e; wipes mailengine_dev)",
     "integration: read-only pins against live cross-repo seams (make integration; truncates nothing)",
+    "smoke: a rep's journey over HTTP against the running API (make smoke; writes a test rep to the API's database)",
 ]
 
 [tool.ruff]

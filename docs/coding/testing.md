@@ -17,6 +17,7 @@ open, not silently.*
 | E2E | `tests/e2e/` | Frozen | none live today (partner journey fakes its three seams) | truncates `mailengine_test` (never dev) | `make e2e` |
 | E2E-mail | `tests/e2e/test_journey.py` | Frozen, **PARKED to v1.1** with direct mail | real `api.lob.com` (test key) | truncates `mailengine_test` | `make e2e-mail` (rejoins `e2e` at un-park) |
 | Integration | `tests/integration/` | Frozen | live cross-repo seams, **GET/SELECT only** | **none** — truncates nothing | `make integration` (`STRICT=1` = a skip is a failure) |
+| Smoke | `tests/smoke/` | Disposable — follows the contract (06a, 06b) | HTTP to the running API (`make api`; `CONTACT_ENGINE_URL`) | writes **through the API** to its database (dev): a test rep (`SMOKE_REP_ID`, 900001), its batch, a call, memos, one blocked number per run. Truncates nothing; repeatable | `make smoke`; skips with the reason when the API or keys are absent |
 
 - **No red tests, ever.** A test that fails for any reason — even an "expected"
   one — is fixed, deleted, or skipped-with-reason the same day.
