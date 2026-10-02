@@ -81,6 +81,6 @@ before its rest ends. The operator has not been asked. It belongs to parts 4 and
 | Work | When |
 |---|---|
 | The decision record | Kept here. The contact-engine session proposes changes; the operator approves them. |
-| The contract between the dialer and contact-engine | With part 6 |
+| The contract between the dialer and contact-engine | contact-engine's `06a-the-api.md` with `06b-running-it.md`; linked from here (record 8.9) |
 | The dialer's backend, the website's pages, the app | After contact-engine. The dialer waits (2.1). |
 | The several-days check on the Samsung S10 | One call on or after 2026-10-01 |

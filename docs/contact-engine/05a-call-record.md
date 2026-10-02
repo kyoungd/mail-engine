@@ -1,5 +1,8 @@
 # contact-engine Upgrade — Part 5a: The call record
 
+**Later parts changed this one,** and their documents are the current word: part 5b has
+`record_outcome` on a call and `resolve_received` lock the contact first, then their row,
+and write the rule's state; part 5c adds the Signed up's partner lock and seller check.
 **Status:** APPROVED by the operator, 2026-09-30, at revision 5 (offered "Approve now",
 "One more review", or "Read it first"; chose approve now). **BUILT 2026-09-30:** under
 an approved build plan and an approved test gate: `0017.call-record.sql`,

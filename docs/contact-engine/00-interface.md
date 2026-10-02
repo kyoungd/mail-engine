@@ -4,7 +4,8 @@
 **What this is:** a high-level list of the information contact-engine gives out and the
 actions it accepts. For orientation.
 **What it is not:** the contract. No path, no field, no status code is settled here.
-Part 6 designs those. A line marked *drafted* comes from earlier drafts and is not a
+The contract is contact-engine's `06a-the-api.md` with `06b-running-it.md` (record 8.9);
+where this list and the contract differ, the contract wins. A line marked *drafted* comes from earlier drafts and is not a
 decision; a line with a number points to
 [the decision record](../sales-partner-dialer-decisions.md).
 
@@ -20,7 +21,7 @@ decision; a line with a number points to
 | The website | Itself | The state of the jobs, to raise alerts |
 
 contact-engine trusts the asker to have checked who the rep or admin is. It does not
-check again. A rep sees only the contacts they hold (*drafted*).
+check again. A rep sees only the contacts they hold (6a §4.5).
 
 ## 2. What is exposed, by job
 
@@ -39,7 +40,7 @@ check again. A rep sees only the contacts they hold (*drafted*).
 |---|---|
 | Whether a contact may be called, and if not, why: never checked, on a DNC file, check too old, area code not covered (4.1, 4.2, 4.6) | Information, on every card |
 | "Don't call me again", from the rep (4.3) | Action |
-| Undo it, within 24 hours, with a reason (4.4) | Action |
+| Lift it, by hand, with a reason (4.4) | Admin action |
 | "Don't call me again" that reached NMC by email or phone | Admin action, *drafted* |
 | The age of each area code's DNC file | Information, for alerts |
 
@@ -48,9 +49,8 @@ check again. A rep sees only the contacts they hold (*drafted*).
 | Exposed | Kind |
 |---|---|
 | Every zone the business could be in (5.1) | Information, on every card |
-| Fill in a missing zone, or narrow several to one (5.2, 5.5) | Action |
-| Set any zone | Admin action (5.5) |
-| The calling window | Admin setting (5.3) |
+| Set the zone — the holding rep or an admin (5.2, 5.5) | Action and admin action |
+| The calling window | A setting in code (5.3) |
 | "It is outside calling hours there", with the local times, and the rep's confirmation (5.4) | Part of opening a call |
 
 ### Job 4. Assignment
@@ -63,8 +63,8 @@ check again. A rep sees only the contacts they hold (*drafted*).
 | The day one of NMC's contacts goes back (6.3) | Information, on the card |
 | Mark a sale (6.5) | Action |
 | Take contacts back from a rep | Admin action, *drafted* |
-| The batch size, the point at which a rep may ask again, the regions (6.2) | Admin settings |
-| A sale the rep did not start from the app | **Not settled** (9.2) |
+| The batch size, the point at which a rep may ask again, the regions (6.2) | Constants in code |
+| A sale the rep did not start from the app | The website's, through the nightly read of its customers (6.5) |
 
 ### Job 5. Calling rule
 
@@ -94,7 +94,7 @@ check again. A rep sees only the contacts they hold (*drafted*).
 | A contact's call history, and its memos | Information |
 | The list of known callers, for the phone to recognize who is calling (8.3, 8.4) | Information |
 | Make a rep known; say a rep is deactivated (1.8) | Action |
-| The log: calling-hours confirmations, undone "don't call me again", changes of zone, contacts taken back | Admin, *drafted* |
+| The log: calling-hours confirmations, lifted "don't call me again", changes of zone, contacts taken back | Admin, *drafted* |
 | The state: the last run of each job and whether it succeeded, the age of each DNC file, calls open too long, checks near 31 days (1.7) | Information, for alerts |
 
 ## 3. The card
@@ -106,7 +106,7 @@ of what is on it and not of fields.
 |---|---|
 | The business, the contact's name and role, the number, the city, the state, the trade | 1 |
 | Whose it is: NMC's or the rep's own | 1 |
-| May it be called now, and if not, why, and until when | 2, 3, 5 |
+| May it be called now, and if not, why; each zone's local time (when the window next opens is not built) | 2, 3, 5 |
 | Every zone it could be in | 3 |
 | The day it goes back, if it is NMC's | 4 |
 | Which list it is in | 5 |
@@ -119,13 +119,13 @@ of what is on it and not of fields.
 
 | Rule | State |
 |---|---|
-| Only the dialer's backend and the website ask, each with a key | *Drafted* |
+| Only the dialer's backend and the website ask, each with a key | 6a §4.1 |
 | contact-engine's clock times everything; the phone's time is shown and decides nothing | 7.6 |
 | A request that succeeded is never done twice; a blocked request is asked again | 7.7 |
 | A blocked request changes nothing about the contact | 7.7 |
-| A rep sees only what they hold; anything else looks as if it does not exist | *Drafted* |
-| What happens when contact-engine cannot be reached | **Not settled** (9.17) |
-| Whether the dialer is built against a stand-in | **Not settled** (9.7) |
+| A rep sees only what they hold; anything else looks as if it does not exist | 6a §4.5 |
+| What happens when contact-engine cannot be reached | 8.10; 6b §4.5 |
+| Whether the dialer is built against a stand-in | No (8.13); 6b §4.6 |
 
 ## 5. Not exposed
 

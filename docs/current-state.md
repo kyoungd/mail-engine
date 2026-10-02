@@ -1,14 +1,14 @@
-# Current state — 2026-09-29: the project is now contact-engine; part 0 (the removals) is built
+# Current state — 2026-10-01: contact-engine parts 0 to 6 are built; the decision record is brought up to date
 
 **mail-engine pivoted to contact-engine.** It no longer does direct mail. Its job now is
 the contact services for NeverMissCall's sales-partner dialer: intake, DNC filtering,
 time zone, assignment, the calling rule, and answering the dialer and the website. See
-[`PRD.md`](PRD.md) (v2.0, rewritten today) and [`contact-engine/`](contact-engine/).
+[`PRD.md`](PRD.md) (v2.0, rewritten 2026-09-29) and [`contact-engine/`](contact-engine/).
 The name changed; the folders, the repository (`kyoungd/mail-engine`), and the
 databases keep their old names.
 
-History before today is in git: this file as of commit `4b6d5b9` holds every session
-record from 2026-07-29 to 2026-09-13.
+History before 2026-09-29 is in git: this file as of commit `4b6d5b9` holds every
+session record from 2026-07-29 to 2026-09-13.
 
 ## Where the work stands
 
@@ -17,10 +17,11 @@ record from 2026-07-29 to 2026-09-13.
 | Branch `contact-engine` | Cut from `main` at `4b6d5b9`, 2026-09-29; pushed. Not yet the GitHub default: a settings change by the operator (`gh` is not installed here). |
 | Part 0, Foundation | Approved and **built** 2026-09-29 ([`00-foundation.md`](contact-engine/00-foundation.md)). `make test` 395 passed, `make e2e` passed, ruff + pyright clean. |
 | Part 1, Intake | Approved and **built** 2026-09-30 ([`01-intake.md`](contact-engine/01-intake.md)): migration `0014` (`intake_rep`), `service/rep_intake.add_numbers`, gate `tests/acceptance/test_rep_intake.py`. `make test` 458 passed; e2e, lint clean. `0014` applied to `mailengine_dev` only. |
-| Part 2, DNC filtering | Revision 16 approved 2026-09-30 after fifteen reviews; the operator asked for a simpler approach, and the redesign around one phone-keyed record of "don't call me again" ([`02-dnc-filtering.md`](contact-engine/02-dnc-filtering.md)) was **approved at revision 18** the same day and **built** the same day: migration `0015`, `service/dnc.py`, `jobs/dnc_admin_cli.py`, gate `tests/acceptance/test_dnc_filtering.py`. `make test` 511 passed; e2e, lint clean. `0015` applied to `mailengine_dev` only. The rep's 24-hour undo was replaced by an admin lift of recorded requests (answers 8, 9 — a change to decision 4.4, to be recorded). |
-| Parts 3 to 6 | Not designed. One at a time, in order ([`00-overview.md`](contact-engine/00-overview.md)). |
-| Hosting on Render | After part 6 |
-| Code | The mail code, web pages, and messages are removed; ~7,200 lines of app code and ~7,700 of tests remain (from ~11,000 and ~12,700). New: `jobs/intake_cli.py`, `service/state.py`, `derivation/activity.py`. Newest migration `0014` (dev only). |
+| Part 2, DNC filtering | Revision 16 approved 2026-09-30 after fifteen reviews; the operator asked for a simpler approach, and the redesign around one phone-keyed record of "don't call me again" ([`02-dnc-filtering.md`](contact-engine/02-dnc-filtering.md)) was **approved at revision 18** the same day and **built** the same day: migration `0015`, `service/dnc.py`, `jobs/dnc_admin_cli.py`, gate `tests/acceptance/test_dnc_filtering.py`. `make test` 511 passed; e2e, lint clean. `0015` applied to `mailengine_dev` only. The rep's 24-hour undo was replaced by an admin lift of recorded requests (answers 8, 9 — decision 4.4, recorded 2026-10-01). |
+| Parts 3 to 6 | Approved and **built** 2026-09-30 to 10-01, each with its gate; see the queue below and [`00-overview.md`](contact-engine/00-overview.md). Part 6 is the API (`web/api.py`, run with `make api`) and running it (`GET /v1/status`, `GET /health`). HEAD `1e5f8b6`, pushed. `make test` 828 passed; e2e, lint clean. |
+| The decision record | Brought up to date 2026-10-01 from parts 1 to 6, approved by the operator: §9 holds only 9.6 and 9.16. The follow-up docs (`00-interface.md`, `00-purpose.md`, `handoff.md`, `00-overview.md` in both repos; notes in `01-intake.md` and `05a-call-record.md`) are edited too. **Not committed** in either repo. |
+| Hosting on Render | Next, after the blank production start is planned |
+| Code | Newest migration `0021` (applied to `mailengine_dev` only; production is still on `main`, below). |
 | Docs | `PRD.md` v2.0; mail-engine's documents moved to `mail-engine-backup/`. |
 
 **The source of decisions** is the decision record in the NeverMissCall repository,
@@ -46,18 +47,21 @@ what is not settled. This project proposes changes to it; the operator approves 
    transaction. Frozen gate `tests/acceptance/test_lock_races.py` (red for the
    predicted reasons, then green); `make test` 398 passed, e2e and lint clean.
 2. ~~**Build part 1**~~ — done 2026-09-30.
-3. **Propose the decision-record changes** of `01-intake.md` §11 and `02-dnc-filtering.md` §11
-   to the operator (decision 4.4 changed by answers 8 and 9).
+3. ~~**Propose the decision-record changes**~~ — done 2026-10-01, for parts 1 to 6 together:
+   the operator approved the record's changes, then the follow-up docs'. Not committed.
 4. ~~**Build part 2**~~ — done 2026-09-30. Production release (`0015` in `mailengine_prod`) waits on the operator.
-5. ~~**Build part 3**~~ — done 2026-09-30 ([`03-time-zone.md`](contact-engine/03-time-zone.md), approved at revision 6): migration `0016`, `domain/zones.py` (NANPA's file), `service/zones.py`, `jobs/zone_admin_cli.py`, gate `tests/acceptance/test_time_zone.py`. `make test` 587 passed; e2e, lint clean. `0016` applied to `mailengine_dev` only. Production will start from a blank database and be reloaded (operator, 2026-09-30). The operator changed decision 5.5 (answer 3: the holding rep can set the zone) — to be recorded with the other decision-record changes.
+5. ~~**Build part 3**~~ — done 2026-09-30 ([`03-time-zone.md`](contact-engine/03-time-zone.md), approved at revision 6): migration `0016`, `domain/zones.py` (NANPA's file), `service/zones.py`, `jobs/zone_admin_cli.py`, gate `tests/acceptance/test_time_zone.py`. `make test` 587 passed; e2e, lint clean. `0016` applied to `mailengine_dev` only. Production will start from a blank database and be reloaded (operator, 2026-09-30). The operator changed decision 5.5 (answer 3: the holding rep can set the zone) — recorded 2026-10-01.
 6. ~~**Build part 4**~~ — done 2026-09-30 ([`04-assignment.md`](contact-engine/04-assignment.md), approved at revision 6; assignment — holding and getting numbers; no migration): `get_more_numbers`, `rep_own`, the 90-day return per contact, door B's 90-day `held`, the console counts; gate `tests/acceptance/test_assignment_regions.py`. `make test` 613 passed; e2e, lint clean. The sale, the Got a callback / Follow up exception, 9.0 and 9.12 moved to part 5 (answer 1); a contact returned by expiry cannot come back to the same rep for 90 days (answer 3).
 6a. **The largest open conflict:** 9.0, the 90 days against the rest — now part 5c's.
 6b. ~~**Build part 5a**~~ — done 2026-09-30 ([`05a-call-record.md`](contact-engine/05a-call-record.md), approved at revision 5): migration `0017`, `service/calls.py`, `jobs/calls_admin_cli.py`; gate `tests/acceptance/test_call_record.py`. `make test` 668 passed; e2e, lint clean. `0017` applied to `mailengine_dev` only. Next: build 5c.
 6c. ~~**Build part 5b**~~ — done 2026-09-30 ([`05b-the-rule.md`](contact-engine/05b-the-rule.md), approved at revision 6): migration `0018`, `service/rule.py`, 5a's `calls.py` writes the state and applies the rule; gate `tests/acceptance/test_the_rule.py`. `make test` 708 passed; e2e, lint clean. `0018` applied to `mailengine_dev` only.
 6d. ~~**Build part 5c**~~ — done 2026-10-01 ([`05c-sale-and-90-days.md`](contact-engine/05c-sale-and-90-days.md), approved at revision 7): migration `0019`, `service/sale.py`, changes to parts 4, 5a, 5b and door B, the approved frozen-test changes; gate `tests/acceptance/test_sale_and_90_days.py`. `make test` 749 passed; e2e, lint clean. `0019` applied to `mailengine_dev` only. Part 5 is complete. Next: part 6, context support. Part 5 is cut in three: 5a, 5b the rule, 5c the sale and the 90 days. Do not call is part 2's report, not an outcome (answer 3); calls received list contacts held now or once (answer 4).
 6e. ~~**Build part 6a**~~ — done 2026-10-01 ([`06a-the-api.md`](contact-engine/06a-the-api.md), approved at revision 6): migration `0020`, `web/api.py`, `service/reads.py`, `service/roster.py`, the ambient connection in `db/session.py`; gate `tests/acceptance/test_api.py`. `make test` 784 passed; e2e, lint clean. `0020` applied to `mailengine_dev` only. Run it with `make api` (needs `CE_DIALER_KEY` and `CE_WEBSITE_KEY` in `.env`). Next: design part 6b.
-6f. ~~**Build part 6b**~~ — done 2026-10-01 ([`06b-running-it.md`](contact-engine/06b-running-it.md), approved at revision 8): migration `0021`, `service/runs.py`, `GET /v1/status`, `GET /health`, the nightly's run record, part 2's recheck by the list's age; gate `tests/acceptance/test_running_it.py`. `make test` 828 passed; e2e, lint clean. `0021` applied to `mailengine_dev` only. Part 6 is complete. Next: propose the decision-record changes from parts 1 to 6, then hosting.
+6f. ~~**Build part 6b**~~ — done 2026-10-01 ([`06b-running-it.md`](contact-engine/06b-running-it.md), approved at revision 8): migration `0021`, `service/runs.py`, `GET /v1/status`, `GET /health`, the nightly's run record, part 2's recheck by the list's age; gate `tests/acceptance/test_running_it.py`. `make test` 828 passed; e2e, lint clean. `0021` applied to `mailengine_dev` only. Part 6 is complete.
 7. **Make `contact-engine` the GitHub default** — the operator, in GitHub's settings.
+8. **Commit the decision record and docs** — in the NeverMissCall repository and here, on the operator's word. NeverMissCall also has an untracked `docs/affiliate-program-review-2026-09-26.md` that is not this project's.
+9. **Plan the blank production start and the reload** — `mailengine_prod` starts from blank (operator, 2026-09-30): migrations from zero, then the contact lists, the DNC snapshots, partners, subscriptions.
+10. **Hosting on Render** — the open limits named for it: 9.11's disk (record 4.10), the connection pool (6a §6, 6b §6), the switch-on gates (record 8.12).
 
 ## Part 0, as built — what to know
 

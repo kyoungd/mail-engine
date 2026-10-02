@@ -1,5 +1,10 @@
 # contact-engine Upgrade — Part 1: Intake
 
+**Later parts changed door B** (§4.2), and their documents are the current word: part 2
+reads its one record of "don't call me again" in row 3 and replaced the rep's undo with
+an admin's lift; part 4 added, after row 7, "this rep lost it by expiry within 90 days →
+`held`"; part 5c's door B reads its sale
+(`SOLD_SQL`, a rep's Signed up included) for the sold tests.
 **Status:** APPROVED by the operator, 2026-09-30 (revision 8; offered "Approve", "One
 more review", or "Read it first"; chose approve). **BUILT 2026-09-30:** the lock fix
 (`13fc291`) first; then, under an approved build plan and an approved test gate,
