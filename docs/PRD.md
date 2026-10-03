@@ -51,7 +51,8 @@ nobody logs in to it (1.8).
 ## 3. Goals
 
 1. **No unlawful call.** A number that is unchecked, on a DNC file, checked too long
-   ago, or not covered cannot be called (4.1, 4.2). "Don't call me again" blocks the
+   ago, or not covered cannot be called (4.1, 4.2), unless the rep who holds it has
+   vouched for it (4.12). "Don't call me again" blocks the
    number for every rep at once (4.3).
 2. **Calls at the right hour.** The business's zone is known before the first call, and
    the rep is warned outside the calling window (5.1–5.4).
@@ -73,8 +74,8 @@ nobody logs in to it (1.8).
 - **No export to a sheet for a rep on the app** (6.6). The export stays for the operator
   and for a rep not yet on the app.
 - **No DNC files or numbers on them given out** (4.5).
-- **No calling past a DNC block**, for any reason, until the operator turns it on (§10,
-  put off 09-28).
+- **No calling past a DNC block** except under the holding rep's vouch (4.12, turned on
+  10-02); never past a "don't call me again".
 
 ## 5. Users
 
@@ -106,7 +107,9 @@ stand (`handoff.md` §4).
 
 **FR-2 DNC filtering (part 2).** Every number, NMC's and a rep's alike, is checked
 against the DNC file for its area code and against every "don't call me again".
-Unchecked, failed, or not covered: no call (4.1). A check is good through day 31; day
+Unchecked, failed, or not covered: no call (4.1). A rep can vouch for a contact they
+hold — met in person, or they contacted me — and then call it past any of those, never
+past a "don't call me again" (4.12, part 7). A check is good through day 31; day
 32 is stale (4.2). "Don't call me again" blocks the number for every rep at once (4.3);
 the rep who reported it can undo it within 24 hours with a written reason, with no
 admin step (4.4). DNC files stay files, uploaded as today (4.5). The rep is told an area
@@ -210,7 +213,8 @@ In order, one at a time (2.2; overview §3): Part 0 Foundation → 1 Intake → 
 filtering → 3 Time zone → 4 Assignment → 5 Calling rule → 6 Context support → hosting
 on Render. Each part is designed, checked against the code, put to the operator one
 question at a time, reviewed by a fresh reader, and approved before the next begins.
-The dialer waits for contact-engine (2.1).
+The dialer waits for contact-engine (2.1). Part 7, vouching and callable-only lists, was
+added 10-02 (4.12, 8.14).
 
 ## 12. Open questions
 

@@ -21,6 +21,7 @@ session (decision 2.4).
 | 4 | **Assignment** | Who holds the number, for how long, and what happens at a sale | Holding and batches |
 | 5 | **Calling rule** | The number's state; the record of every call and memo | Notes, an outcome, and a next action can be recorded (`service/ingestion.py:118`, `service/contacts.py:526, 543`). No call by a rep, and no rule. |
 | 6 | **Context support** | Answering the dialer and the website, including operations | Nothing reachable from outside |
+| 7 | **Vouching** | A rep's vouch lets a call past a DNC status that is not clear; lists hold only what may be called | — |
 | — | Hosting | On Render, after part 6 | — |
 
 ## 2. What each part needs
@@ -33,6 +34,7 @@ session (decision 2.4).
 | 4 | 2 |
 | 5 | 3 and 4 |
 | 6 | All of them. Built last, and thinnest. |
+| 7 | 2, 5 and 6 |
 
 Parts 2 and 3 do not need each other.
 
@@ -72,4 +74,5 @@ One at a time, in order.
 | [`05c-sale-and-90-days.md`](05c-sale-and-90-days.md) | Part 5c, the sale and the 90 days. Approved 2026-09-30 at revision 7. **Built** 2026-10-01. |
 | [`06a-the-api.md`](06a-the-api.md) | Part 6a, the API — the contract between the dialer, the website and contact-engine. Part 6 is cut in two: 6a the API, 6b running it (its answer 1). Approved 2026-10-01 at revision 6. **Built** 2026-10-01. |
 | [`06b-running-it.md`](06b-running-it.md) | Part 6b, running it — the alerts and switch-on gates (9.5), when contact-engine cannot be reached (9.17), no stand-in (9.7), and part 2's recheck by the list's age. Approved 2026-10-01 at revision 8. **Built** 2026-10-01. Part 6 is complete. |
+| [`07-vouching.md`](07-vouching.md) | Part 7, vouching and callable-only lists, requested by the dialer 10-02. Approved 2026-10-02 at revision 2. **Built** 2026-10-02. |
 | [`handoff.md`](handoff.md) | The note that hands them over |
