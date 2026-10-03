@@ -176,10 +176,9 @@ def _row(cur, contact_id: UUID) -> tuple[str, int, int]:
     return row if row else ("sequence", 0, 0)
 
 
-def apply_outcome(cur, contact_id: UUID, outcome: str, happened: bool,
-                  opened_at: datetime | None, at: datetime) -> None:
-    """§4.3: an outcome, judged on the list as it stands before it."""
-    current, count, voicemails = _row(cur, contact_id)
+def _change(outcome: str, happened: bool, opened_at: datetime | None, current: str,
+            count: int, voicemails: int) -> dict[str, Any]:
+    """§4.3: what an outcome changes, judged on the list as it stands before it."""
     change: dict[str, Any] = {}
     if happened and current == "sequence":
         change.update(
@@ -190,6 +189,14 @@ def apply_outcome(cur, contact_id: UUID, outcome: str, happened: bool,
         )
     if outcome in ("spoke", "follow_up"):
         change["list"] = "follow_up"
+    return change
+
+
+def apply_outcome(cur, contact_id: UUID, outcome: str, happened: bool,
+                  opened_at: datetime | None, at: datetime) -> None:
+    """§4.3: an outcome, judged on the list as it stands before it."""
+    current, count, voicemails = _row(cur, contact_id)
+    change = _change(outcome, happened, opened_at, current, count, voicemails)
     if change:
         change["updated_at"] = at
         _write_state(cur, contact_id, change)
@@ -215,6 +222,12 @@ def _states(cur, rep: UUID, contact_ids: list[UUID], at: datetime) -> dict[UUID,
     if not contact_ids:
         return {}
     s = _settings(cur, rep)
+    return {cid: _decide(s, zone_set, at, **inputs)
+            for cid, (zone_set, inputs) in _inputs(cur, contact_ids).items()}
+
+
+def _inputs(cur, contact_ids: list[UUID]) -> dict[UUID, tuple[frozenset[str], dict[str, Any]]]:
+    """What §4.4 reads for each contact, besides the settings and the moment."""
     cur.execute(
         "select contact_id, outcome from calls where contact_id = any(%s) "
         "and outcome in ('signed_up', 'wrong_number', 'not_interested') "
@@ -237,17 +250,16 @@ def _states(cur, rep: UUID, contact_ids: list[UUID], at: datetime) -> dict[UUID,
         ).format(blocked=BLOCKED_SQL, sold=SOLD_SQL),
         (contact_ids,),
     )
-    out: dict[UUID, State] = {}
+    out: dict[UUID, tuple[frozenset[str], dict[str, Any]]] = {}
     for (contact_id, phone, state, blocked, sold, set_zone, lst, rep_closed, count,
          voicemails, last_call_at, last_busy, pause_until) in cur.fetchall():
         zone_set = (frozenset({set_zone}) if set_zone
                     else zones._evidence(phone, state))  # noqa: SLF001
-        out[contact_id] = _decide(
-            s, zone_set, at, blocked=blocked, sold=sold,
-            closed=closings.get(contact_id, set()),
+        out[contact_id] = (zone_set, dict(
+            blocked=blocked, sold=sold, closed=closings.get(contact_id, set()),
             rep_closed=rep_closed, lst=lst, count=count, voicemails=voicemails,
             last_call_at=last_call_at, last_busy=last_busy, pause_until=pause_until,
-        )
+        ))
     return out
 
 
@@ -305,6 +317,48 @@ def contact_state(rep: UUID, contact_id: UUID, at: datetime) -> State:
             _check_rep(cur, rep)
             _holder(cur, contact_id, rep, lock=False)
             return _states(cur, rep, [contact_id], at)[contact_id]
+
+
+def preview_outcomes(rep: UUID, contact_id: UUID, at: datetime,
+                     call_id: UUID | None = None) -> dict[str, State]:
+    """Where the contact would land after each outcome, recorded at `at` on the rep's
+    open call `call_id`, or from the card without one. Writes nothing."""
+    _aware(at)
+    with transaction() as conn:
+        with conn.cursor() as cur:
+            _check_rep(cur, rep)
+            _holder(cur, contact_id, rep, lock=False)
+            opened_at = None
+            if call_id is not None:
+                cur.execute(
+                    "select contact_id, rep_id, opened_at, outcome, cleared_at "
+                    "from calls where id = %s", (call_id,))
+                row = cur.fetchone()
+                if (row is None or row[0] != contact_id or row[1] != rep or row[2] is None
+                        or row[3] is not None or row[4] is not None):
+                    raise ValidationError("no_call", "not your open call on this contact")
+                opened_at = row[2]
+            s = _settings(cur, rep)
+            zone_set, inputs = _inputs(cur, [contact_id])[contact_id]
+    outcomes = (calls.CALL_OUTCOMES | calls.CARD_OUTCOMES if call_id is not None
+                else calls.CARD_OUTCOMES)
+    out: dict[str, State] = {}
+    for outcome in outcomes:
+        happened = call_id is not None and outcome != "call_not_placed"
+        change = _change(outcome, happened, opened_at, inputs["lst"], inputs["count"],
+                         inputs["voicemails"])
+        after = dict(inputs, closed=set(inputs["closed"]))
+        after.update(lst=change.get("list", after["lst"]),
+                     count=change.get("calls", after["count"]),
+                     voicemails=change.get("voicemails", after["voicemails"]),
+                     last_call_at=change.get("last_call_at", after["last_call_at"]),
+                     last_busy=change.get("last_call_busy", after["last_busy"]))
+        if outcome == "signed_up":
+            after["sold"] = True
+        elif outcome in ("wrong_number", "not_interested"):
+            after["closed"].add(outcome)
+        out[outcome] = _decide(s, zone_set, at, **after)
+    return out
 
 
 def rep_lists(rep: UUID, at: datetime) -> Lists:

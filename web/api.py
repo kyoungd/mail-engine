@@ -485,6 +485,21 @@ def _routes() -> APIRouter:  # noqa: C901, PLR0915
 
         return contact_read(request, id_, run)
 
+    @r.get("/contacts/{id_}/outcome-preview")
+    def outcome_preview(request: Request, id_: str, call_id: str | None = None) -> Response:
+        try:
+            call = _uuid(call_id, contact=False) if call_id is not None else None
+        except _Refused as refused:
+            return refused.response
+
+        def run(rep: UUID, cid: UUID, at: datetime) -> dict[str, Any]:
+            preview = rule.preview_outcomes(rep, cid, at, call_id=call)
+            return {"outcomes": {o: {"list": st.list, "reason": st.reason, "due": st.due,
+                                     "rest_until": st.rest_until, "pause_until": st.pause_until}
+                                 for o, st in preview.items()}}
+
+        return contact_read(request, id_, run)
+
     @r.post("/contacts/{id_}/calls")
     def open_call(request: Request, id_: str,
                   body: Annotated[CallBody | None, Body()] = None) -> Response:
