@@ -13,7 +13,7 @@ from psycopg import sql
 from config.params import ASSIGNMENT_EXPIRY_DAYS, HOUSE_PARTNER_ID
 from db.session import transaction
 from domain.errors import ValidationError
-from service import calls, dnc, rule, zones
+from service import calls, dnc, rule, vouch, zones
 from service.assignment import _EXEMPT_SQL
 from service.sale import SOLD_SQL
 
@@ -134,6 +134,7 @@ def card(rep: UUID, contact_id: UUID, at: datetime) -> dict[str, Any]:
             undoable = [r[0] for r in cur.fetchall()]
             trade = _trade(cur, contact_id)
             goes_back_on = None if own else _goes_back_on(cur, contact_id)
+            vouched = vouch.counting(cur, rep, [contact_id]).get(contact_id)
     return {
         "id": contact_id, "business": business, "contact_name": contact_name,
         "phone": phone, "city": city, "state": state, "trade": trade,
@@ -148,6 +149,7 @@ def card(rep: UUID, contact_id: UUID, at: datetime) -> dict[str, Any]:
         "latest_memo": {"text": memo[0], "at": memo[1]} if memo else None,
         "last_call": {"at": last[0], "outcome": last[1]} if last else None,
         "undoable": undoable,
+        "vouched": {"reason": vouched.reason, "at": vouched.at} if vouched else None,
     }
 
 
@@ -180,12 +182,15 @@ def history(rep: UUID, contact_id: UUID) -> dict[str, Any]:
 
 
 def lists(rep: UUID, at: datetime) -> dict[str, Any]:
+    """Part 7 §4.6: only the contacts whose DNC status the rep may call past."""
     held = rule.rep_lists(rep, at)
     with transaction() as conn:
         with conn.cursor() as cur:
+            vouched = vouch.counting(cur, rep, list(held.by_contact))
             cur.execute(
-                "select id, business_name, contact_name, phone_e164 from contacts "
-                "where id = any(%s) order by business_name, id",
+                "select c.id, c.business_name, c.contact_name, c.phone_e164, "
+                + _OWN_SQL + " from contacts c where c.id = any(%s) "
+                "order by c.business_name, c.id",
                 (list(held.by_contact),),
             )
             contacts = [
@@ -193,8 +198,10 @@ def lists(rep: UUID, at: datetime) -> dict[str, Any]:
                  "list": held.by_contact[cid].list, "reason": held.by_contact[cid].reason,
                  "due": held.by_contact[cid].due,
                  "rest_until": held.by_contact[cid].rest_until,
-                 "pause_until": held.by_contact[cid].pause_until}
-                for cid, b, n, p in cur.fetchall()
+                 "pause_until": held.by_contact[cid].pause_until,
+                 "whose": "own" if own else "nmc", "vouched": cid in vouched}
+                for cid, b, n, p, own in cur.fetchall()
+                if vouch.passes(dnc.dnc_status(cid, at), cid in vouched)
             ]
             cur.execute(
                 "select r.id, r.contact_id, c.business_name, r.phone_e164, r.received_at "
@@ -233,7 +240,7 @@ def _like(text: str) -> str:
     return f"%{escaped}%"
 
 
-def search(rep: UUID, q: str) -> dict[str, Any]:
+def search(rep: UUID, q: str, at: datetime) -> dict[str, Any]:
     q = q.strip()
     if len(q) < 2:
         raise ValidationError("bad_request", "search for at least 2 characters")
@@ -249,7 +256,12 @@ def search(rep: UUID, q: str) -> dict[str, Any]:
                 {"rep": rep, "q": _like(q), "digits": f"%{digits}%",
                  "limit": SEARCH_LIMIT},
             )
-            return {"contacts": _identities(cur)}
+            found = _identities(cur)
+            vouched = vouch.counting(cur, rep, [c["id"] for c in found])
+    return {"contacts": [
+        {**c, "dnc_status": dnc.dnc_status(c["id"], at), "vouched": c["id"] in vouched}
+        for c in found
+    ]}
 
 
 def open_calls() -> list[dict[str, Any]]:

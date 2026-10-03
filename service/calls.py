@@ -1,7 +1,7 @@
 """The call record (docs/contact-engine/05a-call-record.md §4).
 
-A rep opens a call on a contact they hold whose DNC status is clear and whose zone is
-known, inside hours or with a recorded confirmation; the call keeps the check it relied
+A rep opens a call on a contact they hold whose DNC status is clear, or passed under a
+vouch (part 7), and whose zone is known, inside hours or with a recorded confirmation; the call keeps the check it relied
 on. An outcome is set once, under a lock; `calls.happened` is computed by the database.
 Memos, calls received, an admin's clear and a 24-hour undo complete the record. Nothing
 here writes or removes a "don't call me again" — that is part 2's report.
@@ -16,7 +16,7 @@ from config.params import HOUSE_PARTNER_ID
 from db.session import transaction
 from domain.errors import ValidationError
 from domain.phone import to_e164
-from service import dnc, rule, sale, zones
+from service import dnc, rule, sale, vouch, zones
 
 CALL_OUTCOMES = frozenset(
     {"no_answer", "left_voicemail", "owner_unavailable", "busy", "call_not_placed"}
@@ -53,6 +53,8 @@ class _Checked:
     checked_at: datetime
     snapshot_id: UUID | None
     hours: zones.CallingHours
+    vouch_id: UUID | None
+    vouched_status: str | None
 
 
 def _after_lock(cur) -> None:
@@ -112,12 +114,10 @@ def _check_open(
     if cur.fetchone() is not None:
         raise ValidationError("call_open", "this contact has an open call")
 
-    # Part 2's status and part 3's hours, read after the lock (§4.2).
+    # Part 2's status and part 3's hours, read after the lock (§4.2); a passable status
+    # under a vouch that counts (part 7 §4.2).
     status = dnc.dnc_status(contact_id, at)
-    if status != "clear":
-        raise ValidationError(
-            "not_callable", f"DNC status is {status}", {"status": status}
-        )
+    basis = vouch.dnc_basis(cur, rep, contact_id, status)
     hours = zones.calling_hours(contact_id, at)
     if hours.inside is None:
         raise ValidationError("no_zone", "no time zone is known for this contact")
@@ -129,7 +129,8 @@ def _check_open(
             {"local": {z: t.isoformat() for z, t in hours.local.items()}},
         )
     return _Checked(phone=phone, checked_at=checked_at, snapshot_id=snapshot_id,
-                    hours=hours)
+                    hours=hours, vouch_id=basis.id if basis else None,
+                    vouched_status=status if basis else None)
 
 
 def open_call(
@@ -142,11 +143,12 @@ def open_call(
             hours = checked.hours
             cur.execute(
                 "insert into calls (contact_id, rep_id, phone_e164, opened_at, "
-                "dnc_checked_at, dnc_snapshot_id, zones, inside, outside_confirmed) "
-                "values (%s,%s,%s,%s,%s,%s,%s,%s,%s) returning id",
+                "dnc_checked_at, dnc_snapshot_id, zones, inside, outside_confirmed, "
+                "vouch_id, vouched_status) "
+                "values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) returning id",
                 (contact_id, rep, checked.phone, at, checked.checked_at,
                  checked.snapshot_id, sorted(hours.zones), hours.inside,
-                 hours.inside is False),
+                 hours.inside is False, checked.vouch_id, checked.vouched_status),
             )
             made = cur.fetchone()
             assert made is not None

@@ -737,7 +737,7 @@ CARD_FIELDS = {
     "id", "business", "contact_name", "phone", "city", "state", "trade", "whose", "list",
     "reason", "calls", "voicemails", "limits", "due", "rest_until", "pause_until",
     "may_call", "zones", "local_times", "inside", "dnc_status", "goes_back_on",
-    "latest_memo", "last_call", "undoable",
+    "latest_memo", "last_call", "undoable", "vouched",
 }
 
 
@@ -874,6 +874,7 @@ def test_lists(api, reps, owner_conn):
         "id": str(x), "business": "Reseda Rooter", "contact_name": "Ann Lee",
         "phone": _phone(owner_conn, x), "list": "never_called", "reason": None,
         "due": None, "rest_until": None, "pause_until": None,
+        "whose": "nmc", "vouched": False,
     }
     [call] = lists["calls_received"]
     assert set(call) == {"id", "contact_id", "business", "phone", "received_at"}

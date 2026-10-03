@@ -27,7 +27,8 @@ from config.params import REGIONS
 from db.session import ping, request_connection
 from domain.errors import ValidationError
 from domain.types import RepRow
-from service import assignment, calls, dnc, reads, rep_intake, roster, rule, runs, zones
+from service import (assignment, calls, dnc, reads, rep_intake, roster, rule, runs, vouch,
+                     zones)
 
 MEMORY_DAYS = 90
 KEY_LIMIT = 200
@@ -322,6 +323,11 @@ class TextBody(BaseModel):
     text: str
 
 
+class VouchBody(BaseModel):
+    reason: str | None = None
+    confirmation: str | None = None
+
+
 class ZoneBody(BaseModel):
     zone: str
 
@@ -420,7 +426,7 @@ def _routes() -> APIRouter:  # noqa: C901, PLR0915
     @r.get("/me/search")
     def search(request: Request,
                q: Annotated[str, Query(min_length=2)]) -> Response:
-        return _read(request, lambda a, at: reads.search(_rep(a), q))
+        return _read(request, lambda a, at: reads.search(_rep(a), q, at))
 
     @r.post("/me/more-numbers")
     def more_numbers(request: Request, body: RegionBody) -> Response:
@@ -525,6 +531,16 @@ def _routes() -> APIRouter:  # noqa: C901, PLR0915
         reason = body.reason if body is not None else None
         return contact_act(request, id_, body, lambda rep, cid, at: dnc.report_do_not_call(
             rep, cid, reason, at), allow_inactive=True)
+
+    @r.post("/contacts/{id_}/vouch")
+    def vouch_for(request: Request, id_: str, body: VouchBody) -> Response:
+        return contact_act(request, id_, body, lambda rep, cid, at: vouch.vouch(
+            rep, cid, body.reason, body.confirmation, at))
+
+    @r.post("/contacts/{id_}/vouch/withdraw")
+    def withdraw(request: Request, id_: str, body: MaybeReasonBody) -> Response:
+        return contact_act(request, id_, body, lambda rep, cid, at: vouch.withdraw(
+            rep, cid, body.reason, at))
 
     @r.post("/outcomes/{id_}/undo")
     def undo(request: Request, id_: str, body: ReasonBody) -> Response:

@@ -40,6 +40,7 @@ from config.params import DNC_RECHECK_DAYS, HOUSE_PARTNER_ID
 from db.session import transaction
 from domain.errors import ValidationError
 from seams.dnc_registry import DncRegistry, DncRegistryError, FileDncRegistry
+from service import vouch
 from service.contacts import clear_suppression
 from service.custody import set_owner
 from service.dnc import record_scrub_run
@@ -162,8 +163,10 @@ def _apply(
                     external_id=f"dnc:{contact_id}:{key}",
                     contact_id=contact_id,
                 )
-                if hit and owner_id != HOUSE_PARTNER_ID:
-                    # S-9: a listed number leaves its assignment immediately.
+                if (hit and owner_id != HOUSE_PARTNER_ID
+                        and not vouch.counting(cur, owner_id, [contact_id])):
+                    # S-9: a listed number leaves its assignment immediately — unless
+                    # its rep's vouch counts (part 7 §4.4, answer 1).
                     set_owner(
                         cur, contact_id, HOUSE_PARTNER_ID,
                         event_type="contact.reclaimed",

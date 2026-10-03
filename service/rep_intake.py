@@ -17,6 +17,7 @@ from derivation.rules import is_suppressed
 from domain.errors import ValidationError
 from domain.phone import to_e164
 from domain.types import ContactFlags, RepRow, RowResult
+from service import vouch
 from service.custody import set_owner
 from service.ingestion import EVENT_COLS, event_from_row
 from service.sale import SOLD_SQL
@@ -255,6 +256,14 @@ def add_numbers(
                         row.how_obtained or how_obtained, stripped, at,
                     )
                     _hold(cur, contact_id, rep)
+
+            # Part 7 §4.5: either reason vouches for the contact the rep now holds.
+            for row, (phone, result, contact_id) in zip(rows, judged, strict=True):
+                how = row.how_obtained or how_obtained
+                if result in ("added", "claimed", "already_yours") and how in vouch.REASONS:
+                    held = created[phone] if result == "added" else contact_id
+                    assert held is not None
+                    vouch.record(cur, rep, held, phone, how, stripped, "intake", at)
 
     return [
         RowResult(
